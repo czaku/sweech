@@ -1,0 +1,28 @@
+node_modules/
+*.log
+.DS_Store
+
+# Test coverage
+coverage/
+*.lcov
+
+# Backup files (contain sensitive API keys!)
+*.zip
+sweetch-backup-*
+
+# Sensitive config (if someone accidentally copies it here)
+.sweetch/
+config.json
+settings.json
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+Thumbs.db
+.Spotlight-V100
+.Trashes

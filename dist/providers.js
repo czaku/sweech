@@ -1,0 +1,173 @@
+"use strict";
+/**
+ * Provider templates with pre-configured settings
+ */
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.PROVIDERS = void 0;
+exports.getProviderList = getProviderList;
+exports.getProvidersForCLI = getProvidersForCLI;
+exports.getProvider = getProvider;
+exports.isProviderCompatible = isProviderCompatible;
+exports.getProvidersByFormat = getProvidersByFormat;
+exports.PROVIDERS = {
+    // ═══════════════════════════════════════════════════════════
+    // ANTHROPIC-COMPATIBLE PROVIDERS (for Claude CLI)
+    // ═══════════════════════════════════════════════════════════
+    anthropic: {
+        name: 'anthropic',
+        displayName: 'Claude (Anthropic)',
+        baseUrl: '', // Uses default
+        defaultModel: 'claude-sonnet-4-5',
+        smallFastModel: 'claude-3-5-haiku-20241022',
+        description: 'Official Anthropic Claude models',
+        pricing: 'Varies by model',
+        compatibility: ['claude'],
+        apiFormat: 'anthropic'
+    },
+    qwen: {
+        name: 'qwen',
+        displayName: 'Qwen (Alibaba)',
+        baseUrl: 'https://dashscope-intl.aliyuncs.com/apps/anthropic',
+        defaultModel: 'qwen-plus',
+        smallFastModel: 'qwen-flash',
+        description: 'Alibaba Qwen models via DashScope Anthropic API',
+        pricing: '$0.14-$2.49 per million tokens',
+        compatibility: ['claude'],
+        apiFormat: 'anthropic'
+    },
+    minimax: {
+        name: 'minimax',
+        displayName: 'MiniMax',
+        baseUrl: 'https://api.minimax.io/anthropic',
+        defaultModel: 'MiniMax-M2',
+        description: 'MiniMax M2 coding model',
+        pricing: '$10/month coding plan',
+        compatibility: ['claude'],
+        apiFormat: 'anthropic'
+    },
+    kimi: {
+        name: 'kimi',
+        displayName: 'Kimi K2 (Moonshot AI)',
+        baseUrl: 'https://api.moonshot.ai/anthropic',
+        defaultModel: 'kimi-k2-turbo-preview',
+        description: 'Moonshot AI Kimi K2 with 256K context',
+        pricing: '$0.14-$2.49 per million tokens',
+        compatibility: ['claude'],
+        apiFormat: 'anthropic'
+    },
+    deepseek: {
+        name: 'deepseek',
+        displayName: 'DeepSeek',
+        baseUrl: 'https://api.deepseek.com/anthropic',
+        defaultModel: 'deepseek-chat',
+        description: 'DeepSeek via Anthropic-compatible API',
+        pricing: '$0.28-$0.42 per million tokens (lowest cost)',
+        compatibility: ['claude'],
+        apiFormat: 'anthropic'
+    },
+    glm: {
+        name: 'glm',
+        displayName: 'GLM 4.6 (Zhipu/ZAI)',
+        baseUrl: 'https://api.z.ai/api/anthropic',
+        defaultModel: 'glm-4-plus',
+        description: 'Zhipu GLM 4.6 models',
+        pricing: '$3/month coding plan',
+        compatibility: ['claude'],
+        apiFormat: 'anthropic'
+    },
+    // ═══════════════════════════════════════════════════════════
+    // OPENAI-COMPATIBLE PROVIDERS (for Codex CLI)
+    // ═══════════════════════════════════════════════════════════
+    'deepseek-openai': {
+        name: 'deepseek-openai',
+        displayName: 'DeepSeek (OpenAI)',
+        baseUrl: 'https://api.deepseek.com/v1',
+        defaultModel: 'deepseek-chat',
+        smallFastModel: 'deepseek-reasoner',
+        description: 'DeepSeek via native OpenAI-compatible API',
+        pricing: '$0.28-$0.42 per million tokens (lowest cost)',
+        compatibility: ['codex'],
+        apiFormat: 'openai'
+    },
+    'qwen-openai': {
+        name: 'qwen-openai',
+        displayName: 'Qwen (OpenAI)',
+        baseUrl: 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1',
+        defaultModel: 'qwen-plus',
+        smallFastModel: 'qwen-turbo',
+        description: 'Alibaba Qwen via OpenAI-compatible DashScope API',
+        pricing: '$0.14-$2.49 per million tokens',
+        compatibility: ['codex'],
+        apiFormat: 'openai'
+    },
+    openrouter: {
+        name: 'openrouter',
+        displayName: 'OpenRouter (Universal)',
+        baseUrl: 'https://openrouter.ai/api/v1',
+        defaultModel: 'anthropic/claude-sonnet-4.5',
+        smallFastModel: 'anthropic/claude-3.5-haiku',
+        description: '300+ models: Claude, Gemini, GPT, Llama, etc.',
+        pricing: 'Varies by model',
+        compatibility: ['codex'],
+        apiFormat: 'openai'
+    },
+    // ═══════════════════════════════════════════════════════════
+    // CUSTOM/LOCAL PROVIDERS (for localhost, LAN, self-hosted)
+    // ═══════════════════════════════════════════════════════════
+    custom: {
+        name: 'custom',
+        displayName: 'Custom Provider',
+        baseUrl: '', // User will provide
+        defaultModel: '', // User will provide
+        description: 'Custom/local LLM (localhost, LAN, or self-hosted)',
+        pricing: 'Varies',
+        compatibility: ['claude', 'codex'], // User chooses API format
+        apiFormat: 'openai', // Default, user can change
+        isCustom: true
+    }
+};
+/**
+ * Get all providers, optionally filtered by CLI type
+ */
+function getProviderList(cliType) {
+    const providers = Object.values(exports.PROVIDERS);
+    const filtered = cliType
+        ? providers.filter(p => p.compatibility.includes(cliType))
+        : providers;
+    return filtered.map(p => ({
+        name: `${p.displayName} - ${p.description}`,
+        value: p.name
+    }));
+}
+/**
+ * Get providers compatible with a specific CLI
+ */
+function getProvidersForCLI(cliType) {
+    return Object.values(exports.PROVIDERS).filter(p => p.compatibility.includes(cliType));
+}
+/**
+ * Get a specific provider by name
+ */
+function getProvider(name) {
+    return exports.PROVIDERS[name];
+}
+/**
+ * Check if a provider is compatible with a CLI
+ */
+function isProviderCompatible(providerName, cliType) {
+    const provider = exports.PROVIDERS[providerName];
+    return provider ? provider.compatibility.includes(cliType) : false;
+}
+/**
+ * Get providers grouped by API format
+ */
+function getProvidersByFormat() {
+    const grouped = {
+        anthropic: [],
+        openai: []
+    };
+    Object.values(exports.PROVIDERS).forEach(p => {
+        grouped[p.apiFormat].push(p);
+    });
+    return grouped;
+}
