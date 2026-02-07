@@ -196,13 +196,22 @@ export async function runInit(): Promise<void> {
       return;
     }
 
+    // Handle OAuth if selected
+    let oauthToken: any = undefined;
+    if (answers.authMethod === 'oauth') {
+      const { getOAuthToken } = await import('./oauth');
+      oauthToken = await getOAuthToken(cli.name, answers.provider);
+      console.log(chalk.green('✓ OAuth authentication successful'));
+    }
+
     // Create profile
     const profile = {
       name: answers.commandName,
       commandName: answers.commandName,
       cliType: cli.name,
       provider: answers.provider,
-      apiKey: answers.apiKey,
+      apiKey: answers.apiKey || undefined,
+      oauth: oauthToken,
       baseUrl: provider.baseUrl,
       model: provider.defaultModel,
       smallFastModel: provider.smallFastModel,
@@ -214,7 +223,13 @@ export async function runInit(): Promise<void> {
     };
 
     config.addProfile(profile);
-    config.createProfileConfig(answers.commandName, provider, answers.apiKey, cli.name);
+    config.createProfileConfig(
+      answers.commandName,
+      provider,
+      answers.apiKey,
+      cli.name,
+      oauthToken
+    );
     config.createWrapperScript(answers.commandName, cli);
 
     console.log(chalk.green('\n✓ Provider added successfully!'));

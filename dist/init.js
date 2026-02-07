@@ -214,13 +214,21 @@ async function runInit() {
             console.error(chalk_1.default.red(`\n✗ CLI '${answers.cliType}' not found`));
             return;
         }
+        // Handle OAuth if selected
+        let oauthToken = undefined;
+        if (answers.authMethod === 'oauth') {
+            const { getOAuthToken } = await Promise.resolve().then(() => __importStar(require('./oauth')));
+            oauthToken = await getOAuthToken(cli.name, answers.provider);
+            console.log(chalk_1.default.green('✓ OAuth authentication successful'));
+        }
         // Create profile
         const profile = {
             name: answers.commandName,
             commandName: answers.commandName,
             cliType: cli.name,
             provider: answers.provider,
-            apiKey: answers.apiKey,
+            apiKey: answers.apiKey || undefined,
+            oauth: oauthToken,
             baseUrl: provider.baseUrl,
             model: provider.defaultModel,
             smallFastModel: provider.smallFastModel,
@@ -231,7 +239,7 @@ async function runInit() {
             })
         };
         config.addProfile(profile);
-        config.createProfileConfig(answers.commandName, provider, answers.apiKey, cli.name);
+        config.createProfileConfig(answers.commandName, provider, answers.apiKey, cli.name, oauthToken);
         config.createWrapperScript(answers.commandName, cli);
         console.log(chalk_1.default.green('\n✓ Provider added successfully!'));
         console.log(chalk_1.default.cyan('Command:'), chalk_1.default.bold(answers.commandName));
