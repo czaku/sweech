@@ -4,7 +4,7 @@
 
 Sweech is the ultimate CLI tool for managing multiple AI coding assistants. Use Claude, Codex, Qwen, DeepSeek, OpenRouter, and local LLMs - all simultaneously with different command names.
 
-[![Tests](https://img.shields.io/badge/tests-343%20passing-brightgreen.svg)](https://github.com/czaku/sweech)
+[![Tests](https://img.shields.io/badge/tests-352%20passing-brightgreen.svg)](https://github.com/czaku/sweech)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.3-blue.svg)](https://www.typescriptlang.org/)
 [![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-support-yellow.svg?logo=buy-me-a-coffee&logoColor=white)](https://buymeacoffee.com/czaku)

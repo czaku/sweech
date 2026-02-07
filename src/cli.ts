@@ -19,6 +19,7 @@ import { isDefaultCLIDirectory } from './reset';
 import { runDoctor, runPath, runTest, runEdit, runClone, runRename } from './utilityCommands';
 import { runReset } from './reset';
 import { runInit } from './init';
+import { getOAuthToken } from './oauth';
 import * as path from 'path';
 
 const program = new Command();
@@ -65,13 +66,21 @@ program
         process.exit(1);
       }
 
+      // Handle OAuth if selected
+      let oauthToken: any = undefined;
+      if (answers.authMethod === 'oauth') {
+        oauthToken = await getOAuthToken(cli.name, answers.provider);
+        console.log(chalk.green('✓ OAuth authentication successful'));
+      }
+
       // Create profile
       const profile = {
         name: answers.commandName,
         commandName: answers.commandName,
         cliType: cli.name,
         provider: answers.provider,
-        apiKey: answers.apiKey,
+        apiKey: answers.apiKey || undefined,
+        oauth: oauthToken,
         baseUrl: provider.baseUrl,
         model: provider.defaultModel,
         smallFastModel: provider.smallFastModel,
@@ -83,7 +92,13 @@ program
       };
 
       config.addProfile(profile);
-      config.createProfileConfig(answers.commandName, provider, answers.apiKey, cli.name);
+      config.createProfileConfig(
+        answers.commandName,
+        provider,
+        answers.apiKey,
+        cli.name,
+        oauthToken
+      );
       config.createWrapperScript(answers.commandName, cli);
 
       console.log(chalk.green('\n✓ Provider added successfully!\n'));

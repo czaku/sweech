@@ -7,13 +7,15 @@ import * as path from 'path';
 import * as os from 'os';
 import { ProviderConfig } from './providers';
 import { CLIConfig, getDefaultCLI } from './clis';
+import { OAuthToken } from './oauth';
 
 export interface ProfileConfig {
   name: string;
   commandName: string;
   cliType: string; // 'claude' or 'codex'
   provider: string;
-  apiKey: string;
+  apiKey?: string;
+  oauth?: OAuthToken;
   baseUrl?: string;
   model?: string;
   smallFastModel?: string;
@@ -87,7 +89,13 @@ export class ConfigManager {
     }
   }
 
-  public createProfileConfig(commandName: string, provider: ProviderConfig, apiKey: string, cliType: string = 'claude'): void {
+  public createProfileConfig(
+    commandName: string,
+    provider: ProviderConfig,
+    apiKey: string | undefined,
+    cliType: string = 'claude',
+    oauthToken?: OAuthToken
+  ): void {
     const profileDir = path.join(this.profilesDir, commandName);
 
     if (!fs.existsSync(profileDir)) {
@@ -96,10 +104,13 @@ export class ConfigManager {
 
     const settings: any = { env: {} };
 
+    // Determine authentication source
+    const authToken = apiKey || (oauthToken?.accessToken ? `bearer_${oauthToken.accessToken}` : '');
+
     // Set environment variables based on CLI type
     if (cliType === 'codex') {
       // Codex CLI uses OpenAI environment variables
-      settings.env.OPENAI_API_KEY = apiKey;
+      settings.env.OPENAI_API_KEY = authToken;
 
       if (provider.baseUrl) {
         settings.env.OPENAI_BASE_URL = provider.baseUrl;
@@ -114,7 +125,7 @@ export class ConfigManager {
       }
     } else {
       // Claude Code CLI uses Anthropic environment variables
-      settings.env.ANTHROPIC_AUTH_TOKEN = apiKey;
+      settings.env.ANTHROPIC_AUTH_TOKEN = authToken;
 
       if (provider.baseUrl) {
         settings.env.ANTHROPIC_BASE_URL = provider.baseUrl;
@@ -132,6 +143,15 @@ export class ConfigManager {
     // Add timeout for providers that need it
     if (provider.name === 'minimax') {
       settings.env.API_TIMEOUT_MS = '3000000';
+    }
+
+    // Store OAuth token info if using OAuth (for refresh purposes)
+    if (oauthToken) {
+      settings.oauth = {
+        provider: oauthToken.provider,
+        refreshToken: oauthToken.refreshToken,
+        expiresAt: oauthToken.expiresAt
+      };
     }
 
     const settingsPath = path.join(profileDir, 'settings.json');

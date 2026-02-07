@@ -150,6 +150,15 @@ async function interactiveAddProvider(existingProfiles = []) {
             transformer: (input) => input.toLowerCase().trim()
         },
         {
+            type: 'list',
+            name: 'authMethod',
+            message: 'How would you like to authenticate?',
+            choices: [
+                { name: 'API Key (static token)', value: 'api-key' },
+                { name: 'OAuth (browser login)', value: 'oauth' }
+            ]
+        },
+        {
             type: 'password',
             name: 'apiKey',
             message: (answers) => {
@@ -162,7 +171,8 @@ async function interactiveAddProvider(existingProfiles = []) {
                     return 'API key is required';
                 }
                 return true;
-            }
+            },
+            when: (answers) => answers.authMethod === 'api-key'
         }
     ]);
     // Set CLI type (default to first installed if not explicitly chosen)

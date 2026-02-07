@@ -90,16 +90,18 @@ class ConfigManager {
             fs.rmSync(profileDir, { recursive: true, force: true });
         }
     }
-    createProfileConfig(commandName, provider, apiKey, cliType = 'claude') {
+    createProfileConfig(commandName, provider, apiKey, cliType = 'claude', oauthToken) {
         const profileDir = path.join(this.profilesDir, commandName);
         if (!fs.existsSync(profileDir)) {
             fs.mkdirSync(profileDir, { recursive: true });
         }
         const settings = { env: {} };
+        // Determine authentication source
+        const authToken = apiKey || (oauthToken?.accessToken ? `bearer_${oauthToken.accessToken}` : '');
         // Set environment variables based on CLI type
         if (cliType === 'codex') {
             // Codex CLI uses OpenAI environment variables
-            settings.env.OPENAI_API_KEY = apiKey;
+            settings.env.OPENAI_API_KEY = authToken;
             if (provider.baseUrl) {
                 settings.env.OPENAI_BASE_URL = provider.baseUrl;
             }
@@ -112,7 +114,7 @@ class ConfigManager {
         }
         else {
             // Claude Code CLI uses Anthropic environment variables
-            settings.env.ANTHROPIC_AUTH_TOKEN = apiKey;
+            settings.env.ANTHROPIC_AUTH_TOKEN = authToken;
             if (provider.baseUrl) {
                 settings.env.ANTHROPIC_BASE_URL = provider.baseUrl;
             }
@@ -126,6 +128,14 @@ class ConfigManager {
         // Add timeout for providers that need it
         if (provider.name === 'minimax') {
             settings.env.API_TIMEOUT_MS = '3000000';
+        }
+        // Store OAuth token info if using OAuth (for refresh purposes)
+        if (oauthToken) {
+            settings.oauth = {
+                provider: oauthToken.provider,
+                refreshToken: oauthToken.refreshToken,
+                expiresAt: oauthToken.expiresAt
+            };
         }
         const settingsPath = path.join(profileDir, 'settings.json');
         fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));

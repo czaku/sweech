@@ -317,7 +317,11 @@ export async function runEdit(commandName: string): Promise<void> {
   console.log(chalk.gray('Current configuration:'));
   console.log(chalk.gray(`  Provider: ${provider?.displayName}`));
   console.log(chalk.gray(`  Model: ${profile.model}`));
-  console.log(chalk.gray(`  API Key: ${profile.apiKey.substring(0, 10)}***`));
+  const authMethod = profile.oauth ? 'OAuth' : 'API Key';
+  const authDisplay = profile.apiKey
+    ? `API Key: ${profile.apiKey.substring(0, 10)}***`
+    : `OAuth (${profile.oauth?.provider})`;
+  console.log(chalk.gray(`  Auth: ${authDisplay}`));
   console.log();
 
   const { field } = await inquirer.prompt([

@@ -37,7 +37,7 @@ tests/
 
 ## Current Coverage
 
-✅ **343 tests passing** across 15 test suites:
+✅ **352 tests passing** across 16 test suites:
 
 ### Overall Metrics
 
