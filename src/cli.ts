@@ -21,13 +21,19 @@ import { runReset } from './reset';
 import { runInit } from './init';
 import { createProfile } from './profileCreation';
 import * as path from 'path';
+import * as fs from 'fs';
+
+// Read version from package.json
+const packageJsonPath = path.join(__dirname, '../package.json');
+const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf-8'));
+const version = packageJson.version;
 
 const program = new Command();
 
 program
-  .name('sweetch')
+  .name('sweech')
   .description('🍭 Switch between Claude accounts and external AI providers')
-  .version('0.1.0');
+  .version(version, '-v, --version', 'Output the current version');
 
 // Interactive onboarding
 program

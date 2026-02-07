@@ -57,11 +57,16 @@ const reset_2 = require("./reset");
 const init_1 = require("./init");
 const profileCreation_1 = require("./profileCreation");
 const path = __importStar(require("path"));
+const fs = __importStar(require("fs"));
+// Read version from package.json
+const packageJsonPath = path.join(__dirname, '../package.json');
+const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf-8'));
+const version = packageJson.version;
 const program = new commander_1.Command();
 program
-    .name('sweetch')
+    .name('sweech')
     .description('🍭 Switch between Claude accounts and external AI providers')
-    .version('0.1.0');
+    .version(version, '-v, --version', 'Output the current version');
 // Interactive onboarding
 program
     .command('init')

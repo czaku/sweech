@@ -72,12 +72,12 @@ async function getAnthropicOAuthToken() {
     // Create PKCE challenge
     const codeVerifier = generateCodeVerifier();
     const codeChallenge = generateCodeChallenge(codeVerifier);
-    // Build authorization URL
-    const authUrl = new url.URL('https://api.anthropic.com/oauth/authorize');
+    // Build authorization URL (using claude.ai, not api.anthropic.com)
+    const authUrl = new url.URL('https://claude.ai/oauth/authorize');
     authUrl.searchParams.set('client_id', clientId);
     authUrl.searchParams.set('redirect_uri', redirectUri);
     authUrl.searchParams.set('response_type', 'code');
-    authUrl.searchParams.set('scope', 'claude:api:chat claude:api:usage');
+    authUrl.searchParams.set('scope', 'openid profile email');
     authUrl.searchParams.set('code_challenge', codeChallenge);
     authUrl.searchParams.set('code_challenge_method', 'S256');
     console.log(chalk_1.default.yellow('\n📋 Manual OAuth Authentication\n'));
@@ -164,24 +164,26 @@ async function getOpenAIOAuthToken() {
  */
 async function exchangeCodeForToken(clientId, redirectUri, code, codeVerifier, provider) {
     const tokenEndpoint = provider === 'anthropic'
-        ? 'https://api.anthropic.com/oauth/token'
+        ? 'https://claude.ai/api/oauth/token'
         : 'https://api.openai.com/oauth/token';
     const clientSecret = process.env.ANTHROPIC_CLIENT_SECRET || process.env.OPENAI_CLIENT_SECRET;
-    if (!clientSecret) {
-        throw new Error(`${provider.toUpperCase()}_CLIENT_SECRET environment variable not set`);
-    }
-    const params = new url.URLSearchParams({
+    // Build token request params (client_secret optional for PKCE public clients)
+    const params = {
         grant_type: 'authorization_code',
         client_id: clientId,
-        client_secret: clientSecret,
         code,
         redirect_uri: redirectUri,
         code_verifier: codeVerifier
-    });
+    };
+    // Add client_secret if available (required for some providers)
+    if (clientSecret) {
+        params.client_secret = clientSecret;
+    }
+    const urlParams = new url.URLSearchParams(params);
     const response = await fetch(tokenEndpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: params.toString()
+        body: urlParams.toString()
     });
     if (!response.ok) {
         const error = await response.text();
@@ -196,19 +198,24 @@ async function refreshOAuthToken(token) {
     if (!token.refreshToken) {
         throw new Error('No refresh token available');
     }
-    const clientSecret = process.env.ANTHROPIC_CLIENT_SECRET || process.env.OPENAI_CLIENT_SECRET;
-    if (!clientSecret) {
-        throw new Error('Client secret not configured for token refresh');
-    }
     const tokenEndpoint = token.provider === 'anthropic'
-        ? 'https://api.anthropic.com/oauth/token'
+        ? 'https://claude.ai/api/oauth/token'
         : 'https://api.openai.com/oauth/token';
-    const params = new url.URLSearchParams({
+    const clientId = token.provider === 'anthropic'
+        ? (process.env.ANTHROPIC_CLIENT_ID || 'sweech-cli')
+        : (process.env.OPENAI_CLIENT_ID || 'sweech-cli');
+    const clientSecret = process.env.ANTHROPIC_CLIENT_SECRET || process.env.OPENAI_CLIENT_SECRET;
+    // Build refresh request params (client_secret optional for PKCE public clients)
+    const paramsObj = {
         grant_type: 'refresh_token',
-        client_id: token.provider === 'anthropic' ? 'sweech-cli' : 'sweech-cli',
-        client_secret: clientSecret,
+        client_id: clientId,
         refresh_token: token.refreshToken
-    });
+    };
+    // Add client_secret if available (required for some providers)
+    if (clientSecret) {
+        paramsObj.client_secret = clientSecret;
+    }
+    const params = new url.URLSearchParams(paramsObj);
     const response = await fetch(tokenEndpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
