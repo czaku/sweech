@@ -222,7 +222,8 @@ export async function interactiveAddProvider(existingProfiles: ProfileConfig[] =
     cliType,
     provider: answers.provider,
     commandName: answers.commandName.toLowerCase().trim(),
-    apiKey: answers.apiKey.trim(),
+    apiKey: answers.apiKey ? answers.apiKey.trim() : undefined,
+    authMethod: answers.authMethod,
     customProviderConfig,
     customProviderPrompts
   };
