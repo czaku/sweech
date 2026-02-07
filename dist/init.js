@@ -214,37 +214,9 @@ async function runInit() {
             console.error(chalk_1.default.red(`\n✗ CLI '${answers.cliType}' not found`));
             return;
         }
-        // Handle OAuth if selected
-        let oauthToken = undefined;
-        if (answers.authMethod === 'oauth') {
-            const { getOAuthToken } = await Promise.resolve().then(() => __importStar(require('./oauth')));
-            oauthToken = await getOAuthToken(cli.name, answers.provider);
-            console.log(chalk_1.default.green('✓ OAuth authentication successful'));
-        }
-        // Create profile
-        const profile = {
-            name: answers.commandName,
-            commandName: answers.commandName,
-            cliType: cli.name,
-            provider: answers.provider,
-            apiKey: answers.apiKey || undefined,
-            oauth: oauthToken,
-            baseUrl: provider.baseUrl,
-            model: provider.defaultModel,
-            smallFastModel: provider.smallFastModel,
-            createdAt: new Date().toISOString(),
-            // Store custom provider details if present
-            ...(answers.customProviderPrompts && {
-                customProvider: answers.customProviderPrompts
-            })
-        };
-        config.addProfile(profile);
-        config.createProfileConfig(answers.commandName, provider, answers.apiKey, cli.name, oauthToken);
-        config.createWrapperScript(answers.commandName, cli);
-        console.log(chalk_1.default.green('\n✓ Provider added successfully!'));
-        console.log(chalk_1.default.cyan('Command:'), chalk_1.default.bold(answers.commandName));
-        console.log(chalk_1.default.cyan('Provider:'), provider.displayName);
-        console.log(chalk_1.default.cyan('Model:'), provider.defaultModel);
+        // Create profile with OAuth or API key
+        const { createProfile } = await Promise.resolve().then(() => __importStar(require('./profileCreation')));
+        await createProfile(answers, provider, cli, config);
         console.log();
     }
     catch (error) {
