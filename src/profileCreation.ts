@@ -18,9 +18,18 @@ export async function createProfile(
   cli: CLIConfig,
   config: ConfigManager
 ): Promise<void> {
-  // Handle OAuth if selected
+  // Determine if we should use native CLI authentication (OAuth flow)
+  // Use native auth when:
+  // - User selected OAuth AND
+  // - Using official provider (anthropic for claude, openai for codex)
+  const isOfficialProvider =
+    (cli.name === 'claude' && answers.provider === 'anthropic') ||
+    (cli.name === 'codex' && answers.provider === 'openai');
+  const useNativeAuth = answers.authMethod === 'oauth' && isOfficialProvider;
+
+  // Handle OAuth if selected (but not for native auth - CLI handles it)
   let oauthToken: OAuthToken | undefined = undefined;
-  if (answers.authMethod === 'oauth') {
+  if (answers.authMethod === 'oauth' && !useNativeAuth) {
     oauthToken = await getOAuthToken(cli.name, answers.provider);
     console.log(chalk.green('✓ OAuth authentication successful'));
   }
@@ -50,7 +59,8 @@ export async function createProfile(
     provider,
     answers.apiKey,
     cli.name,
-    oauthToken
+    oauthToken,
+    useNativeAuth
   );
   config.createWrapperScript(answers.commandName, cli);
 
@@ -58,5 +68,19 @@ export async function createProfile(
   console.log(chalk.green('\n✓ Provider added successfully!\n'));
   console.log(chalk.cyan('Command:'), chalk.bold(answers.commandName));
   console.log(chalk.cyan('Provider:'), provider.displayName);
-  console.log(chalk.cyan('Model:'), provider.defaultModel);
+
+  if (useNativeAuth) {
+    // Using native CLI OAuth - user needs to complete setup
+    console.log(chalk.cyan('Auth:'), 'OAuth (via CLI)');
+    console.log();
+    console.log(chalk.yellow('⚠️  Authentication setup required:'));
+    console.log(chalk.gray(`   Run: ${chalk.cyan(answers.commandName)}`));
+    console.log(chalk.gray('   This will start Claude Code\'s OAuth login flow'));
+    console.log(chalk.gray('   Follow the prompts to authenticate with your account'));
+  } else {
+    console.log(chalk.cyan('Model:'), provider.defaultModel);
+    if (answers.authMethod === 'oauth') {
+      console.log(chalk.cyan('Auth:'), 'OAuth Token');
+    }
+  }
 }

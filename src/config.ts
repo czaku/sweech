@@ -94,7 +94,8 @@ export class ConfigManager {
     provider: ProviderConfig,
     apiKey: string | undefined,
     cliType: string = 'claude',
-    oauthToken?: OAuthToken
+    oauthToken?: OAuthToken,
+    useNativeAuth: boolean = false
   ): void {
     const profileDir = path.join(this.profilesDir, commandName);
 
@@ -104,70 +105,75 @@ export class ConfigManager {
 
     const settings: any = { env: {} };
 
-    // Determine authentication source
-    const authToken = apiKey || (oauthToken?.accessToken ? `bearer_${oauthToken.accessToken}` : '');
+    // If using native OAuth auth, don't set auth tokens - let CLI handle it
+    if (!useNativeAuth) {
+      // Determine authentication source
+      const authToken = apiKey || (oauthToken?.accessToken ? `bearer_${oauthToken.accessToken}` : '');
 
-    // Set environment variables based on CLI type
-    if (cliType === 'codex') {
-      // Codex CLI uses OpenAI environment variables
-      settings.env.OPENAI_API_KEY = authToken;
+      // Set environment variables based on CLI type
+      if (cliType === 'codex') {
+        // Codex CLI uses OpenAI environment variables
+        settings.env.OPENAI_API_KEY = authToken;
 
-      if (provider.baseUrl) {
-        settings.env.OPENAI_BASE_URL = provider.baseUrl;
+        if (provider.baseUrl) {
+          settings.env.OPENAI_BASE_URL = provider.baseUrl;
+        }
+
+        if (provider.defaultModel) {
+          settings.env.OPENAI_MODEL = provider.defaultModel;
+        }
+
+        if (provider.smallFastModel) {
+          settings.env.OPENAI_SMALL_FAST_MODEL = provider.smallFastModel;
+        }
+      } else {
+        // Claude Code CLI uses Anthropic environment variables
+        settings.env.ANTHROPIC_AUTH_TOKEN = authToken;
+
+        if (provider.baseUrl) {
+          settings.env.ANTHROPIC_BASE_URL = provider.baseUrl;
+        }
+
+        if (provider.defaultModel) {
+          settings.env.ANTHROPIC_MODEL = provider.defaultModel;
+        }
+
+        if (provider.smallFastModel) {
+          settings.env.ANTHROPIC_SMALL_FAST_MODEL = provider.smallFastModel;
+        }
       }
 
-      if (provider.defaultModel) {
-        settings.env.OPENAI_MODEL = provider.defaultModel;
+      // Add timeout for providers that need it
+      if (provider.name === 'minimax') {
+        settings.env.API_TIMEOUT_MS = '3000000';
       }
 
-      if (provider.smallFastModel) {
-        settings.env.OPENAI_SMALL_FAST_MODEL = provider.smallFastModel;
+      // Store OAuth token info if using OAuth (for refresh purposes)
+      if (oauthToken) {
+        settings.oauth = {
+          provider: oauthToken.provider,
+          refreshToken: oauthToken.refreshToken,
+          expiresAt: oauthToken.expiresAt
+        };
       }
-    } else {
-      // Claude Code CLI uses Anthropic environment variables
-      settings.env.ANTHROPIC_AUTH_TOKEN = authToken;
-
-      if (provider.baseUrl) {
-        settings.env.ANTHROPIC_BASE_URL = provider.baseUrl;
-      }
-
-      if (provider.defaultModel) {
-        settings.env.ANTHROPIC_MODEL = provider.defaultModel;
-      }
-
-      if (provider.smallFastModel) {
-        settings.env.ANTHROPIC_SMALL_FAST_MODEL = provider.smallFastModel;
-      }
-    }
-
-    // Add timeout for providers that need it
-    if (provider.name === 'minimax') {
-      settings.env.API_TIMEOUT_MS = '3000000';
-    }
-
-    // Store OAuth token info if using OAuth (for refresh purposes)
-    if (oauthToken) {
-      settings.oauth = {
-        provider: oauthToken.provider,
-        refreshToken: oauthToken.refreshToken,
-        expiresAt: oauthToken.expiresAt
-      };
     }
 
     const settingsPath = path.join(profileDir, 'settings.json');
     fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
 
-    // Create .claude.json to skip onboarding for external providers
-    // This prevents Claude Code from asking for authentication when using custom providers
-    const claudeJsonPath = path.join(profileDir, '.claude.json');
-    const claudeConfig = {
-      hasCompletedOnboarding: true,
-      loginMethod: 'api_key',
-      apiKey: 'sk-ant-external-provider',
-      userID: this.generateUserID(),
-      firstStartTime: new Date().toISOString()
-    };
-    fs.writeFileSync(claudeJsonPath, JSON.stringify(claudeConfig, null, 2));
+    // Only create .claude.json to skip onboarding for external providers
+    // For official Anthropic/OpenAI with native auth, let the CLI's onboarding flow run
+    if (!useNativeAuth) {
+      const claudeJsonPath = path.join(profileDir, '.claude.json');
+      const claudeConfig = {
+        hasCompletedOnboarding: true,
+        loginMethod: 'api_key',
+        apiKey: 'sk-ant-external-provider',
+        userID: this.generateUserID(),
+        firstStartTime: new Date().toISOString()
+      };
+      fs.writeFileSync(claudeJsonPath, JSON.stringify(claudeConfig, null, 2));
+    }
   }
 
   private generateUserID(): string {
