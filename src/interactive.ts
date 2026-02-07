@@ -172,15 +172,6 @@ export async function interactiveAddProvider(existingProfiles: ProfileConfig[] =
       transformer: (input: string) => input.toLowerCase().trim()
     },
     {
-      type: 'list',
-      name: 'authMethod',
-      message: 'How would you like to authenticate?',
-      choices: [
-        { name: 'API Key (static token)', value: 'api-key' },
-        { name: 'OAuth (browser login)', value: 'oauth' }
-      ]
-    },
-    {
       type: 'password',
       name: 'apiKey',
       message: (answers: any) => {
@@ -193,8 +184,7 @@ export async function interactiveAddProvider(existingProfiles: ProfileConfig[] =
           return 'API key is required';
         }
         return true;
-      },
-      when: (answers: any) => answers.authMethod === 'api-key'
+      }
     }
   ]);
 
