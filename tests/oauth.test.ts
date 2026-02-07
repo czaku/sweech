@@ -2,6 +2,13 @@
  * Tests for OAuth authentication
  */
 
+// Mock inquirer to avoid ESM issues in jest
+jest.mock('inquirer', () => ({
+  default: {
+    prompt: jest.fn()
+  }
+}));
+
 import {
   OAuthToken,
   isTokenExpired,

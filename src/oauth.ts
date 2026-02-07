@@ -3,14 +3,10 @@
  * Handles PKCE flow for both Anthropic and OpenAI APIs
  */
 
-import * as http from 'http';
 import * as url from 'url';
 import { randomBytes } from 'crypto';
 import chalk from 'chalk';
 import inquirer from 'inquirer';
-import { execFile } from 'child_process';
-import Anthropic from '@anthropic-ai/sdk';
-import OpenAI from 'openai';
 
 export interface OAuthToken {
   accessToken: string;
@@ -45,16 +41,15 @@ export async function getOAuthToken(
 }
 
 /**
- * Anthropic OAuth flow using PKCE
+ * Anthropic OAuth flow using PKCE (manual code paste)
  */
 async function getAnthropicOAuthToken(): Promise<OAuthToken> {
   const clientId = process.env.ANTHROPIC_CLIENT_ID || 'sweech-cli';
-  const redirectUri = 'http://localhost:8888/callback';
+  const redirectUri = 'urn:ietf:wg:oauth:2.0:oob'; // Out-of-band (manual)
 
   // Create PKCE challenge
   const codeVerifier = generateCodeVerifier();
   const codeChallenge = generateCodeChallenge(codeVerifier);
-  const state = randomBytes(32).toString('hex');
 
   // Build authorization URL
   const authUrl = new url.URL('https://api.anthropic.com/oauth/authorize');
@@ -64,24 +59,33 @@ async function getAnthropicOAuthToken(): Promise<OAuthToken> {
   authUrl.searchParams.set('scope', 'claude:api:chat claude:api:usage');
   authUrl.searchParams.set('code_challenge', codeChallenge);
   authUrl.searchParams.set('code_challenge_method', 'S256');
-  authUrl.searchParams.set('state', state);
 
-  console.log(chalk.yellow('📋 Please complete authentication in your browser'));
-  console.log(chalk.gray(`\nIf browser doesn't open, visit:\n${authUrl.toString()}\n`));
+  console.log(chalk.yellow('\n📋 Manual OAuth Authentication\n'));
+  console.log(chalk.cyan('Step 1:'), 'Copy this URL and open it in your browser');
+  console.log(chalk.cyan('        '), '(Use incognito mode to select a different account)\n');
+  console.log(chalk.gray(authUrl.toString()));
+  console.log();
 
-  // Open browser (optional - may not work in all environments)
-  openBrowser(authUrl.toString()).catch(() => {
-    // Silent fail - browser might not be available
-  });
-
-  // Start local server to capture callback
-  const authCode = await captureOAuthCallback(redirectUri, state);
+  // Prompt user to paste the authorization code
+  const { authCode } = await inquirer.prompt([
+    {
+      type: 'input',
+      name: 'authCode',
+      message: 'Step 2: After logging in, paste the authorization code here:',
+      validate: (input: string) => {
+        if (!input || input.trim().length === 0) {
+          return 'Authorization code is required';
+        }
+        return true;
+      }
+    }
+  ]);
 
   // Exchange code for token
   const tokenResponse = await exchangeCodeForToken(
     clientId,
     redirectUri,
-    authCode,
+    authCode.trim(),
     codeVerifier,
     'anthropic'
   );
@@ -98,16 +102,15 @@ async function getAnthropicOAuthToken(): Promise<OAuthToken> {
 }
 
 /**
- * OpenAI OAuth flow using PKCE
+ * OpenAI OAuth flow using PKCE (manual code paste)
  */
 async function getOpenAIOAuthToken(): Promise<OAuthToken> {
   const clientId = process.env.OPENAI_CLIENT_ID || 'sweech-cli';
-  const redirectUri = 'http://localhost:8888/callback';
+  const redirectUri = 'urn:ietf:wg:oauth:2.0:oob'; // Out-of-band (manual)
 
   // Create PKCE challenge
   const codeVerifier = generateCodeVerifier();
   const codeChallenge = generateCodeChallenge(codeVerifier);
-  const state = randomBytes(32).toString('hex');
 
   // Build authorization URL
   const authUrl = new url.URL('https://platform.openai.com/oauth/authorize');
@@ -117,24 +120,33 @@ async function getOpenAIOAuthToken(): Promise<OAuthToken> {
   authUrl.searchParams.set('scope', 'read:models');
   authUrl.searchParams.set('code_challenge', codeChallenge);
   authUrl.searchParams.set('code_challenge_method', 'S256');
-  authUrl.searchParams.set('state', state);
 
-  console.log(chalk.yellow('📋 Please complete authentication in your browser'));
-  console.log(chalk.gray(`\nIf browser doesn't open, visit:\n${authUrl.toString()}\n`));
+  console.log(chalk.yellow('\n📋 Manual OAuth Authentication\n'));
+  console.log(chalk.cyan('Step 1:'), 'Copy this URL and open it in your browser');
+  console.log(chalk.cyan('        '), '(Use incognito mode to select a different account)\n');
+  console.log(chalk.gray(authUrl.toString()));
+  console.log();
 
-  // Open browser (optional)
-  openBrowser(authUrl.toString()).catch(() => {
-    // Silent fail
-  });
-
-  // Start local server to capture callback
-  const authCode = await captureOAuthCallback(redirectUri, state);
+  // Prompt user to paste the authorization code
+  const { authCode } = await inquirer.prompt([
+    {
+      type: 'input',
+      name: 'authCode',
+      message: 'Step 2: After logging in, paste the authorization code here:',
+      validate: (input: string) => {
+        if (!input || input.trim().length === 0) {
+          return 'Authorization code is required';
+        }
+        return true;
+      }
+    }
+  ]);
 
   // Exchange code for token
   const tokenResponse = await exchangeCodeForToken(
     clientId,
     redirectUri,
-    authCode,
+    authCode.trim(),
     codeVerifier,
     'openai'
   );
@@ -150,93 +162,6 @@ async function getOpenAIOAuthToken(): Promise<OAuthToken> {
   };
 }
 
-/**
- * Open URL in browser safely
- */
-function openBrowser(browserUrl: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const commands = [
-      { cmd: 'open', args: [browserUrl] }, // macOS
-      { cmd: 'xdg-open', args: [browserUrl] }, // Linux
-      { cmd: 'start', args: ['', browserUrl] } // Windows
-    ];
-
-    const tryOpen = (index: number) => {
-      if (index >= commands.length) {
-        reject(new Error('Could not open browser'));
-        return;
-      }
-
-      const { cmd, args } = commands[index];
-      execFile(cmd, args, (error) => {
-        if (error) {
-          tryOpen(index + 1);
-        } else {
-          resolve();
-        }
-      });
-    };
-
-    tryOpen(0);
-  });
-}
-
-/**
- * Start local HTTP server to capture OAuth callback
- */
-function captureOAuthCallback(
-  redirectUri: string,
-  expectedState: string
-): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const parsedUrl = new url.URL(redirectUri);
-    const port = parseInt(parsedUrl.port || '8888');
-
-    const server = http.createServer((req, res) => {
-      const reqUrl = new url.URL(req.url || '', `http://${req.headers.host}`);
-      const code = reqUrl.searchParams.get('code');
-      const state = reqUrl.searchParams.get('state');
-      const error = reqUrl.searchParams.get('error');
-
-      if (error) {
-        res.writeHead(400, { 'Content-Type': 'text/html' });
-        res.end('<h1>Authentication Failed</h1><p>You can close this window.</p>');
-        server.close();
-        reject(new Error(`OAuth error: ${error}`));
-        return;
-      }
-
-      if (state !== expectedState) {
-        res.writeHead(403, { 'Content-Type': 'text/html' });
-        res.end('<h1>Invalid State</h1><p>You can close this window.</p>');
-        server.close();
-        reject(new Error('Invalid state parameter'));
-        return;
-      }
-
-      if (!code) {
-        res.writeHead(400, { 'Content-Type': 'text/html' });
-        res.end('<h1>Missing Authorization Code</h1><p>You can close this window.</p>');
-        server.close();
-        reject(new Error('No authorization code received'));
-        return;
-      }
-
-      res.writeHead(200, { 'Content-Type': 'text/html' });
-      res.end(
-        '<h1>✓ Authentication Successful</h1><p>You can close this window and return to the terminal.</p>'
-      );
-      server.close();
-      resolve(code);
-    });
-
-    server.listen(port, () => {
-      // Server started
-    });
-
-    server.on('error', reject);
-  });
-}
 
 /**
  * Exchange authorization code for access token
