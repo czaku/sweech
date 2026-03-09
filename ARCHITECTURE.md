@@ -72,19 +72,24 @@ Currently supported:
 ## File Structure
 
 ```
-~/.sweech/
-├── config.json           # List of all profiles
-├── aliases.json          # Command aliases (work=claude-mini)
-├── usage.json            # Usage tracking data
-├── profiles/
-│   ├── claude-mini/      # One directory per profile
-│   │   └── settings.json # CLI-specific settings
-│   └── claude-qwen/
-│       └── settings.json
-└── bin/
-    ├── claude-mini       # Wrapper script
-    └── claude-qwen       # Wrapper script
+~/
+├── .claude/              # Default account (never touched by sweech)
+├── .claude-qwen/         # Profile directory (sibling to .claude/)
+│   └── settings.json     # CLI-specific settings
+├── .claude-rai/          # Another profile
+│   └── settings.json
+└── .sweech/
+    ├── config.json       # List of all profiles
+    ├── aliases.json      # Command aliases (work=claude-qwen)
+    ├── usage.json        # Usage tracking data
+    ├── last-launch.json  # Remembered launcher state
+    └── bin/
+        ├── claude-qwen   # Wrapper script
+        └── claude-rai    # Wrapper script
 ```
+
+Profile directories live at `~/.claude-<name>/` as siblings to `~/.claude/`.
+All command names must start with `claude-`.
 
 ### config.json
 
@@ -126,8 +131,8 @@ Bash script that sets environment variables:
 
 ```bash
 #!/bin/bash
-# 🍭 Sweech wrapper for claude-mini (Claude Code)
-export CLAUDE_CONFIG_DIR="/Users/you/.sweech/profiles/claude-mini"
+# 🍭 Sweech wrapper for claude-qwen (Claude Code)
+export CLAUDE_CONFIG_DIR="/Users/you/.claude-qwen"
 exec claude "$@"
 ```
 
@@ -147,11 +152,11 @@ exec claude "$@"
 $ claude-mini
 ```
 
-1. Shell finds `~/.sweech/bin/claude-mini`
-2. Wrapper exports `CLAUDE_CONFIG_DIR=/Users/you/.sweech/profiles/claude-mini`
+1. Shell finds `~/.sweech/bin/claude-qwen`
+2. Wrapper exports `CLAUDE_CONFIG_DIR=/Users/you/.claude-qwen`
 3. Wrapper executes `claude "$@"`
-4. Claude reads config from the custom directory
-5. Claude uses MiniMax provider with specified settings
+4. Claude reads config from the sibling directory
+5. Claude uses the configured provider with specified settings
 
 ### Backup Process
 
@@ -175,9 +180,10 @@ $ claude-mini
 ```
 src/
 ├── cli.ts            # Main CLI entry point (commander)
+├── launcher.ts       # Interactive TUI launcher (raw terminal)
 ├── config.ts         # Config manager (read/write profiles)
 ├── providers.ts      # Provider templates
-├── clis.ts          # CLI definitions (claude, codex)
+├── clis.ts          # CLI definitions (claude, codex) + yolo flags
 ├── interactive.ts    # Interactive prompts (inquirer)
 ├── backup.ts        # Backup/restore logic (encryption)
 ├── usage.ts         # Usage tracking and statistics

@@ -56,6 +56,7 @@ const utilityCommands_1 = require("./utilityCommands");
 const reset_2 = require("./reset");
 const init_1 = require("./init");
 const oauth_1 = require("./oauth");
+const launcher_1 = require("./launcher");
 const path = __importStar(require("path"));
 const program = new commander_1.Command();
 program
@@ -590,4 +591,13 @@ program
         process.exit(1);
     }
 });
-program.parse();
+// Default action: interactive launcher when no command given
+if (process.argv.length <= 2) {
+    (0, launcher_1.runLauncher)().catch(err => {
+        console.error(chalk_1.default.red('Error:'), err.message);
+        process.exit(1);
+    });
+}
+else {
+    program.parse();
+}

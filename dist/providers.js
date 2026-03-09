@@ -17,8 +17,8 @@ exports.PROVIDERS = {
         name: 'anthropic',
         displayName: 'Claude (Anthropic)',
         baseUrl: '', // Uses default
-        defaultModel: 'claude-sonnet-4-5',
-        smallFastModel: 'claude-3-5-haiku-20241022',
+        defaultModel: 'claude-sonnet-4-6',
+        smallFastModel: 'claude-haiku-4-5-20251001',
         description: 'Official Anthropic Claude models',
         pricing: 'Varies by model',
         compatibility: ['claude'],

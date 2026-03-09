@@ -83,7 +83,7 @@ export class ConfigManager {
     }
 
     // Remove profile config directory
-    const profileDir = path.join(this.profilesDir, commandName);
+    const profileDir = this.getProfileDir(commandName);
     if (fs.existsSync(profileDir)) {
       fs.rmSync(profileDir, { recursive: true, force: true });
     }
@@ -96,7 +96,7 @@ export class ConfigManager {
     cliType: string = 'claude',
     oauthToken?: OAuthToken
   ): void {
-    const profileDir = path.join(this.profilesDir, commandName);
+    const profileDir = this.getProfileDir(commandName);
 
     if (!fs.existsSync(profileDir)) {
       fs.mkdirSync(profileDir, { recursive: true });
@@ -177,7 +177,7 @@ export class ConfigManager {
   }
 
   public createWrapperScript(commandName: string, cli: CLIConfig): void {
-    const profileDir = path.join(this.profilesDir, commandName);
+    const profileDir = this.getProfileDir(commandName);
     const wrapperPath = path.join(this.binDir, commandName);
     const usageFile = path.join(this.configDir, 'usage.json');
 
@@ -225,7 +225,9 @@ exec ${cli.command} "\${ARGS[@]}"
   }
 
   public getProfileDir(commandName: string): string {
-    return path.join(this.profilesDir, commandName);
+    // Profiles live at ~/.claude-<suffix>/ as siblings to ~/.claude/
+    // e.g. claude-rai -> ~/.claude-rai/
+    return path.join(os.homedir(), `.${commandName}`);
   }
 
   public getConfigDir(): string {

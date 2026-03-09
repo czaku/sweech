@@ -16,6 +16,7 @@ exports.SUPPORTED_CLIS = {
         configDirEnvVar: 'CLAUDE_CONFIG_DIR',
         description: 'Anthropic Claude Code CLI',
         installUrl: 'https://code.claude.com/',
+        yoloFlag: '--dangerously-skip-permissions',
     },
     codex: {
         name: 'codex',
@@ -24,6 +25,7 @@ exports.SUPPORTED_CLIS = {
         configDirEnvVar: 'CODEX_HOME',
         description: 'OpenAI Codex CLI - lightweight coding agent',
         installUrl: 'https://github.com/openai/codex',
+        yoloFlag: '--full-auto',
     },
     // Future support for other CLIs
     // cursor: {

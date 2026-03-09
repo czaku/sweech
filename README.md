@@ -13,12 +13,20 @@ Sweech is the ultimate CLI tool for managing multiple AI coding assistants. Use 
 # Use them all at once! 🎉
 claude              # Your default Claude account
 claude-qwen         # Qwen (Alibaba) - $0.14/M tokens
-codex-deepseek      # DeepSeek via Codex - $0.28/M tokens (cheapest!)
-codex-router        # OpenRouter - access 300+ models
-lm-studio           # Your local LM Studio (FREE!)
+claude-deep         # DeepSeek via Claude Code - $0.28/M tokens (cheapest!)
 ```
 
-## ✨ What's New in v0.1.0
+## ✨ What's New
+
+### v0.2.0
+
+- 🎮 **Interactive Launcher** - Just type `sweech` — select profile, toggle yolo & resume with keyboard
+- 📁 **Sibling Directories** - Profiles live at `~/.claude-<name>/` alongside `~/.claude/`
+- 🔒 **Enforced Naming** - All commands must start with `claude-` for consistency
+- 💾 **Remembers Last Choice** - Launcher restores your previous selection, yolo, and resume state
+- 🧠 **Updated Models** - Default Anthropic models updated to claude-sonnet-4-6 / claude-haiku-4-5
+
+### v0.1.0
 
 - 🚀 **Dual CLI Support** - Claude Code + Codex (OpenAI)
 - 🏠 **Custom Providers** - Localhost, LAN, remote hosts
@@ -59,41 +67,33 @@ Run this command:
 sweech add
 ```
 
-Example interaction:
-
-```
-🍭 Sweech - Add New Provider
-
-? Which CLI are you configuring?
-  ❯ Claude Code (Official Anthropic Claude CLI)
-    Codex (OpenAI) (Lightweight OpenAI coding agent)
-
-? What would you like to add for Claude Code?
-    Another Claude Code account (official provider)
-  ❯ External AI provider (MiniMax, Qwen, Kimi, DeepSeek, etc.)
-
-? Choose a provider: (Use arrow keys)
-  ❯ Qwen (Alibaba) - Alibaba Qwen models ($0.14-$2.49/M tokens)
-    MiniMax - MiniMax M2 coding model ($10/month)
-    DeepSeek - Lowest cost option ($0.28/M tokens)
-    OpenRouter (Universal) - 300+ models via one API
-    Custom Provider - Custom/local LLM
-
-? What command name? (e.g., "qwen", "claude-qwen", "cqwen")
-  claude-qwen
-
-? Enter API key: ••••••••••••••••••••
-
-✓ Provider added successfully!
-
-Command: claude-qwen
-Provider: Qwen (Alibaba)
-Model: qwen-plus
-
-Now run: claude-qwen
-```
+All command names must start with `claude-` (e.g., `claude-work`, `claude-qwen`, `claude-rai`).
 
 **That's it!** Your new command is ready to use.
+
+### Interactive Launcher
+
+Just type `sweech` with no arguments:
+
+```
+🍭 Sweech
+
+❯ claude          (default account)
+  claude-rai      (Claude (Anthropic))
+
+  [ ] yolo (y)    [ ] resume (r)
+
+  → claude
+
+  ↑↓ select  y yolo  r resume  ⏎ launch  q quit
+```
+
+- **↑↓** to select profile
+- **y** to toggle yolo mode (`--dangerously-skip-permissions`)
+- **r** to toggle resume (`--continue` last conversation)
+- **Enter** to launch
+
+Your selection is remembered between sessions.
 
 ---
 
@@ -521,31 +521,33 @@ Sweech creates wrapper scripts that set environment variables before launching t
 ```bash
 # ~/.sweech/bin/claude-qwen
 #!/bin/bash
-export CLAUDE_CONFIG_DIR="$HOME/.sweech/profiles/claude-qwen"
+export CLAUDE_CONFIG_DIR="$HOME/.claude-qwen"
 exec claude "$@"
 ```
 
 **Directory Structure:**
 
 ```
-~/.sweech/
-├── config.json              # Provider registry
-├── profiles/
-│   ├── claude-qwen/
-│   │   ├── settings.json    # Provider config
-│   │   └── Transcripts/     # Chat history
-│   └── lm-studio/
-│       └── settings.json
-└── bin/
-    ├── claude-qwen          # Wrapper script
-    └── lm-studio            # Wrapper script
+~/
+├── .claude/                  # Default account (untouched)
+├── .claude-qwen/             # Qwen profile (sibling)
+│   ├── settings.json
+│   ├── projects/
+│   └── Transcripts/
+├── .claude-rai/              # Another profile (sibling)
+│   └── ...
+└── .sweech/
+    ├── config.json           # Provider registry
+    ├── last-launch.json      # Remembered launcher state
+    └── bin/
+        ├── claude-qwen       # Wrapper script
+        └── claude-rai        # Wrapper script
 ```
 
 **Each provider is completely isolated:**
 
-- Own config directory
-- Own settings file
-- Own chat history
+- Own config directory at `~/.claude-<name>/` (sibling to `~/.claude/`)
+- Own settings, project memory, and chat history
 - Own wrapper script
 
 Your default `~/.claude/` stays **completely untouched**!

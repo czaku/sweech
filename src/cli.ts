@@ -20,6 +20,7 @@ import { runDoctor, runPath, runTest, runEdit, runClone, runRename } from './uti
 import { runReset } from './reset';
 import { runInit } from './init';
 import { getOAuthToken } from './oauth';
+import { runLauncher } from './launcher';
 import * as path from 'path';
 
 const program = new Command();
@@ -627,4 +628,12 @@ program
     }
   });
 
-program.parse();
+// Default action: interactive launcher when no command given
+if (process.argv.length <= 2) {
+  runLauncher().catch(err => {
+    console.error(chalk.red('Error:'), err.message);
+    process.exit(1);
+  });
+} else {
+  program.parse();
+}

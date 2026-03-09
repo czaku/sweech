@@ -117,22 +117,19 @@ export async function interactiveAddProvider(existingProfiles: ProfileConfig[] =
     {
       type: 'input',
       name: 'commandName',
-      message: (answers: any) => {
+      message: 'What command name?',
+      default: (answers: any) => {
         const provider = getProvider(answers.provider);
         const providerName = provider?.name || answers.provider;
-
-        // Suggest command names based on provider
-        const suggestionMap: Record<string, string> = {
-          'minimax': '"cmini", "claude-mini", "mini", "minimax-work"',
-          'qwen': '"qwen", "claude-qwen", "cqwen", "qwen-personal"',
-          'kimi': '"kimi", "claude-kimi", "ckimi", "kimi-work"',
-          'deepseek': '"deep", "claude-deep", "cdeep", "deepseek"',
-          'glm': '"glm", "claude-glm", "cglm", "glm4"',
-          'anthropic': '"claude-2", "claude-work", "claude-personal"'
+        const defaultMap: Record<string, string> = {
+          'minimax': 'claude-mini',
+          'qwen': 'claude-qwen',
+          'kimi': 'claude-kimi',
+          'deepseek': 'claude-deep',
+          'glm': 'claude-glm',
+          'anthropic': 'claude-work'
         };
-        const suggestions = suggestionMap[providerName];
-
-        return `What command name? (e.g., ${suggestions || '"my-command"'})`;
+        return defaultMap[providerName] || 'claude-';
       },
       validate: async (input: string, answers: any) => {
         const trimmed = input.trim().toLowerCase();
@@ -147,6 +144,10 @@ export async function interactiveAddProvider(existingProfiles: ProfileConfig[] =
 
         if (trimmed === 'claude') {
           return 'Cannot use "claude" - this is reserved for your default account';
+        }
+
+        if (!trimmed.startsWith('claude-')) {
+          return 'Command name must start with "claude-" (e.g., "claude-rai", "claude-work")';
         }
 
         // Check for clashes with existing commands

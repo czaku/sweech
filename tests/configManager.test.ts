@@ -197,7 +197,7 @@ describe('ConfigManager', () => {
 
       // Check profile directory is removed
       expect(mockFs.rmSync).toHaveBeenCalledWith(
-        path.join(mockConfigDir, 'profiles', 'claude-mini'),
+        path.join(mockHomeDir, '.claude-mini'),
         { recursive: true, force: true }
       );
     });
@@ -216,7 +216,7 @@ describe('ConfigManager', () => {
       const callArgs = mockFs.writeFileSync.mock.calls[0];
 
       const settingsPath = callArgs[0] as string;
-      expect(settingsPath).toContain('profiles/claude-mini/settings.json');
+      expect(settingsPath).toContain('.claude-mini/settings.json');
 
       const settings = JSON.parse(callArgs[1] as string);
       expect(settings.env.ANTHROPIC_AUTH_TOKEN).toBe('sk-test-key');
@@ -293,7 +293,7 @@ describe('ConfigManager', () => {
 
     test('getProfileDir returns correct path', () => {
       const profileDir = configManager.getProfileDir('claude-mini');
-      expect(profileDir).toBe(path.join(mockConfigDir, 'profiles', 'claude-mini'));
+      expect(profileDir).toBe(path.join(mockHomeDir, '.claude-mini'));
     });
 
     test('getConfigDir returns correct path', () => {

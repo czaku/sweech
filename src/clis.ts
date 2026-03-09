@@ -11,6 +11,7 @@ export interface CLIConfig {
   description: string;
   installUrl?: string;
   checkInstalled?: () => boolean;
+  yoloFlag?: string; // The actual CLI flag for skip-permissions mode
 }
 
 export const SUPPORTED_CLIS: Record<string, CLIConfig> = {
@@ -21,6 +22,7 @@ export const SUPPORTED_CLIS: Record<string, CLIConfig> = {
     configDirEnvVar: 'CLAUDE_CONFIG_DIR',
     description: 'Anthropic Claude Code CLI',
     installUrl: 'https://code.claude.com/',
+    yoloFlag: '--dangerously-skip-permissions',
   },
   codex: {
     name: 'codex',
@@ -29,6 +31,7 @@ export const SUPPORTED_CLIS: Record<string, CLIConfig> = {
     configDirEnvVar: 'CODEX_HOME',
     description: 'OpenAI Codex CLI - lightweight coding agent',
     installUrl: 'https://github.com/openai/codex',
+    yoloFlag: '--full-auto',
   },
   // Future support for other CLIs
   // cursor: {
