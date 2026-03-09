@@ -28,6 +28,7 @@ claude-deep         # DeepSeek via Claude Code - $0.28/M tokens (cheapest!)
 
 ### v0.1.0
 
+- 🔐 **Multiple Claude Accounts** - OAuth support for adding multiple subscription accounts without logging out
 - 🚀 **Dual CLI Support** - Claude Code + Codex (OpenAI)
 - 🏠 **Custom Providers** - Localhost, LAN, remote hosts
 - 🌐 **10+ Providers** - DeepSeek, Qwen, OpenRouter, MiniMax, Kimi, GLM + more
@@ -114,6 +115,34 @@ codex-deepseek      # DeepSeek via OpenAI API
 codex-router        # OpenRouter (300+ models)
 codex-qwen          # Qwen via OpenAI API
 ```
+
+### 🔐 Multiple Claude Accounts (OAuth)
+
+Add multiple Claude subscription accounts **without logging out**:
+
+```bash
+# Add another Claude account
+$ sweech add
+? CLI: Claude Code
+? Provider: Claude (Anthropic)
+? How would you like to authenticate?
+  ❯ OAuth (browser login - adds another account without logging out)
+    API Key (static token)
+? Command name: claude-work
+
+✓ Provider added successfully!
+Command: claude-work
+
+⚠️  Authentication setup required:
+   Run: claude-work
+   This will start Claude Code's OAuth login flow
+   Follow the prompts to authenticate with your account
+```
+
+Each profile gets its own isolated authentication:
+- `claude` → Your personal account
+- `claude-work` → Your work account
+- No need to log out/in to switch!
 
 ### 🏠 Custom & Local Providers
 

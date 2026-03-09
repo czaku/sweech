@@ -196,31 +196,9 @@ export async function runInit(): Promise<void> {
       return;
     }
 
-    // Create profile
-    const profile = {
-      name: answers.commandName,
-      commandName: answers.commandName,
-      cliType: cli.name,
-      provider: answers.provider,
-      apiKey: answers.apiKey,
-      baseUrl: provider.baseUrl,
-      model: provider.defaultModel,
-      smallFastModel: provider.smallFastModel,
-      createdAt: new Date().toISOString(),
-      // Store custom provider details if present
-      ...(answers.customProviderPrompts && {
-        customProvider: answers.customProviderPrompts
-      })
-    };
-
-    config.addProfile(profile);
-    config.createProfileConfig(answers.commandName, provider, answers.apiKey, cli.name);
-    config.createWrapperScript(answers.commandName, cli);
-
-    console.log(chalk.green('\n✓ Provider added successfully!'));
-    console.log(chalk.cyan('Command:'), chalk.bold(answers.commandName));
-    console.log(chalk.cyan('Provider:'), provider.displayName);
-    console.log(chalk.cyan('Model:'), provider.defaultModel);
+    // Create profile with OAuth or API key
+    const { createProfile } = await import('./profileCreation');
+    await createProfile(answers, provider, cli, config);
     console.log();
 
   } catch (error: any) {

@@ -55,14 +55,19 @@ const reset_1 = require("./reset");
 const utilityCommands_1 = require("./utilityCommands");
 const reset_2 = require("./reset");
 const init_1 = require("./init");
-const oauth_1 = require("./oauth");
+const profileCreation_1 = require("./profileCreation");
 const launcher_1 = require("./launcher");
 const path = __importStar(require("path"));
+const fs = __importStar(require("fs"));
+// Read version from package.json
+const packageJsonPath = path.join(__dirname, '../package.json');
+const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf-8'));
+const version = packageJson.version;
 const program = new commander_1.Command();
 program
-    .name('sweetch')
+    .name('sweech')
     .description('🍭 Switch between Claude accounts and external AI providers')
-    .version('0.1.0');
+    .version(version, '-v, --version', 'Output the current version');
 // Interactive onboarding
 program
     .command('init')
@@ -97,36 +102,8 @@ program
             console.error(chalk_1.default.red(`CLI '${answers.cliType}' not found`));
             process.exit(1);
         }
-        // Handle OAuth if selected
-        let oauthToken = undefined;
-        if (answers.authMethod === 'oauth') {
-            oauthToken = await (0, oauth_1.getOAuthToken)(cli.name, answers.provider);
-            console.log(chalk_1.default.green('✓ OAuth authentication successful'));
-        }
-        // Create profile
-        const profile = {
-            name: answers.commandName,
-            commandName: answers.commandName,
-            cliType: cli.name,
-            provider: answers.provider,
-            apiKey: answers.apiKey || undefined,
-            oauth: oauthToken,
-            baseUrl: provider.baseUrl,
-            model: provider.defaultModel,
-            smallFastModel: provider.smallFastModel,
-            createdAt: new Date().toISOString(),
-            // Store custom provider details if present
-            ...(answers.customProviderPrompts && {
-                customProvider: answers.customProviderPrompts
-            })
-        };
-        config.addProfile(profile);
-        config.createProfileConfig(answers.commandName, provider, answers.apiKey, cli.name, oauthToken);
-        config.createWrapperScript(answers.commandName, cli);
-        console.log(chalk_1.default.green('\n✓ Provider added successfully!\n'));
-        console.log(chalk_1.default.cyan('Command:'), chalk_1.default.bold(answers.commandName));
-        console.log(chalk_1.default.cyan('Provider:'), provider.displayName);
-        console.log(chalk_1.default.cyan('Model:'), provider.defaultModel);
+        // Create profile with OAuth or API key
+        await (0, profileCreation_1.createProfile)(answers, provider, cli, config);
         console.log(chalk_1.default.cyan('Config dir:'), config.getProfileDir(answers.commandName));
         console.log(chalk_1.default.yellow('\n⚠️  Add to your PATH:'));
         console.log(chalk_1.default.gray(`   export PATH="${config.getBinDir()}:$PATH"`));

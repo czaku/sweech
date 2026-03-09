@@ -44,11 +44,10 @@ exports.getOAuthToken = getOAuthToken;
 exports.refreshOAuthToken = refreshOAuthToken;
 exports.isTokenExpired = isTokenExpired;
 exports.oauthTokenToEnv = oauthTokenToEnv;
-const http = __importStar(require("http"));
 const url = __importStar(require("url"));
 const crypto_1 = require("crypto");
 const chalk_1 = __importDefault(require("chalk"));
-const child_process_1 = require("child_process");
+const inquirer_1 = __importDefault(require("inquirer"));
 /**
  * Get OAuth authentication token via browser flow
  */
@@ -65,34 +64,43 @@ async function getOAuthToken(cliType, provider) {
     }
 }
 /**
- * Anthropic OAuth flow using PKCE
+ * Anthropic OAuth flow using PKCE (manual code paste)
  */
 async function getAnthropicOAuthToken() {
     const clientId = process.env.ANTHROPIC_CLIENT_ID || 'sweech-cli';
-    const redirectUri = 'http://localhost:8888/callback';
+    const redirectUri = 'urn:ietf:wg:oauth:2.0:oob'; // Out-of-band (manual)
     // Create PKCE challenge
     const codeVerifier = generateCodeVerifier();
     const codeChallenge = generateCodeChallenge(codeVerifier);
-    const state = (0, crypto_1.randomBytes)(32).toString('hex');
-    // Build authorization URL
-    const authUrl = new url.URL('https://api.anthropic.com/oauth/authorize');
+    // Build authorization URL (using claude.ai, not api.anthropic.com)
+    const authUrl = new url.URL('https://claude.ai/oauth/authorize');
     authUrl.searchParams.set('client_id', clientId);
     authUrl.searchParams.set('redirect_uri', redirectUri);
     authUrl.searchParams.set('response_type', 'code');
-    authUrl.searchParams.set('scope', 'claude:api:chat claude:api:usage');
+    authUrl.searchParams.set('scope', 'openid profile email');
     authUrl.searchParams.set('code_challenge', codeChallenge);
     authUrl.searchParams.set('code_challenge_method', 'S256');
-    authUrl.searchParams.set('state', state);
-    console.log(chalk_1.default.yellow('📋 Please complete authentication in your browser'));
-    console.log(chalk_1.default.gray(`\nIf browser doesn't open, visit:\n${authUrl.toString()}\n`));
-    // Open browser (optional - may not work in all environments)
-    openBrowser(authUrl.toString()).catch(() => {
-        // Silent fail - browser might not be available
-    });
-    // Start local server to capture callback
-    const authCode = await captureOAuthCallback(redirectUri, state);
+    console.log(chalk_1.default.yellow('\n📋 Manual OAuth Authentication\n'));
+    console.log(chalk_1.default.cyan('Step 1:'), 'Copy this URL and open it in your browser');
+    console.log(chalk_1.default.cyan('        '), '(Use incognito mode to select a different account)\n');
+    console.log(chalk_1.default.gray(authUrl.toString()));
+    console.log();
+    // Prompt user to paste the authorization code
+    const { authCode } = await inquirer_1.default.prompt([
+        {
+            type: 'input',
+            name: 'authCode',
+            message: 'Step 2: After logging in, paste the authorization code here:',
+            validate: (input) => {
+                if (!input || input.trim().length === 0) {
+                    return 'Authorization code is required';
+                }
+                return true;
+            }
+        }
+    ]);
     // Exchange code for token
-    const tokenResponse = await exchangeCodeForToken(clientId, redirectUri, authCode, codeVerifier, 'anthropic');
+    const tokenResponse = await exchangeCodeForToken(clientId, redirectUri, authCode.trim(), codeVerifier, 'anthropic');
     return {
         accessToken: tokenResponse.access_token,
         refreshToken: tokenResponse.refresh_token,
@@ -104,15 +112,14 @@ async function getAnthropicOAuthToken() {
     };
 }
 /**
- * OpenAI OAuth flow using PKCE
+ * OpenAI OAuth flow using PKCE (manual code paste)
  */
 async function getOpenAIOAuthToken() {
     const clientId = process.env.OPENAI_CLIENT_ID || 'sweech-cli';
-    const redirectUri = 'http://localhost:8888/callback';
+    const redirectUri = 'urn:ietf:wg:oauth:2.0:oob'; // Out-of-band (manual)
     // Create PKCE challenge
     const codeVerifier = generateCodeVerifier();
     const codeChallenge = generateCodeChallenge(codeVerifier);
-    const state = (0, crypto_1.randomBytes)(32).toString('hex');
     // Build authorization URL
     const authUrl = new url.URL('https://platform.openai.com/oauth/authorize');
     authUrl.searchParams.set('client_id', clientId);
@@ -121,17 +128,27 @@ async function getOpenAIOAuthToken() {
     authUrl.searchParams.set('scope', 'read:models');
     authUrl.searchParams.set('code_challenge', codeChallenge);
     authUrl.searchParams.set('code_challenge_method', 'S256');
-    authUrl.searchParams.set('state', state);
-    console.log(chalk_1.default.yellow('📋 Please complete authentication in your browser'));
-    console.log(chalk_1.default.gray(`\nIf browser doesn't open, visit:\n${authUrl.toString()}\n`));
-    // Open browser (optional)
-    openBrowser(authUrl.toString()).catch(() => {
-        // Silent fail
-    });
-    // Start local server to capture callback
-    const authCode = await captureOAuthCallback(redirectUri, state);
+    console.log(chalk_1.default.yellow('\n📋 Manual OAuth Authentication\n'));
+    console.log(chalk_1.default.cyan('Step 1:'), 'Copy this URL and open it in your browser');
+    console.log(chalk_1.default.cyan('        '), '(Use incognito mode to select a different account)\n');
+    console.log(chalk_1.default.gray(authUrl.toString()));
+    console.log();
+    // Prompt user to paste the authorization code
+    const { authCode } = await inquirer_1.default.prompt([
+        {
+            type: 'input',
+            name: 'authCode',
+            message: 'Step 2: After logging in, paste the authorization code here:',
+            validate: (input) => {
+                if (!input || input.trim().length === 0) {
+                    return 'Authorization code is required';
+                }
+                return true;
+            }
+        }
+    ]);
     // Exchange code for token
-    const tokenResponse = await exchangeCodeForToken(clientId, redirectUri, authCode, codeVerifier, 'openai');
+    const tokenResponse = await exchangeCodeForToken(clientId, redirectUri, authCode.trim(), codeVerifier, 'openai');
     return {
         accessToken: tokenResponse.access_token,
         refreshToken: tokenResponse.refresh_token,
@@ -143,100 +160,30 @@ async function getOpenAIOAuthToken() {
     };
 }
 /**
- * Open URL in browser safely
- */
-function openBrowser(browserUrl) {
-    return new Promise((resolve, reject) => {
-        const commands = [
-            { cmd: 'open', args: [browserUrl] }, // macOS
-            { cmd: 'xdg-open', args: [browserUrl] }, // Linux
-            { cmd: 'start', args: ['', browserUrl] } // Windows
-        ];
-        const tryOpen = (index) => {
-            if (index >= commands.length) {
-                reject(new Error('Could not open browser'));
-                return;
-            }
-            const { cmd, args } = commands[index];
-            (0, child_process_1.execFile)(cmd, args, (error) => {
-                if (error) {
-                    tryOpen(index + 1);
-                }
-                else {
-                    resolve();
-                }
-            });
-        };
-        tryOpen(0);
-    });
-}
-/**
- * Start local HTTP server to capture OAuth callback
- */
-function captureOAuthCallback(redirectUri, expectedState) {
-    return new Promise((resolve, reject) => {
-        const parsedUrl = new url.URL(redirectUri);
-        const port = parseInt(parsedUrl.port || '8888');
-        const server = http.createServer((req, res) => {
-            const reqUrl = new url.URL(req.url || '', `http://${req.headers.host}`);
-            const code = reqUrl.searchParams.get('code');
-            const state = reqUrl.searchParams.get('state');
-            const error = reqUrl.searchParams.get('error');
-            if (error) {
-                res.writeHead(400, { 'Content-Type': 'text/html' });
-                res.end('<h1>Authentication Failed</h1><p>You can close this window.</p>');
-                server.close();
-                reject(new Error(`OAuth error: ${error}`));
-                return;
-            }
-            if (state !== expectedState) {
-                res.writeHead(403, { 'Content-Type': 'text/html' });
-                res.end('<h1>Invalid State</h1><p>You can close this window.</p>');
-                server.close();
-                reject(new Error('Invalid state parameter'));
-                return;
-            }
-            if (!code) {
-                res.writeHead(400, { 'Content-Type': 'text/html' });
-                res.end('<h1>Missing Authorization Code</h1><p>You can close this window.</p>');
-                server.close();
-                reject(new Error('No authorization code received'));
-                return;
-            }
-            res.writeHead(200, { 'Content-Type': 'text/html' });
-            res.end('<h1>✓ Authentication Successful</h1><p>You can close this window and return to the terminal.</p>');
-            server.close();
-            resolve(code);
-        });
-        server.listen(port, () => {
-            // Server started
-        });
-        server.on('error', reject);
-    });
-}
-/**
  * Exchange authorization code for access token
  */
 async function exchangeCodeForToken(clientId, redirectUri, code, codeVerifier, provider) {
     const tokenEndpoint = provider === 'anthropic'
-        ? 'https://api.anthropic.com/oauth/token'
+        ? 'https://claude.ai/api/oauth/token'
         : 'https://api.openai.com/oauth/token';
     const clientSecret = process.env.ANTHROPIC_CLIENT_SECRET || process.env.OPENAI_CLIENT_SECRET;
-    if (!clientSecret) {
-        throw new Error(`${provider.toUpperCase()}_CLIENT_SECRET environment variable not set`);
-    }
-    const params = new url.URLSearchParams({
+    // Build token request params (client_secret optional for PKCE public clients)
+    const params = {
         grant_type: 'authorization_code',
         client_id: clientId,
-        client_secret: clientSecret,
         code,
         redirect_uri: redirectUri,
         code_verifier: codeVerifier
-    });
+    };
+    // Add client_secret if available (required for some providers)
+    if (clientSecret) {
+        params.client_secret = clientSecret;
+    }
+    const urlParams = new url.URLSearchParams(params);
     const response = await fetch(tokenEndpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: params.toString()
+        body: urlParams.toString()
     });
     if (!response.ok) {
         const error = await response.text();
@@ -251,19 +198,24 @@ async function refreshOAuthToken(token) {
     if (!token.refreshToken) {
         throw new Error('No refresh token available');
     }
-    const clientSecret = process.env.ANTHROPIC_CLIENT_SECRET || process.env.OPENAI_CLIENT_SECRET;
-    if (!clientSecret) {
-        throw new Error('Client secret not configured for token refresh');
-    }
     const tokenEndpoint = token.provider === 'anthropic'
-        ? 'https://api.anthropic.com/oauth/token'
+        ? 'https://claude.ai/api/oauth/token'
         : 'https://api.openai.com/oauth/token';
-    const params = new url.URLSearchParams({
+    const clientId = token.provider === 'anthropic'
+        ? (process.env.ANTHROPIC_CLIENT_ID || 'sweech-cli')
+        : (process.env.OPENAI_CLIENT_ID || 'sweech-cli');
+    const clientSecret = process.env.ANTHROPIC_CLIENT_SECRET || process.env.OPENAI_CLIENT_SECRET;
+    // Build refresh request params (client_secret optional for PKCE public clients)
+    const paramsObj = {
         grant_type: 'refresh_token',
-        client_id: token.provider === 'anthropic' ? 'sweech-cli' : 'sweech-cli',
-        client_secret: clientSecret,
+        client_id: clientId,
         refresh_token: token.refreshToken
-    });
+    };
+    // Add client_secret if available (required for some providers)
+    if (clientSecret) {
+        paramsObj.client_secret = clientSecret;
+    }
+    const params = new url.URLSearchParams(paramsObj);
     const response = await fetch(tokenEndpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },

@@ -176,10 +176,34 @@ export async function interactiveAddProvider(existingProfiles: ProfileConfig[] =
       type: 'list',
       name: 'authMethod',
       message: 'How would you like to authenticate?',
-      choices: [
-        { name: 'API Key (static token)', value: 'api-key' },
-        { name: 'OAuth (browser login)', value: 'oauth' }
-      ]
+      choices: (answers: any) => {
+        const provider = answers.provider;
+        const cliType = answers.cliType || 'claude';
+
+        // OAuth only available for official providers (anthropic for claude, openai for codex)
+        if ((cliType === 'claude' && provider === 'anthropic') ||
+            (cliType === 'codex' && provider === 'openai')) {
+          return [
+            {
+              name: 'OAuth (browser login - adds another account without logging out)',
+              value: 'oauth'
+            },
+            {
+              name: 'API Key (static token from platform.anthropic.com)',
+              value: 'api-key'
+            }
+          ];
+        }
+
+        // For third-party providers, only API key is available
+        return [
+          {
+            name: 'API Key (required for external providers)',
+            value: 'api-key'
+          }
+        ];
+      },
+      default: 'api-key'
     },
     {
       type: 'password',
@@ -189,13 +213,13 @@ export async function interactiveAddProvider(existingProfiles: ProfileConfig[] =
         return `Enter API key for ${provider?.displayName}:`;
       },
       mask: '*',
+      when: (answers: any) => answers.authMethod === 'api-key',
       validate: (input: string) => {
         if (!input || input.trim().length === 0) {
           return 'API key is required';
         }
         return true;
-      },
-      when: (answers: any) => answers.authMethod === 'api-key'
+      }
     }
   ]);
 
@@ -223,7 +247,8 @@ export async function interactiveAddProvider(existingProfiles: ProfileConfig[] =
     cliType,
     provider: answers.provider,
     commandName: answers.commandName.toLowerCase().trim(),
-    apiKey: answers.apiKey.trim(),
+    apiKey: answers.apiKey ? answers.apiKey.trim() : undefined,
+    authMethod: answers.authMethod,
     customProviderConfig,
     customProviderPrompts
   };
