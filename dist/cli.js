@@ -284,6 +284,20 @@ program
         process.exit(1);
     }
 });
+// Backup Claude command
+program
+    .command('backup-claude')
+    .description('Zip ~/.claude/ (conversations, hooks, commands, settings) excluding cache and temp files')
+    .option('-o, --output <file>', 'Output file path (default: claude-backup-YYYYMMDD.zip)')
+    .action(async (options) => {
+    try {
+        await (0, backup_1.backupClaude)(options.output);
+    }
+    catch (error) {
+        console.error(chalk_1.default.red('Backup failed:'), error.message);
+        process.exit(1);
+    }
+});
 // Restore command
 program
     .command('restore <backup-file>')

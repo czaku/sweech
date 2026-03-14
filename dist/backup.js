@@ -41,6 +41,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.backupSweetch = backupSweetch;
+exports.backupClaude = backupClaude;
 exports.restoreSweetch = restoreSweetch;
 const fs = __importStar(require("fs"));
 const path = __importStar(require("path"));
@@ -161,6 +162,67 @@ async function backupSweetch(outputFile) {
     // Add bin directory (wrapper scripts)
     archive.directory(config.getBinDir(), 'bin');
     await archive.finalize();
+}
+/**
+ * Backup ~/.claude/ to a plain zip, excluding noise
+ */
+async function backupClaude(outputFile) {
+    const claudeDir = path.join(require('os').homedir(), '.claude');
+    if (!fs.existsSync(claudeDir)) {
+        throw new Error('~/.claude/ not found');
+    }
+    const timestamp = new Date().toISOString().split('T')[0].replace(/-/g, '');
+    const finalOutput = outputFile || `claude-backup-${timestamp}.zip`;
+    console.log(chalk_1.default.cyan('\n🍭 Backing up ~/.claude/ ...\n'));
+    const output = fs.createWriteStream(finalOutput);
+    const archive = (0, archiver_1.default)('zip', { zlib: { level: 6 } });
+    // Dirs to include explicitly (avoids noise at the top level)
+    const includeDirs = [
+        'commands', 'hooks', 'agents', 'plans', 'todos', 'tasks', 'teams',
+    ];
+    // Files to include at the top level
+    const includeFiles = [
+        'settings.json', 'CLAUDE.md', 'mcp.json', 'history.jsonl',
+    ];
+    await new Promise((resolve, reject) => {
+        output.on('close', resolve);
+        archive.on('error', reject);
+        archive.pipe(output);
+        // Include known-good dirs
+        for (const dir of includeDirs) {
+            const full = path.join(claudeDir, dir);
+            if (fs.existsSync(full)) {
+                archive.directory(full, dir);
+            }
+        }
+        // Include top-level files
+        for (const file of includeFiles) {
+            const full = path.join(claudeDir, file);
+            if (fs.existsSync(full)) {
+                archive.file(full, { name: file });
+            }
+        }
+        // Include projects/ but skip temp/worktree dirs
+        const projectsDir = path.join(claudeDir, 'projects');
+        if (fs.existsSync(projectsDir)) {
+            const entries = fs.readdirSync(projectsDir);
+            for (const entry of entries) {
+                // Skip private tmp dirs, var folders, worktrees, bare `-` dir
+                if (entry === '-' || entry.startsWith('-private-') || entry.includes('worktree'))
+                    continue;
+                const full = path.join(projectsDir, entry);
+                if (fs.statSync(full).isDirectory()) {
+                    archive.directory(full, `projects/${entry}`);
+                }
+            }
+        }
+        archive.finalize();
+    });
+    const size = (fs.statSync(finalOutput).size / 1024 / 1024).toFixed(2);
+    console.log(chalk_1.default.green('✓ Backup created\n'));
+    console.log(chalk_1.default.cyan('File:'), path.resolve(finalOutput));
+    console.log(chalk_1.default.cyan('Size:'), `${size} MB`);
+    console.log();
 }
 /**
  * Restore sweetch configuration from a backup

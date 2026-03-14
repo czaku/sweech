@@ -10,7 +10,7 @@ import { ConfigManager } from './config';
 import { getProvider, getProviderList, PROVIDERS } from './providers';
 import { interactiveAddProvider, confirmRemoveProvider } from './interactive';
 import { getDefaultCLI, getCLI, SUPPORTED_CLIS } from './clis';
-import { backupSweetch, restoreSweetch } from './backup';
+import { backupSweetch, restoreSweetch, backupClaude } from './backup';
 import { UsageTracker } from './usage';
 import { AliasManager } from './aliases';
 import { generateBashCompletion, generateZshCompletion } from './completion';
@@ -271,6 +271,20 @@ program
   .action(async (options) => {
     try {
       await backupSweetch(options.output);
+    } catch (error: any) {
+      console.error(chalk.red('Backup failed:'), error.message);
+      process.exit(1);
+    }
+  });
+
+// Backup Claude command
+program
+  .command('backup-claude')
+  .description('Zip ~/.claude/ (conversations, hooks, commands, settings) excluding cache and temp files')
+  .option('-o, --output <file>', 'Output file path (default: claude-backup-YYYYMMDD.zip)')
+  .action(async (options) => {
+    try {
+      await backupClaude(options.output);
     } catch (error: any) {
       console.error(chalk.red('Backup failed:'), error.message);
       process.exit(1);

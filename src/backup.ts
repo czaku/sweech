@@ -148,6 +148,79 @@ export async function backupSweetch(outputFile?: string): Promise<void> {
 }
 
 /**
+ * Backup ~/.claude/ to a plain zip, excluding noise
+ */
+export async function backupClaude(outputFile?: string): Promise<void> {
+  const claudeDir = path.join(require('os').homedir(), '.claude');
+
+  if (!fs.existsSync(claudeDir)) {
+    throw new Error('~/.claude/ not found');
+  }
+
+  const timestamp = new Date().toISOString().split('T')[0].replace(/-/g, '');
+  const finalOutput = outputFile || `claude-backup-${timestamp}.zip`;
+
+  console.log(chalk.cyan('\n🍭 Backing up ~/.claude/ ...\n'));
+
+  const output = fs.createWriteStream(finalOutput);
+  const archive = archiver('zip', { zlib: { level: 6 } });
+
+  // Dirs to include explicitly (avoids noise at the top level)
+  const includeDirs = [
+    'commands', 'hooks', 'agents', 'plans', 'todos', 'tasks', 'teams',
+  ];
+
+  // Files to include at the top level
+  const includeFiles = [
+    'settings.json', 'CLAUDE.md', 'mcp.json', 'history.jsonl',
+  ];
+
+  await new Promise<void>((resolve, reject) => {
+    output.on('close', resolve);
+    archive.on('error', reject);
+    archive.pipe(output);
+
+    // Include known-good dirs
+    for (const dir of includeDirs) {
+      const full = path.join(claudeDir, dir);
+      if (fs.existsSync(full)) {
+        archive.directory(full, dir);
+      }
+    }
+
+    // Include top-level files
+    for (const file of includeFiles) {
+      const full = path.join(claudeDir, file);
+      if (fs.existsSync(full)) {
+        archive.file(full, { name: file });
+      }
+    }
+
+    // Include projects/ but skip temp/worktree dirs
+    const projectsDir = path.join(claudeDir, 'projects');
+    if (fs.existsSync(projectsDir)) {
+      const entries = fs.readdirSync(projectsDir);
+      for (const entry of entries) {
+        // Skip private tmp dirs, var folders, worktrees, bare `-` dir
+        if (entry === '-' || entry.startsWith('-private-') || entry.includes('worktree')) continue;
+        const full = path.join(projectsDir, entry);
+        if (fs.statSync(full).isDirectory()) {
+          archive.directory(full, `projects/${entry}`);
+        }
+      }
+    }
+
+    archive.finalize();
+  });
+
+  const size = (fs.statSync(finalOutput).size / 1024 / 1024).toFixed(2);
+  console.log(chalk.green('✓ Backup created\n'));
+  console.log(chalk.cyan('File:'), path.resolve(finalOutput));
+  console.log(chalk.cyan('Size:'), `${size} MB`);
+  console.log();
+}
+
+/**
  * Restore sweetch configuration from a backup
  */
 export async function restoreSweetch(backupFile: string): Promise<void> {
