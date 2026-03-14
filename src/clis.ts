@@ -31,7 +31,7 @@ export const SUPPORTED_CLIS: Record<string, CLIConfig> = {
     configDirEnvVar: 'CODEX_HOME',
     description: 'OpenAI Codex CLI - lightweight coding agent',
     installUrl: 'https://github.com/openai/codex',
-    yoloFlag: '--full-auto',
+    yoloFlag: '--yolo',
   },
   // Future support for other CLIs
   // cursor: {
