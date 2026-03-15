@@ -25,7 +25,7 @@ TypeScript, Commander
 
 ## Architecture Notes
 - [Add important architectural decisions]
-- [Add things Claude must NOT break]
+- [Add things Codex must NOT break]
 
 ## Do Not
 - [Add anti-patterns specific to this project]
