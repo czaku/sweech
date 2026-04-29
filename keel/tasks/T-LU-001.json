@@ -1,0 +1,37 @@
+{
+  "id": "T-LU-001",
+  "title": "profile create writes env vars to settings.json that codex CLI never reads — wrapper exports CODEX_HOME only, so local OpenAI-compat providers fall through to ChatGPT login flow. Repro: sweech profile create --cli codex --provider ollama --base-url http://127.0.0.1:9058/v1 --api-key dummy then sweech use → codex shows the OAuth login screen. Fix: either (a) wrapper sources env from settings.json before exec codex, or (b) sweech writes a proper [model_providers] block in CODEX_HOME/config.toml. Also: codex 0.x dropped wire_api=chat; only wire_api=responses works, so plain llama.cpp servers need a Responses-API translator (LiteLLM) in front.",
+  "description": "",
+  "product": null,
+  "lane": "bug",
+  "wave": null,
+  "space": null,
+  "status": "todo",
+  "priority": "high",
+  "platform": null,
+  "assignee": null,
+  "dependsOn": [],
+  "spec": null,
+  "parentId": null,
+  "dueDate": null,
+  "context": [],
+  "acceptanceCriteria": [],
+  "cloudy_run": null,
+  "statusHistory": [
+    {
+      "status": "todo",
+      "ts": "2026-04-29T23:34:43.311Z"
+    }
+  ],
+  "attachments": [],
+  "stage": null,
+  "runStatus": null,
+  "stageHistory": [],
+  "recurring": null,
+  "createdAt": "2026-04-29T23:34:43.310Z",
+  "updatedAt": "2026-04-29T23:34:43.310Z",
+  "validationOverrides": null,
+  "executionMode": null,
+  "cloudyTaskGraph": null,
+  "cloudy": null
+}
