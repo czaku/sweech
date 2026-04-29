@@ -825,7 +825,7 @@ program
 // Launch command — non-interactive launch with flags
 program
   .command('launch <command-name>')
-  .alias('run')
+  .alias('launch-profile')
   .description('Launch a profile directly (no TUI). Flags: --yolo, --resume, --no-tmux')
   .option('-y, --yolo', 'Skip permission prompts (--dangerously-skip-permissions / equivalent)')
   .option('-r, --resume', 'Resume last session (--continue / equivalent)')
@@ -2928,6 +2928,168 @@ daemonCmd
     } catch {
       console.log(`Daemon process exists (pid ${pid}) but /healthz not reachable`);
       process.exitCode = 1;
+    }
+  });
+
+// ── sweech run ─────────────────────────────────────────────────────────────────
+program
+  .command('run <prompt>')
+  .description('Run a prompt through the engine daemon')
+  .option('-p, --provider <provider>', 'Provider route (claude|anthropic|openai|...)', 'claude')
+  .option('-m, --model <model>', 'Model tier or provider-native model ID')
+  .option('-e, --engine <engine>', 'Force engine (claude-code|codex|pi-mono|copilot|...)')
+  .option('--account <name>', 'Named account route')
+  .option('--profile <name>', 'Use a credential profile')
+  .option('--tier <tier>', 'Route to a cost tier (free|cheap|full|<custom>)')
+  .option('--max-cost <usd>', 'Abort or downgrade when cost exceeds USD amount', parseFloat)
+  .option('--text-only', 'Print only text events')
+  .option('--base-url <url>', 'Custom base URL for OpenAI-compatible endpoints')
+  .option('--auto-start-daemon', 'Start daemon if not running (default: true)', true)
+  .option('--no-auto-start-daemon', 'Do not auto-start daemon')
+  .action(async (prompt: string, flags: {
+    provider: string;
+    model?: string;
+    engine?: string;
+    account?: string;
+    profile?: string;
+    tier?: string;
+    maxCost?: number;
+    textOnly?: boolean;
+    baseUrl?: string;
+    autoStartDaemon?: boolean;
+  }) => {
+    const port = await resolveDaemonPort();
+
+    // Check daemon health, auto-start if needed
+    let healthy = false;
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 2_000);
+      const res = await fetch(`http://127.0.0.1:${port}/healthz`, { signal: controller.signal });
+      const data = await res.json() as Record<string, unknown>;
+      clearTimeout(timer);
+      healthy = !!data.ok;
+    } catch { healthy = false; }
+
+    if (!healthy && flags.autoStartDaemon !== false) {
+      const engineDir = path.resolve(__dirname, '..', 'packages', 'engine');
+      const entryPoint = path.join(engineDir, 'dist', 'daemon', 'index.js');
+      if (!fs.existsSync(entryPoint)) {
+        console.error(chalk.red('Error:'), 'Engine not built. Run: cd packages/engine && npm run build');
+        process.exit(1);
+      }
+      const child = require('child_process').spawn('node', [entryPoint], { detached: true, stdio: 'ignore' });
+      child.unref();
+      console.error(chalk.dim(`Starting daemon (pid ${child.pid})...`));
+      // Wait for daemon to become ready
+      for (let i = 0; i < 30; i++) {
+        await new Promise(r => setTimeout(r, 500));
+        try {
+          const res = await fetch(`http://127.0.0.1:${port}/healthz`);
+          const data = await res.json() as Record<string, unknown>;
+          if (data.ok) { healthy = true; break; }
+        } catch { /* not ready yet */ }
+      }
+      if (!healthy) {
+        console.error(chalk.red('Error:'), 'Daemon did not become ready within 15s');
+        process.exit(1);
+      }
+    } else if (!healthy) {
+      console.error(chalk.red('Error:'), 'Daemon is not running. Start it with: sweech daemon start');
+      process.exit(1);
+    }
+
+    // Build request body
+    const body: Record<string, unknown> = {
+      prompt,
+      provider: flags.provider,
+    };
+    if (flags.model) body.model = flags.model;
+    if (flags.engine) body.engine = flags.engine;
+    if (flags.account) body.account = flags.account;
+    if (flags.profile) body.sweechProfile = flags.profile;
+    if (flags.tier) body.tier = flags.tier;
+    if (flags.maxCost != null) {
+      body.budgetGuard = { maxCostUsd: flags.maxCost, action: 'fallback_tier' };
+    }
+    if (flags.baseUrl) body.baseUrl = flags.baseUrl;
+
+    // POST to /run and stream SSE events
+    const ac = new AbortController();
+    process.on('SIGINT', () => ac.abort());
+
+    try {
+      const res = await fetch(`http://127.0.0.1:${port}/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: ac.signal,
+      });
+
+      if (!res.ok) {
+        const errBody = await res.text();
+        console.error(chalk.red(`Error (${res.status}):`), errBody);
+        process.exit(1);
+      }
+
+      // Parse SSE stream
+      if (!res.body) {
+        console.error(chalk.red('Error:'), 'No response body');
+        process.exit(1);
+      }
+      const stream = res.body as unknown as AsyncIterable<Uint8Array>;
+      let buffer = '';
+
+      for await (const chunk of stream) {
+        buffer += chunk.toString();
+        const lines = buffer.split('\n');
+        buffer = lines.pop() ?? '';
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          const raw = line.slice(6);
+          if (!raw.trim()) continue;
+          try {
+            const envelope = JSON.parse(raw) as Record<string, unknown>;
+            const event = envelope.event as Record<string, unknown> | undefined;
+            if (!event) continue;
+
+            switch (event.type) {
+              case 'text':
+                process.stdout.write(event.content as string);
+                break;
+              case 'tool_use':
+                if (!flags.textOnly) console.log(`\n[tool: ${event.name}]`);
+                break;
+              case 'tool_result':
+                if (!flags.textOnly && event.isError) console.error(`[tool error: ${event.name}] ${event.content}`);
+                break;
+              case 'result': {
+                const usage = event.usage as { inputTokens: number; outputTokens: number };
+                const tokens = usage.inputTokens + usage.outputTokens;
+                if (!flags.textOnly) {
+                  console.log(`\n\n[${event.engine ?? 'unknown'} · $${(event.costUsd as number).toFixed(4)} · ${tokens} tokens · ${((event.durationMs as number) / 1000).toFixed(1)}s]`);
+                }
+                break;
+              }
+              case 'progress':
+                if (!flags.textOnly) process.stderr.write(`\r[progress: ~${event.tokensGenerated} tokens]`);
+                break;
+              case 'cost_update':
+                if (!flags.textOnly) process.stderr.write(`\r[cost: $${(event.costUsd as number).toFixed(4)}]`);
+                break;
+              case 'error':
+                console.error(`\n[error] ${event.message}`);
+                process.exit(1);
+            }
+          } catch { /* skip malformed SSE */ }
+        }
+      }
+    } catch (err) {
+      if ((err as Error).name !== 'AbortError') {
+        console.error(chalk.red('Error:'), (err as Error).message);
+        process.exit(1);
+      }
     }
   });
 
