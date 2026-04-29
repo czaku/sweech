@@ -36,6 +36,7 @@ import { installPlugin, uninstallPlugin, listPlugins } from './plugins';
 import { getAllTemplates, findTemplate, saveCustomTemplate, loadCustomTemplates, deleteCustomTemplate, BUILT_IN_TEMPLATES, ProfileTemplate } from './templates';
 import * as path from 'path';
 import * as fs from 'fs';
+import * as os from 'os';
 
 // Read version from package.json
 const packageJsonPath = path.join(__dirname, '../package.json');
@@ -2818,6 +2819,115 @@ program
       console.log(chalk.dim(`\n  Re-run without --dry-run to apply.\n`));
     } else {
       console.log();
+    }
+  });
+
+// ── sweech daemon start/stop/status ────────────────────────────────────────────
+const PID_FILE = path.join(os.homedir(), '.sweech', 'daemon.pid');
+const DEFAULT_DAEMON_PORT = 7801;
+
+async function resolveDaemonPort(): Promise<number> {
+  const envPort = parseInt(process.env.SWEECH_PORT ?? '');
+  if (Number.isFinite(envPort) && envPort > 0) return envPort;
+  try {
+    const raw = fs.readFileSync(path.join(os.homedir(), '.fed', 'config.json'), 'utf-8');
+    const cfg = JSON.parse(raw) as { tools?: Record<string, { dash?: number }> };
+    return cfg?.tools?.sweech?.dash ?? DEFAULT_DAEMON_PORT;
+  } catch { return DEFAULT_DAEMON_PORT; }
+}
+
+async function readDaemonPid(): Promise<number | null> {
+  try {
+    const raw = fs.readFileSync(PID_FILE, 'utf-8');
+    const pid = parseInt(raw.trim(), 10);
+    return Number.isNaN(pid) ? null : pid;
+  } catch { return null; }
+}
+
+function isProcessAlive(pid: number): boolean {
+  try { process.kill(pid, 0); return true; } catch { return false; }
+}
+
+async function waitForProcessExit(pid: number, timeoutMs = 10_000): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (!isProcessAlive(pid)) return true;
+    await new Promise(r => setTimeout(r, 250));
+  }
+  return !isProcessAlive(pid);
+}
+
+const daemonCmd = program
+  .command('daemon')
+  .description('Manage the sweech engine daemon');
+
+daemonCmd
+  .command('start')
+  .description('Start the engine daemon in the background')
+  .action(async () => {
+    const existingPid = await readDaemonPid();
+    if (existingPid && isProcessAlive(existingPid)) {
+      console.log(`Daemon already running (pid ${existingPid})`);
+      return;
+    }
+    // Resolve engine daemon entry point
+    const engineDir = path.resolve(__dirname, '..', 'packages', 'engine');
+    const entryPoint = path.join(engineDir, 'dist', 'daemon', 'index.js');
+    if (!fs.existsSync(entryPoint)) {
+      console.error(chalk.red('Error:'), 'Engine not built. Run: cd packages/engine && npm run build');
+      process.exit(1);
+    }
+    const child = require('child_process').spawn('node', [entryPoint], { detached: true, stdio: 'ignore' });
+    child.unref();
+    console.log(`sweech daemon started (pid ${child.pid})`);
+  });
+
+daemonCmd
+  .command('stop')
+  .description('Stop the running engine daemon')
+  .action(async () => {
+    const pid = await readDaemonPid();
+    if (!pid) { console.log('No PID file found — daemon not running'); return; }
+    if (!isProcessAlive(pid)) {
+      console.log(`PID ${pid} not running — cleaning up stale PID file`);
+      fs.unlinkSync(PID_FILE);
+      return;
+    }
+    process.kill(pid, 'SIGTERM');
+    console.log(`Sent SIGTERM to daemon (pid ${pid}); waiting for shutdown`);
+    const stopped = await waitForProcessExit(pid);
+    if (!stopped) { console.error(chalk.red('Daemon did not stop within timeout')); process.exitCode = 1; return; }
+    try { fs.unlinkSync(PID_FILE); } catch {}
+    console.log('Daemon stopped cleanly');
+  });
+
+daemonCmd
+  .command('status')
+  .description('Check engine daemon status and readiness')
+  .action(async () => {
+    const pid = await readDaemonPid();
+    if (!pid || !isProcessAlive(pid)) {
+      console.log('Daemon is not running');
+      process.exitCode = 1;
+      return;
+    }
+    const port = await resolveDaemonPort();
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 2_000);
+      const res = await fetch(`http://127.0.0.1:${port}/healthz`, { signal: controller.signal });
+      const data = await res.json() as Record<string, unknown>;
+      clearTimeout(timer);
+      console.log(`Daemon process exists (pid ${pid})`);
+      console.log(`  state: ${data.state}`);
+      console.log(`  ready: ${data.ok}`);
+      if (!data.ok) { console.log(`  reason: ${data.reason}`); process.exitCode = 1; return; }
+      if (data.activeSessions !== undefined) console.log(`  activeSessions: ${data.activeSessions}`);
+      if (data.uptime !== undefined) console.log(`  uptime: ${Math.round(Number(data.uptime))}s`);
+      if (data.version !== undefined) console.log(`  version: ${data.version}`);
+    } catch {
+      console.log(`Daemon process exists (pid ${pid}) but /healthz not reachable`);
+      process.exitCode = 1;
     }
   });
 
