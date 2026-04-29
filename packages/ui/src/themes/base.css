@@ -1,0 +1,588 @@
+/* ── @omnai/ui Base Theme ────────────────────────────────────────────────────── */
+/* Override any of these variables in your app's CSS to theme the UI           */
+
+:root {
+  /* Layout */
+  --omnai-radius: 8px;
+  --omnai-radius-pill: 999px;
+  --omnai-spacing: 12px;
+  --omnai-font: inherit;
+  --omnai-font-mono: ui-monospace, 'Cascadia Code', 'Fira Code', monospace;
+  --omnai-font-size: 14px;
+
+  /* Colours */
+  --omnai-bg: #ffffff;
+  --omnai-surface: #f5f5f5;
+  --omnai-surface-2: #ebebeb;
+  --omnai-border: #e0e0e0;
+  --omnai-text: #111111;
+  --omnai-text-muted: #777777;
+  --omnai-accent: #2563eb;
+  --omnai-accent-text: #ffffff;
+  --omnai-error: #dc2626;
+  --omnai-success: #16a34a;
+  --omnai-warning: #d97706;
+
+  /* Bubbles */
+  --omnai-bubble-prompt-bg: #2563eb;
+  --omnai-bubble-prompt-text: #ffffff;
+  --omnai-bubble-reply-bg: #f0f4ff;
+  --omnai-bubble-reply-text: #111111;
+  --omnai-bubble-success-bg: #f0fdf4;
+  --omnai-bubble-success-text: #14532d;
+
+  /* Pills (tool calls / events) */
+  --omnai-pill-bg: #f5f5f5;
+  --omnai-pill-border: #e0e0e0;
+  --omnai-pill-text: #555555;
+  --omnai-pill-error-bg: #fef2f2;
+  --omnai-pill-error-border: #fca5a5;
+  --omnai-pill-error-text: #991b1b;
+
+  /* Buttons */
+  --omnai-btn-radius: 6px;
+  --omnai-btn-padding: 6px 14px;
+  --omnai-btn-font-size: 13px;
+  --omnai-btn-font-weight: 500;
+
+  --omnai-btn-primary-bg: var(--omnai-accent);
+  --omnai-btn-primary-text: var(--omnai-accent-text);
+  --omnai-btn-primary-hover: #1d4ed8;
+
+  --omnai-btn-ghost-bg: transparent;
+  --omnai-btn-ghost-text: var(--omnai-text-muted);
+  --omnai-btn-ghost-hover: var(--omnai-surface);
+  --omnai-btn-ghost-border: var(--omnai-border);
+
+  --omnai-btn-approve-bg: #16a34a;
+  --omnai-btn-approve-text: #ffffff;
+  --omnai-btn-skip-bg: #ca8a04;
+  --omnai-btn-skip-text: #ffffff;
+  --omnai-btn-halt-bg: #dc2626;
+  --omnai-btn-halt-text: #ffffff;
+  --omnai-btn-retry-bg: #7c3aed;
+  --omnai-btn-retry-text: #ffffff;
+
+  /* Input */
+  --omnai-input-bg: var(--omnai-bg);
+  --omnai-input-border: var(--omnai-border);
+  --omnai-input-radius: var(--omnai-radius);
+  --omnai-input-text: var(--omnai-text);
+  --omnai-input-placeholder: var(--omnai-text-muted);
+  --omnai-input-focus-border: var(--omnai-accent);
+
+  /* Approval / Question overlays */
+  --omnai-overlay-bg: rgba(0, 0, 0, 0.4);
+  --omnai-card-bg: var(--omnai-bg);
+  --omnai-card-border: var(--omnai-border);
+  --omnai-card-radius: 12px;
+
+  /* Status bar */
+  --omnai-status-bg: var(--omnai-surface);
+  --omnai-status-text: var(--omnai-text-muted);
+  --omnai-dot-connected: #22c55e;
+  --omnai-dot-disconnected: #ef4444;
+}
+
+/* ── Structure ──────────────────────────────────────────────────────────────── */
+
+.omnai-thread {
+  display: flex;
+  flex-direction: column;
+  font-family: var(--omnai-font);
+  font-size: var(--omnai-font-size);
+  color: var(--omnai-text);
+  background: var(--omnai-bg);
+  border: 1px solid var(--omnai-border);
+  border-radius: var(--omnai-radius);
+  overflow: hidden;
+  position: relative;
+}
+.omnai-thread--fill { height: 100%; flex: 1; }
+.omnai-thread--collapsed .omnai-thread__body { display: none; }
+
+.omnai-resize-handle {
+  height: 4px;
+  cursor: ns-resize;
+  background: var(--omnai-border);
+  flex-shrink: 0;
+}
+.omnai-resize-handle:hover { background: var(--omnai-accent); }
+
+.omnai-thread__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px var(--omnai-spacing);
+  border-bottom: 1px solid var(--omnai-border);
+  flex-shrink: 0;
+  gap: 8px;
+}
+.omnai-thread__header-left { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.omnai-thread__title { font-weight: 600; }
+.omnai-thread__count { font-size: 11px; color: var(--omnai-text-muted); }
+.omnai-thread__actions { display: flex; align-items: center; gap: 6px; }
+.omnai-thread__elapsed,
+.omnai-thread__cost { font-size: 11px; color: var(--omnai-text-muted); font-variant-numeric: tabular-nums; }
+.omnai-thread__empty { padding: 32px; text-align: center; color: var(--omnai-text-muted); }
+
+.omnai-thread__body { display: flex; flex: 1; overflow: hidden; }
+.omnai-thread__log { flex: 1; overflow-y: auto; padding: var(--omnai-spacing); display: flex; flex-direction: column; gap: 6px; }
+
+/* ── Filters ────────────────────────────────────────────────────────────────── */
+
+.omnai-filters { display: flex; gap: 4px; flex-wrap: wrap; }
+.omnai-filter {
+  padding: 2px 8px;
+  border-radius: var(--omnai-radius-pill);
+  border: 1px solid var(--omnai-border);
+  background: transparent;
+  color: var(--omnai-text-muted);
+  font-size: 12px;
+  cursor: pointer;
+  position: relative;
+}
+.omnai-filter:hover { background: var(--omnai-surface); }
+.omnai-filter--active { background: var(--omnai-accent); color: var(--omnai-accent-text); border-color: var(--omnai-accent); }
+.omnai-filter--has-badge .omnai-filter__badge {
+  position: absolute;
+  top: -4px; right: -4px;
+  background: var(--omnai-error);
+  color: #fff;
+  border-radius: 999px;
+  font-size: 10px;
+  min-width: 14px;
+  height: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 3px;
+}
+
+/* ── Message rows ───────────────────────────────────────────────────────────── */
+
+.omnai-row { display: flex; margin-bottom: 2px; }
+.omnai-row--left { justify-content: flex-start; }
+.omnai-row--right { justify-content: flex-end; }
+.omnai-row--center { justify-content: center; }
+
+/* ── Bubbles ────────────────────────────────────────────────────────────────── */
+
+.omnai-bubble {
+  max-width: 75%;
+  padding: 8px 12px;
+  border-radius: var(--omnai-radius);
+  line-height: 1.5;
+}
+.omnai-bubble__label { font-size: 10px; opacity: 0.65; margin-bottom: 2px; }
+.omnai-bubble__title { font-weight: 600; }
+.omnai-bubble__body { margin-top: 4px; font-size: 13px; opacity: 0.85; }
+.omnai-bubble__text { white-space: pre-wrap; word-break: break-word; }
+
+.omnai-bubble--prompt {
+  background: var(--omnai-bubble-prompt-bg);
+  color: var(--omnai-bubble-prompt-text);
+}
+.omnai-bubble--reply {
+  background: var(--omnai-bubble-reply-bg);
+  color: var(--omnai-bubble-reply-text);
+}
+.omnai-bubble--success {
+  background: var(--omnai-bubble-success-bg);
+  color: var(--omnai-bubble-success-text);
+}
+
+/* ── Pills ──────────────────────────────────────────────────────────────────── */
+
+.omnai-pill {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: var(--omnai-radius-pill);
+  border: 1px solid var(--omnai-pill-border);
+  background: var(--omnai-pill-bg);
+  color: var(--omnai-pill-text);
+  font-size: 12px;
+  cursor: pointer;
+  max-width: 90%;
+  user-select: none;
+}
+.omnai-pill:hover { background: var(--omnai-surface-2); }
+.omnai-pill--error { background: var(--omnai-pill-error-bg); border-color: var(--omnai-pill-error-border); color: var(--omnai-pill-error-text); }
+.omnai-pill__icon { flex-shrink: 0; }
+.omnai-pill__name { font-weight: 500; flex-shrink: 0; }
+.omnai-pill__hint { color: var(--omnai-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.omnai-pill__task { margin-left: auto; font-size: 10px; opacity: 0.6; flex-shrink: 0; }
+.omnai-pill__chevron { margin-left: 4px; flex-shrink: 0; opacity: 0.5; }
+.omnai-pill__body {
+  width: 100%;
+  margin-top: 4px;
+  padding: 8px;
+  border: 1px solid var(--omnai-pill-border);
+  border-radius: var(--omnai-radius);
+  background: var(--omnai-surface);
+}
+.omnai-pre { margin: 0; font-family: var(--omnai-font-mono); font-size: 12px; white-space: pre-wrap; word-break: break-all; }
+
+/* ── Events ─────────────────────────────────────────────────────────────────── */
+
+.omnai-event {
+  padding: 3px 10px;
+  border-radius: var(--omnai-radius-pill);
+  font-size: 11px;
+  color: var(--omnai-text-muted);
+  background: var(--omnai-surface);
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.omnai-event--error { color: var(--omnai-error); background: var(--omnai-pill-error-bg); }
+
+/* ── Buttons ────────────────────────────────────────────────────────────────── */
+
+.omnai-btn {
+  padding: var(--omnai-btn-padding);
+  border-radius: var(--omnai-btn-radius);
+  font-size: var(--omnai-btn-font-size);
+  font-weight: var(--omnai-btn-font-weight);
+  border: none;
+  cursor: pointer;
+  transition: opacity 0.1s;
+}
+.omnai-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.omnai-btn:not(:disabled):hover { opacity: 0.85; }
+
+.omnai-btn--primary { background: var(--omnai-btn-primary-bg); color: var(--omnai-btn-primary-text); }
+.omnai-btn--ghost { background: var(--omnai-btn-ghost-bg); color: var(--omnai-btn-ghost-text); border: 1px solid var(--omnai-btn-ghost-border); }
+.omnai-btn--ghost:hover { background: var(--omnai-btn-ghost-hover) !important; opacity: 1 !important; }
+.omnai-btn--approve { background: var(--omnai-btn-approve-bg); color: var(--omnai-btn-approve-text); }
+.omnai-btn--skip { background: var(--omnai-btn-skip-bg); color: var(--omnai-btn-skip-text); }
+.omnai-btn--halt { background: var(--omnai-btn-halt-bg); color: var(--omnai-btn-halt-text); }
+.omnai-btn--retry { background: var(--omnai-btn-retry-bg); color: var(--omnai-btn-retry-text); }
+.omnai-btn--send { background: var(--omnai-accent); color: var(--omnai-accent-text); }
+
+/* ── Input ──────────────────────────────────────────────────────────────────── */
+
+.omnai-input {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  padding: var(--omnai-spacing);
+  border-top: 1px solid var(--omnai-border);
+  background: var(--omnai-bg);
+}
+.omnai-input__textarea {
+  flex: 1;
+  padding: 8px 12px;
+  border-radius: var(--omnai-input-radius);
+  border: 1px solid var(--omnai-input-border);
+  background: var(--omnai-input-bg);
+  color: var(--omnai-input-text);
+  font-size: var(--omnai-font-size);
+  font-family: var(--omnai-font);
+  resize: none;
+  outline: none;
+  line-height: 1.5;
+  field-sizing: content;
+  max-height: 180px;
+}
+.omnai-input__textarea:focus { border-color: var(--omnai-input-focus-border); }
+.omnai-input__textarea::placeholder { color: var(--omnai-input-placeholder); }
+
+/* ── Approval / Question overlays ───────────────────────────────────────────── */
+
+.omnai-approval-overlay,
+.omnai-question-overlay {
+  position: fixed;
+  inset: 0;
+  background: var(--omnai-overlay-bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.omnai-approval,
+.omnai-question {
+  background: var(--omnai-card-bg);
+  border: 1px solid var(--omnai-card-border);
+  border-radius: var(--omnai-card-radius);
+  padding: 24px;
+  max-width: 480px;
+  width: 90%;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
+}
+
+.omnai-approval__header,
+.omnai-question__header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.omnai-approval__stage { font-weight: 700; font-size: 13px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--omnai-warning); }
+.omnai-approval__task { font-size: 13px; color: var(--omnai-text-muted); }
+.omnai-approval__context { font-size: 13px; color: var(--omnai-text-muted); background: var(--omnai-surface); padding: 8px 12px; border-radius: var(--omnai-radius); }
+.omnai-approval__hint-row { display: flex; }
+.omnai-approval__hint-input,
+.omnai-question__input {
+  flex: 1;
+  padding: 8px 12px;
+  border: 1px solid var(--omnai-input-border);
+  border-radius: var(--omnai-input-radius);
+  background: var(--omnai-input-bg);
+  color: var(--omnai-input-text);
+  font-size: var(--omnai-font-size);
+  outline: none;
+}
+.omnai-approval__hint-input:focus,
+.omnai-question__input:focus { border-color: var(--omnai-input-focus-border); }
+.omnai-approval__actions,
+.omnai-question__actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+.omnai-question__icon { font-size: 20px; }
+.omnai-question__label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--omnai-text-muted); }
+.omnai-question__text { font-size: 15px; font-weight: 500; line-height: 1.5; }
+.omnai-question__options { display: flex; flex-direction: column; gap: 8px; }
+.omnai-question__option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--omnai-border);
+  border-radius: var(--omnai-radius);
+  cursor: pointer;
+  font-size: 14px;
+}
+.omnai-question__option--selected { border-color: var(--omnai-accent); background: var(--omnai-bubble-reply-bg); }
+.omnai-question__option input[type="radio"] { accent-color: var(--omnai-accent); }
+
+/* ── Status bar ─────────────────────────────────────────────────────────────── */
+
+.omnai-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px var(--omnai-spacing);
+  background: var(--omnai-status-bg);
+  color: var(--omnai-status-text);
+  font-size: 12px;
+  border-top: 1px solid var(--omnai-border);
+}
+.omnai-status__dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.omnai-status__dot--connected { background: var(--omnai-dot-connected); }
+.omnai-status__dot--disconnected { background: var(--omnai-dot-disconnected); }
+.omnai-status__state { text-transform: capitalize; }
+.omnai-status__model { font-family: var(--omnai-font-mono); font-size: 11px; }
+.omnai-status__sep { opacity: 0.4; }
+.omnai-status__cost,
+.omnai-status__tokens { font-variant-numeric: tabular-nums; }
+.omnai-status__offline { color: var(--omnai-error); margin-left: auto; }
+
+/* ── Thinking bubble ────────────────────────────────────────────────────────── */
+
+.omnai-thinking {
+  max-width: 80%;
+  margin: 4px 0;
+}
+.omnai-thinking__header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  background: var(--omnai-surface);
+  border: 1px solid var(--omnai-border);
+  border-radius: var(--omnai-radius);
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--omnai-text-muted);
+  user-select: none;
+}
+.omnai-thinking--open .omnai-thinking__header {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+.omnai-thinking__icon { opacity: 0.7; }
+.omnai-thinking__label { font-weight: 500; color: var(--omnai-text); }
+.omnai-thinking__preview {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  opacity: 0.6;
+}
+.omnai-thinking__chevron { margin-left: auto; opacity: 0.5; font-size: 10px; }
+.omnai-thinking__body {
+  margin: 0;
+  padding: 10px 12px;
+  background: var(--omnai-surface);
+  border: 1px solid var(--omnai-border);
+  border-top: none;
+  border-bottom-left-radius: var(--omnai-radius);
+  border-bottom-right-radius: var(--omnai-radius);
+  font-family: var(--omnai-font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--omnai-text-muted);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+/* ── Input chips (effort / thinking) ───────────────────────────────────────── */
+
+.omnai-input__controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 6px var(--omnai-spacing) 0;
+}
+.omnai-input__control {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.omnai-input__control-label {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--omnai-text-muted);
+  white-space: nowrap;
+}
+.omnai-input__chips {
+  display: flex;
+  gap: 4px;
+}
+.omnai-chip {
+  padding: 2px 8px;
+  border-radius: var(--omnai-radius-pill);
+  font-size: 11px;
+  font-weight: 500;
+  border: 1px solid var(--omnai-border);
+  background: var(--omnai-surface);
+  color: var(--omnai-text-muted);
+  cursor: pointer;
+  transition: background 0.1s, color 0.1s, border-color 0.1s;
+}
+.omnai-chip:hover:not(:disabled) {
+  background: var(--omnai-surface-2);
+  color: var(--omnai-text);
+}
+.omnai-chip--active {
+  background: var(--omnai-accent);
+  color: var(--omnai-accent-text);
+  border-color: var(--omnai-accent);
+}
+.omnai-chip:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* ── Usage bar ──────────────────────────────────────────────────────────────── */
+
+.omnai-usage {
+  position: relative;
+  font-size: 12px;
+}
+.omnai-usage__pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border-radius: var(--omnai-radius-pill);
+  border: 1px solid var(--omnai-border);
+  background: var(--omnai-surface);
+  color: var(--omnai-text-muted);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 500;
+  transition: background 0.1s;
+}
+.omnai-usage__pill:hover { background: var(--omnai-surface-2); }
+.omnai-usage__pill--ok { border-color: #86efac; color: #15803d; }
+.omnai-usage__pill--warning { border-color: #fde68a; color: #92400e; }
+.omnai-usage__pill--critical { border-color: #fca5a5; color: #991b1b; }
+.omnai-usage__pill-chevron { font-size: 9px; opacity: 0.6; }
+
+.omnai-usage__panel {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  right: 0;
+  min-width: 260px;
+  background: var(--omnai-bg);
+  border: 1px solid var(--omnai-border);
+  border-radius: var(--omnai-radius);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  z-index: 100;
+}
+.omnai-usage__account { display: flex; flex-direction: column; gap: 5px; }
+.omnai-usage__account-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.omnai-usage__account-name { font-weight: 500; color: var(--omnai-text); font-size: 12px; }
+.omnai-usage__plan {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: var(--omnai-radius-pill);
+  background: var(--omnai-surface);
+  color: var(--omnai-text-muted);
+  border: 1px solid var(--omnai-border);
+}
+.omnai-usage__badge {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: var(--omnai-radius-pill);
+  font-weight: 600;
+}
+.omnai-usage__badge--ok { background: #dcfce7; color: #15803d; }
+.omnai-usage__badge--warning { background: #fef9c3; color: #854d0e; }
+.omnai-usage__badge--critical { background: #fee2e2; color: #991b1b; }
+
+.omnai-usage__bars { display: flex; flex-direction: column; gap: 4px; }
+.omnai-usage__row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+}
+.omnai-usage__row-label { width: 20px; color: var(--omnai-text-muted); font-weight: 500; }
+.omnai-usage__track {
+  flex: 1;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--omnai-surface-2);
+  overflow: hidden;
+}
+.omnai-usage__fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.3s;
+}
+.omnai-usage__bar--ok .omnai-usage__fill { background: #22c55e; }
+.omnai-usage__bar--warning .omnai-usage__fill { background: #f59e0b; }
+.omnai-usage__bar--critical .omnai-usage__fill { background: #ef4444; }
+.omnai-usage__bar--unknown .omnai-usage__fill { background: var(--omnai-surface-2); }
+.omnai-usage__pct { width: 30px; text-align: right; color: var(--omnai-text-muted); font-variant-numeric: tabular-nums; }
+.omnai-usage__reset { color: var(--omnai-text-muted); font-size: 10px; white-space: nowrap; }
+.omnai-usage__msg-count { color: var(--omnai-text); font-variant-numeric: tabular-nums; }
+
+/* ── Running animation ─────────────────────────────────────────────────────── */
+
+@keyframes omnai-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+.omnai-status--running .omnai-status__dot--connected {
+  animation: omnai-pulse 1.5s ease-in-out infinite;
+}

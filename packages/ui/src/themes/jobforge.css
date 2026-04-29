@@ -1,0 +1,87 @@
+/* ── @omnai/ui — JobForge Theme ──────────────────────────────────────────────── */
+/* Scoped to [data-omnai-product="jobforge"] — safe to load alongside other themes. */
+
+[data-omnai-product="jobforge"],
+[data-omnai-product="jobforge"][data-theme="dark"] {
+  --omnai-radius: 18px;
+  --omnai-radius-pill: 999px;
+  --omnai-btn-radius: 10px;
+  --omnai-spacing: 16px;
+
+  --omnai-bg: #050d0c;
+  --omnai-surface: #0f2822;
+  --omnai-surface-2: #0a1f1d;
+  --omnai-border: rgba(27,70,65,0.6);
+  --omnai-text: #f8faf9;
+  --omnai-text-muted: rgba(248,250,249,0.5);
+  --omnai-accent: #d4af37;
+  --omnai-accent-text: #050d0c;
+
+  --omnai-bubble-prompt-bg: rgba(77,171,247,0.18);
+  --omnai-bubble-prompt-text: #f8faf9;
+  --omnai-bubble-reply-bg: rgba(15,40,34,0.9);
+  --omnai-bubble-reply-text: #f8faf9;
+
+  --omnai-pill-bg: rgba(15,40,34,0.8);
+  --omnai-pill-border: rgba(212,175,55,0.2);
+  --omnai-pill-text: rgba(248,250,249,0.7);
+
+  --omnai-btn-primary-bg: linear-gradient(135deg, #d4af37, #b8962acc);
+  --omnai-btn-primary-text: #050d0c;
+  --omnai-btn-ghost-text: rgba(248,250,249,0.6);
+  --omnai-btn-ghost-border: rgba(27,70,65,0.6);
+
+  --omnai-input-bg: rgba(15,40,34,0.6);
+  --omnai-input-border: rgba(27,70,65,0.8);
+  --omnai-input-text: #f8faf9;
+  --omnai-input-focus-border: #d4af37;
+
+  --omnai-card-bg: rgba(10,31,29,0.95);
+  --omnai-card-border: rgba(27,70,65,0.6);
+  --omnai-overlay-bg: rgba(0,0,0,0.6);
+
+  --omnai-status-bg: rgba(10,31,29,0.95);
+  --omnai-status-text: rgba(248,250,249,0.5);
+}
+
+[data-omnai-product="jobforge"][data-theme="light"] {
+  --omnai-radius: 18px;
+  --omnai-radius-pill: 999px;
+  --omnai-btn-radius: 10px;
+  --omnai-spacing: 16px;
+
+  --omnai-bg: #faf8f2;
+  --omnai-surface: #ffffff;
+  --omnai-surface-2: #f4f1e8;
+  --omnai-border: rgba(0,0,0,0.08);
+  --omnai-text: #1a1a0f;
+  --omnai-text-muted: #8a8470;
+  --omnai-accent: #a07d1a;
+  --omnai-accent-text: #ffffff;
+
+  --omnai-bubble-prompt-bg: rgba(59,130,246,0.12);
+  --omnai-bubble-prompt-text: #1a1a0f;
+  --omnai-bubble-reply-bg: #ffffff;
+  --omnai-bubble-reply-text: #1a1a0f;
+
+  --omnai-pill-bg: #f4f1e8;
+  --omnai-pill-border: rgba(160,125,26,0.25);
+  --omnai-pill-text: #5a5240;
+
+  --omnai-btn-primary-bg: #a07d1a;
+  --omnai-btn-primary-text: #ffffff;
+  --omnai-btn-ghost-text: #8a8470;
+  --omnai-btn-ghost-border: rgba(0,0,0,0.1);
+
+  --omnai-input-bg: #ffffff;
+  --omnai-input-border: rgba(0,0,0,0.12);
+  --omnai-input-text: #1a1a0f;
+  --omnai-input-focus-border: #a07d1a;
+
+  --omnai-card-bg: #f4f1e8;
+  --omnai-card-border: rgba(0,0,0,0.08);
+  --omnai-overlay-bg: rgba(0,0,0,0.3);
+
+  --omnai-status-bg: #faf8f2;
+  --omnai-status-text: #8a8470;
+}

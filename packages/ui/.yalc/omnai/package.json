@@ -1,0 +1,39 @@
+{
+  "name": "omnai",
+  "version": "0.1.0",
+  "description": "Universal AI agent runner with explicit local-subscription vs API routing",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "omnai": "./dist/cli/index.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:regression": "vitest run src/__tests__/regression --reporter=default --reporter=json --outputFile=./coverage/regression-report.json",
+    "coverage": "vitest run --coverage",
+    "start": "node dist/cli/index.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.2.71",
+    "@anthropic-ai/sdk": "^0.73.0",
+    "@hono/node-server": "^1.19.11",
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "@vykeai/fed": "file:.yalc/@vykeai/fed",
+    "commander": "^12.0.0",
+    "execa": "^9.0.0",
+    "hono": "^4.12.7",
+    "yaml": "^2.8.2"
+  },
+  "yalcSig": "f5c1480d0eabc6096b00593a50d8b42d"
+}

@@ -1,0 +1,14 @@
+{
+  "version": "v1",
+  "packages": {
+    "omnai": {
+      "signature": "f5c1480d0eabc6096b00593a50d8b42d",
+      "file": true,
+      "replaced": "file:../core"
+    },
+    "@sweech/engine": {
+      "signature": "bc861907013cbddfaf09226b4cc6e251",
+      "file": true
+    }
+  }
+}
