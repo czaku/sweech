@@ -81,12 +81,12 @@ mocks.realpathSync.mockImplementation((p: string) => p);
 
 vi.stubGlobal('fetch', mocks.fetch);
 
-mocks.homedir.mockReturnValue('/tmp/omnai-home');
+mocks.homedir.mockReturnValue('/tmp/sweech-home');
 mocks.userInfo.mockReturnValue({ username: 'alice' });
 
 const { getLiveUsage } = await import('../usage.js');
 
-const cachePath = '/tmp/omnai-home/.omnai/rate-limit-cache.json';
+const cachePath = '/tmp/sweech-home/.sweech/rate-limit-cache.json';
 const originalUserEnv = process.env.USER;
 
 describe('usage token retrieval', () => {
@@ -95,7 +95,7 @@ describe('usage token retrieval', () => {
     resetFs();
     setFile(cachePath, JSON.stringify({}));
     process.env.USER = 'alice';
-    mocks.homedir.mockReturnValue('/tmp/omnai-home');
+    mocks.homedir.mockReturnValue('/tmp/sweech-home');
     mocks.userInfo.mockReturnValue({ username: 'alice' });
     mocks.execFileSync.mockReset();
     mocks.fetch.mockReset();
@@ -111,7 +111,7 @@ describe('usage token retrieval', () => {
       'anthropic-ratelimit-unified-status': 'allowed',
     }));
 
-    const data = await getLiveUsage('/tmp/omnai-home/.claude');
+    const data = await getLiveUsage('/tmp/sweech-home/.claude');
 
     expect(mocks.execFileSync).toHaveBeenCalledWith(
       'security',
@@ -137,11 +137,11 @@ describe('usage token retrieval', () => {
       'anthropic-ratelimit-unified-status': 'allowed',
     }));
 
-    const first = await getLiveUsage('/tmp/omnai-home/.claude');
+    const first = await getLiveUsage('/tmp/sweech-home/.claude');
     expect(mocks.fetch).toHaveBeenCalledTimes(1);
 
     vi.clearAllMocks();
-    const second = await getLiveUsage('/tmp/omnai-home/.claude');
+    const second = await getLiveUsage('/tmp/sweech-home/.claude');
 
     expect(second).toEqual(first);
     expect(mocks.fetch).not.toHaveBeenCalled();
@@ -156,7 +156,7 @@ describe('usage token retrieval', () => {
       'anthropic-ratelimit-unified-status': 'allowed',
     }));
 
-    await getLiveUsage('/tmp/omnai-home/.claude');
+    await getLiveUsage('/tmp/sweech-home/.claude');
     const current = JSON.parse(getFile(cachePath)) as Record<string, unknown>;
     const key = Object.keys(current)[0];
     const stale = {
@@ -165,7 +165,7 @@ describe('usage token retrieval', () => {
     };
     setFile(cachePath, JSON.stringify({ [key]: stale }));
 
-    await getLiveUsage('/tmp/omnai-home/.claude');
+    await getLiveUsage('/tmp/sweech-home/.claude');
 
     expect(mocks.fetch).toHaveBeenCalledTimes(2);
     expect(mocks.execFileSync).toHaveBeenCalledTimes(2);
@@ -181,20 +181,20 @@ describe('usage token retrieval', () => {
       'anthropic-ratelimit-unified-status': 'allowed',
     }));
 
-    await getLiveUsage('/tmp/omnai-home/.claude');
+    await getLiveUsage('/tmp/sweech-home/.claude');
     expect(mocks.fetch).toHaveBeenCalledTimes(1);
 
     process.env.USER = 'bob';
     mocks.userInfo.mockReturnValue({ username: 'bob' });
     vi.clearAllMocks();
 
-    await getLiveUsage('/tmp/omnai-home/.claude');
+    await getLiveUsage('/tmp/sweech-home/.claude');
     expect(mocks.fetch).toHaveBeenCalledTimes(1);
   });
 
   it('returns null on non-macOS without attempting keychain reads', async () => {
     const platformSpy = vi.spyOn(process, 'platform', 'get').mockReturnValue('linux' as never);
-    const value = await getLiveUsage('/tmp/omnai-home/.claude');
+    const value = await getLiveUsage('/tmp/sweech-home/.claude');
 
     expect(value).toBeNull();
     expect(mocks.execFileSync).not.toHaveBeenCalled();
@@ -202,13 +202,13 @@ describe('usage token retrieval', () => {
   });
 
   it('rejects symlinked configDir that escapes HOME via realpathSync', async () => {
-    // Simulate: /tmp/omnai-home/.claude-evil is a symlink -> /etc
+    // Simulate: /tmp/sweech-home/.claude-evil is a symlink -> /etc
     mocks.realpathSync.mockImplementation((p: string) => {
-      if (p === '/tmp/omnai-home/.claude-evil') return '/etc';
+      if (p === '/tmp/sweech-home/.claude-evil') return '/etc';
       return p;
     });
 
-    await expect(getLiveUsage('/tmp/omnai-home/.claude-evil')).rejects.toThrow(
+    await expect(getLiveUsage('/tmp/sweech-home/.claude-evil')).rejects.toThrow(
       'configDir escapes home',
     );
   });

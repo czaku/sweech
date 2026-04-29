@@ -4,7 +4,7 @@ import { homedir } from 'node:os';
 import type { Rule, RulesConfig } from './types.js';
 import { DEFAULT_RULES_CONFIG } from './types.js';
 
-const CONFIG_PATH = join(homedir(), '.omnai', 'rules.json');
+const CONFIG_PATH = join(homedir(), '.sweech', 'rules.json');
 
 let cached: RulesConfig | null = null;
 

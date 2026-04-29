@@ -19,11 +19,11 @@ import { registerConfigCommands } from './config.js';
 const program = new Command();
 
 program
-  .name('omnai')
+  .name('sweech')
   .description('Universal AI agent runner')
   .version('0.1.0');
 
-// ── omnai status ──────────────────────────────────────────────────────────────
+// ── sweech status ──────────────────────────────────────────────────────────────
 program
   .command('status')
   .description('Show detected engines and their availability')
@@ -38,7 +38,7 @@ program
     }
   });
 
-// ── omnai which ───────────────────────────────────────────────────────────────
+// ── sweech which ───────────────────────────────────────────────────────────────
 program
   .command('which')
   .description('Print which engine would be selected for a given provider')
@@ -56,7 +56,7 @@ program
     }
   });
 
-// ── omnai run ─────────────────────────────────────────────────────────────────
+// ── sweech run ─────────────────────────────────────────────────────────────────
 program
   .command('run <prompt>')
   .description('Run a prompt through the selected engine')

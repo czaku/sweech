@@ -10,7 +10,7 @@ export interface ChatMessage {
 /**
  * Stores and retrieves conversation history for a session.
  * Session-scoped: cleared when the session ends or explicitly cleared.
- * Products own the storage backend — omnai owns the contract.
+ * Products own the storage backend — sweech owns the contract.
  */
 export interface ConversationStore {
   load(sessionId: string): Promise<ChatMessage[]>;
@@ -24,7 +24,7 @@ export interface ConversationStore {
  * Stores and retrieves persistent markdown memory for an agent.
  * Agent-scoped (not session-scoped): accumulates across all sessions.
  * The canonical format is human-readable markdown.
- * Products own where files live — omnai owns the contract.
+ * Products own where files live — sweech owns the contract.
  */
 export interface AgentMemoryStore {
   /** Returns the full markdown blob for this agent. Empty string if none. */

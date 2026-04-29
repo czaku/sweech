@@ -48,7 +48,7 @@ describe('profiles migration boundary', () => {
 
   it('fails closed on unsupported profile schema versions', async () => {
     readFile.mockResolvedValueOnce(JSON.stringify({
-      schema: 'omnai.runtime',
+      schema: 'sweech.runtime',
       version: 99,
       profiles: {},
     }))
@@ -56,6 +56,6 @@ describe('profiles migration boundary', () => {
     const profiles = await import('../../middleware/profiles.js')
     profiles.clearProfileCache()
 
-    await expect(profiles.loadProfilesConfig()).rejects.toThrow('Upgrade omnai')
+    await expect(profiles.loadProfilesConfig()).rejects.toThrow('Upgrade sweech')
   })
 })

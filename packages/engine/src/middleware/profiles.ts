@@ -9,18 +9,18 @@ import {
   migrateRuntimeDocument,
   serializeRuntimeDocument,
   toLegacyRuntimeConfig,
-  type OmnaiLegacyRuntimeConfig,
+  type SweechLegacyRuntimeConfig,
 } from '../persistence-contract.js';
 import { getKey, migrateFromConfig } from '../keychain.js';
 
-const PROFILES_PATH = join(homedir(), '.omnai', 'profiles.json');
+const PROFILES_PATH = join(homedir(), '.sweech', 'profiles.json');
 const SWEECH_FED_PORT = 7854;
 
 function isSafeProfileName(name: string): boolean {
   return /^[a-zA-Z0-9_.-]+$/.test(name) && !name.includes('..');
 }
 
-export type ProfilesConfig = OmnaiLegacyRuntimeConfig;
+export type ProfilesConfig = SweechLegacyRuntimeConfig;
 
 let cached: ProfilesConfig | null = null;
 let loadPromise: Promise<ProfilesConfig> | null = null;
@@ -131,8 +131,8 @@ export async function resolveDefaultForEngine(engine: EngineId): Promise<string 
   const names = matching.map(p => p.name).join(', ');
   throw new Error(
     `Multiple profiles found for ${engine}: ${names}\n` +
-    `Set a default: omnai profiles set-default ${engine} <profile-name>\n` +
-    `Or specify explicitly: omnai run "prompt" --profile <name>`
+    `Set a default: sweech profiles set-default ${engine} <profile-name>\n` +
+    `Or specify explicitly: sweech run "prompt" --profile <name>`
   );
 }
 

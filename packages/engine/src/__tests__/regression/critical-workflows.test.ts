@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { OmnaiClient } from '../../client.js'
+import { SweechClient } from '../../client.js'
 import { createApp, clearEstateCache, setDaemonLifecycleState } from '../../daemon/server.js'
 import { QuotaTracker } from '../../daemon/quota.js'
 import type { Estate } from '../../estate.js'
@@ -80,7 +80,7 @@ function createFallbackEstate(): Estate {
 }
 
 function tmpStatePath(): string {
-  return `/tmp/omnai-regression-${Date.now()}-${Math.random().toString(36).slice(2)}.json`
+  return `/tmp/sweech-regression-${Date.now()}-${Math.random().toString(36).slice(2)}.json`
 }
 
 function postJson(app: ReturnType<typeof createApp>, path: string, body: Record<string, unknown> | string) {
@@ -175,7 +175,7 @@ describe('critical regression workflows', () => {
     ]))
 
     const fetchBridge = installFetchBridge(app)
-    const client = new OmnaiClient({ host: '127.0.0.1', port: 7845 })
+    const client = new SweechClient({ host: '127.0.0.1', port: 7845 })
 
     const selection = await client.select({ account: 'claude-rai' })
     const events: AgentEvent[] = []
@@ -208,7 +208,7 @@ describe('critical regression workflows', () => {
 
     vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(createStreamResponse('data: {not-json\n\n'))
     const clientEvents: AgentEvent[] = []
-    for await (const event of new OmnaiClient({ host: '127.0.0.1', port: 7845 }).run('broken')) {
+    for await (const event of new SweechClient({ host: '127.0.0.1', port: 7845 }).run('broken')) {
       clientEvents.push(event)
     }
 

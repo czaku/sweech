@@ -17,7 +17,7 @@ const DEFAULT_ROLLING_WINDOW = 5;
 const DEFAULT_MINIMUM_SAMPLES = 2;
 const DEFAULT_HYSTERESIS_PCT = 0.15;
 const DEFAULT_COOLDOWN_ATTEMPTS = 1;
-const budgetStateKey = Symbol('omnai.budget.state');
+const budgetStateKey = Symbol('sweech.budget.state');
 
 interface BudgetSample {
   engine: EngineId;
@@ -70,7 +70,7 @@ export async function selectByBudget(
     throw new Error(
       `Tier "${tier}" not found or empty. ` +
       `Available tiers: ${Object.keys(config.tiers).join(', ')}. ` +
-      `Use "omnai tiers set ${tier} <engine>..." to define it.`,
+      `Use "sweech tiers set ${tier} <engine>..." to define it.`,
     );
   }
 
@@ -89,7 +89,7 @@ export async function selectByBudget(
   throw new Error(
     `No engine available in tier "${tier}". ` +
     `Tier contains: ${tierEngines.join(', ')}. ` +
-    `Install one of them or adjust the tier with "omnai tiers set ${tier} ...".`,
+    `Install one of them or adjust the tier with "sweech tiers set ${tier} ...".`,
   );
 }
 
@@ -130,7 +130,7 @@ export function budgetMiddleware(guard: BudgetGuard): Middleware {
             yield {
               type: 'error',
               code: 'budget_reroute_blocked',
-              message: `[omnai budget] ${formatTriggerLabel(trigger.reason)} projection breached but reroute cooldown is active for ${trigger.cooldownRemaining} more attempt(s).`,
+              message: `[sweech budget] ${formatTriggerLabel(trigger.reason)} projection breached but reroute cooldown is active for ${trigger.cooldownRemaining} more attempt(s).`,
               reroute: trigger,
             } as AgentEvent;
             return;
@@ -140,7 +140,7 @@ export function budgetMiddleware(guard: BudgetGuard): Middleware {
           yield {
             type: 'error',
             code: 'budget_reroute_requested',
-            message: `[omnai budget] ${formatTriggerLabel(trigger.reason)} projection breached on ${attempt.engine}. Downgrading to tier "${trigger.targetTier ?? guard.downgradeTo ?? 'cheap'}".`,
+            message: `[sweech budget] ${formatTriggerLabel(trigger.reason)} projection breached on ${attempt.engine}. Downgrading to tier "${trigger.targetTier ?? guard.downgradeTo ?? 'cheap'}".`,
             reroute: trigger,
           } as AgentEvent;
           return;

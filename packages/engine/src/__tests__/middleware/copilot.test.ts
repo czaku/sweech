@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { CopilotRunner } from '../../runner/copilot.js';
 
-const liveCopilotIt = process.env.OMNAI_RUN_LIVE_COPILOT_TESTS === '1' ? it : it.skip;
+const liveCopilotIt = process.env.SWEECH_RUN_LIVE_COPILOT_TESTS === '1' ? it : it.skip;
 
 describe('CopilotRunner', () => {
   it('has correct engine id', () => {

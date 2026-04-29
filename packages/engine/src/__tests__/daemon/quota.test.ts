@@ -39,7 +39,7 @@ function makeEstate(overrides?: Partial<Record<string, unknown>>): Estate {
 }
 
 function tmpStatePath(): string {
-  return join(tmpdir(), `omnai-test-${Date.now()}-${Math.random().toString(36).slice(2)}.json`);
+  return join(tmpdir(), `sweech-test-${Date.now()}-${Math.random().toString(36).slice(2)}.json`);
 }
 
 describe('QuotaTracker', () => {
@@ -185,7 +185,7 @@ describe('QuotaTracker', () => {
   });
 
   it('load handles missing file gracefully', async () => {
-    const tracker = createTracker(undefined, '/tmp/omnai-nonexistent-file.json');
+    const tracker = createTracker(undefined, '/tmp/sweech-nonexistent-file.json');
     await tracker.load();
     expect(tracker.getState().accounts).toEqual({});
   });

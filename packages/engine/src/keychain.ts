@@ -3,8 +3,8 @@ import { homedir } from 'node:os';
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
-const SERVICE = 'omnai';
-const MIGRATION_FLAG_PATH = join(homedir(), '.omnai', '.keychain-migrated');
+const SERVICE = 'sweech';
+const MIGRATION_FLAG_PATH = join(homedir(), '.sweech', '.keychain-migrated');
 const SAFE_ACCOUNT_RE = /^[a-zA-Z0-9_.-]+$/;
 
 function validateAccount(account: string): void {
@@ -69,7 +69,7 @@ export function listKeys(): string[] {
       { encoding: 'utf-8' },
     );
     const accounts: string[] = [];
-    const re = /"svce"<blob>="omnai"/;
+    const re = /"svce"<blob>="sweech"/;
     const lines = output.split('\n');
     for (let i = 0; i < lines.length; i++) {
       if (re.test(lines[i]!)) {
@@ -114,7 +114,7 @@ export async function markMigrated(): Promise<void> {
 export async function migrateFromConfig(): Promise<number> {
   if (!await needsMigration()) return 0;
 
-  const profilesPath = join(homedir(), '.omnai', 'profiles.json');
+  const profilesPath = join(homedir(), '.sweech', 'profiles.json');
   let raw: string;
   try {
     raw = await readFile(profilesPath, 'utf-8');

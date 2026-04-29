@@ -54,7 +54,7 @@ function makeEstate(): Estate {
 }
 
 function tmpStatePath(): string {
-  return `/tmp/omnai-fallback-test-${Date.now()}-${Math.random().toString(36).slice(2)}.json`;
+  return `/tmp/sweech-fallback-test-${Date.now()}-${Math.random().toString(36).slice(2)}.json`;
 }
 
 function postSelect(app: ReturnType<typeof createApp>, body: Record<string, unknown> = {}) {

@@ -1,4 +1,4 @@
-import type { EngineId, Provider, RunOptions, OmnaiConfig } from './types.js';
+import type { EngineId, Provider, RunOptions, SweechConfig } from './types.js';
 import { detectEngines } from './detect.js';
 import type { EngineStatus } from './types.js';
 import { resolveAccount } from './middleware/accounts.js';
@@ -24,7 +24,7 @@ export interface ExecutionTargetInput {
   taskType?: RunOptions['taskType'];
   contentType?: ContentType;
   domain?: string;
-  config?: OmnaiConfig;
+  config?: SweechConfig;
   fallbackAccounts?: string[];
   accountStrategy?: AccountRoutingStrategy;
   env?: Record<string, string>;

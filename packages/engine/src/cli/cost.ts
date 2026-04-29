@@ -6,7 +6,7 @@ export function registerCostCommands(parent: Command): void {
     .command('cost')
     .description('Model pricing and cost estimation');
 
-  // ── omnai cost list ─────────────────────────────────────────────────────────
+  // ── sweech cost list ─────────────────────────────────────────────────────────
   cost
     .command('list')
     .description('Show pricing for all known models')
@@ -36,7 +36,7 @@ export function registerCostCommands(parent: Command): void {
       }
     });
 
-  // ── omnai cost estimate ─────────────────────────────────────────────────────
+  // ── sweech cost estimate ─────────────────────────────────────────────────────
   cost
     .command('estimate')
     .description('Estimate cost for a token count')
@@ -51,13 +51,13 @@ export function registerCostCommands(parent: Command): void {
       );
       if (result === 0 && !PRICING[flags.model]) {
         console.error(`Unknown model: ${flags.model}`);
-        console.error(`Use "omnai cost list" to see known models.`);
+        console.error(`Use "sweech cost list" to see known models.`);
         process.exit(1);
       }
       console.log(`$${result.toFixed(6)}`);
     });
 
-  // ── omnai cost compare ──────────────────────────────────────────────────────
+  // ── sweech cost compare ──────────────────────────────────────────────────────
   cost
     .command('compare <models...>')
     .description('Compare cost across models for the same workload')

@@ -52,7 +52,7 @@ export class QuotaTracker {
 
   constructor(estate: Estate, statePath?: string, opts?: { now?: () => Date }) {
     this.estate = estate;
-    this.statePath = statePath ?? join(homedir(), '.omnai', 'quota-state.json');
+    this.statePath = statePath ?? join(homedir(), '.sweech', 'quota-state.json');
     this.state = { accounts: {}, lastFlushed: new Date().toISOString() };
     this._now = opts?.now ?? (() => new Date());
     this.flushTimer = setInterval(() => { this.flush(); }, 30_000);

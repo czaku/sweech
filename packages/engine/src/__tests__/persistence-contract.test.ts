@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import type { CredentialProfile } from '../middleware/types.js'
 import {
-  OMNAI_RUNTIME_DOCUMENT_SCHEMA,
-  OMNAI_RUNTIME_DOCUMENT_VERSION,
-  OMNAI_SESSION_ARCHIVE_SNAPSHOT_VERSION,
-  isOmnaiSessionArchiveMessage,
+  SWEECH_RUNTIME_DOCUMENT_SCHEMA,
+  SWEECH_RUNTIME_DOCUMENT_VERSION,
+  SWEECH_SESSION_ARCHIVE_SNAPSHOT_VERSION,
+  isSweechSessionArchiveMessage,
   migrateRuntimeDocument,
   migrateSessionArchiveSnapshots,
   serializeRuntimeDocument,
@@ -29,8 +29,8 @@ describe('persistence-contract', () => {
     }, 'profiles.json')
 
     expect(migrated).toEqual({
-      schema: OMNAI_RUNTIME_DOCUMENT_SCHEMA,
-      version: OMNAI_RUNTIME_DOCUMENT_VERSION,
+      schema: SWEECH_RUNTIME_DOCUMENT_SCHEMA,
+      version: SWEECH_RUNTIME_DOCUMENT_VERSION,
       runtime: {
         defaults: { 'claude-code': 'claude-rai' },
         failoverOrder: ['claude-rai'],
@@ -52,13 +52,13 @@ describe('persistence-contract', () => {
 
   it('migrates v1 runtime config documents and rejects future versions', () => {
     expect(migrateRuntimeDocument({
-      schema: OMNAI_RUNTIME_DOCUMENT_SCHEMA,
+      schema: SWEECH_RUNTIME_DOCUMENT_SCHEMA,
       version: 1,
       defaults: { 'claude-code': 'claude-rai' },
       failoverOrder: ['claude-rai'],
       profiles: { 'claude-rai': profile },
     }, 'profiles.json')).toMatchObject({
-      version: OMNAI_RUNTIME_DOCUMENT_VERSION,
+      version: SWEECH_RUNTIME_DOCUMENT_VERSION,
       runtime: {
         defaults: { 'claude-code': 'claude-rai' },
         failoverOrder: ['claude-rai'],
@@ -66,10 +66,10 @@ describe('persistence-contract', () => {
     })
 
     expect(() => migrateRuntimeDocument({
-      schema: OMNAI_RUNTIME_DOCUMENT_SCHEMA,
+      schema: SWEECH_RUNTIME_DOCUMENT_SCHEMA,
       version: 99,
       profiles: {},
-    }, 'profiles.json')).toThrow('Upgrade omnai')
+    }, 'profiles.json')).toThrow('Upgrade sweech')
   })
 
   it('migrates legacy and v1 session archive snapshots and rejects unknown versions', () => {
@@ -83,16 +83,16 @@ describe('persistence-contract', () => {
         createdAt: '1970-01-01T00:00:00.002Z',
         messages: [{ id: 'msg-2', type: 'event', content: 'world' }],
       },
-    ], isOmnaiSessionArchiveMessage, 'session-archive')
+    ], isSweechSessionArchiveMessage, 'session-archive')
 
     expect(migrated).toEqual([
       {
-        schemaVersion: OMNAI_SESSION_ARCHIVE_SNAPSHOT_VERSION,
+        schemaVersion: SWEECH_SESSION_ARCHIVE_SNAPSHOT_VERSION,
         createdAt: 1,
         messages: [{ id: 'msg-1', type: 'text', content: 'hello' }],
       },
       {
-        schemaVersion: OMNAI_SESSION_ARCHIVE_SNAPSHOT_VERSION,
+        schemaVersion: SWEECH_SESSION_ARCHIVE_SNAPSHOT_VERSION,
         createdAt: 2,
         messages: [{ id: 'msg-2', type: 'event', content: 'world' }],
       },
@@ -106,6 +106,6 @@ describe('persistence-contract', () => {
         createdAt: 1,
         messages: [{ id: 'msg-3', type: 'text', content: 'future' }],
       },
-    ], isOmnaiSessionArchiveMessage, 'session-archive')).toThrow('Upgrade omnai')
+    ], isSweechSessionArchiveMessage, 'session-archive')).toThrow('Upgrade sweech')
   })
 })

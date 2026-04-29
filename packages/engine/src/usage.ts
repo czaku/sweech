@@ -3,7 +3,7 @@
 //   ~/.claude[- suffix]/history.jsonl  — per-message timestamps for 5h/7d windows
 //   ~/.claude[- suffix]/.claude.json   — account metadata, subscriptionCreatedAt
 //   macOS Keychain (live)              — OAuth token -> API call -> rate-limit headers
-// Cache: ~/.omnai/rate-limit-cache.json, 5-minute TTL.
+// Cache: ~/.sweech/rate-limit-cache.json, 5-minute TTL.
 
 import * as crypto from 'crypto'
 import * as fs from 'fs'
@@ -67,7 +67,7 @@ export interface ClaudeAccountInfo {
 // ── Cache ──────────────────────────────────────────────────────────────────────
 
 const HOME = os.homedir()
-const CACHE_FILE = path.join(HOME, '.omnai', 'rate-limit-cache.json')
+const CACHE_FILE = path.join(HOME, '.sweech', 'rate-limit-cache.json')
 
 function validateConfigDir(configDir: string): string {
   const resolved = fs.realpathSync(path.resolve(configDir))
@@ -97,7 +97,7 @@ function readCache(): CacheStore {
 }
 
 function writeCache(store: CacheStore): void {
-  fs.mkdirSync(path.join(os.homedir(), '.omnai'), { recursive: true })
+  fs.mkdirSync(path.join(os.homedir(), '.sweech'), { recursive: true })
   fs.writeFileSync(CACHE_FILE, JSON.stringify(store, null, 2))
 }
 

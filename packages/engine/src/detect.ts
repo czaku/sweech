@@ -3,7 +3,7 @@ import { promisify } from 'node:util';
 import { access } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import type { EngineStatus, OmnaiConfig } from './types.js';
+import type { EngineStatus, SweechConfig } from './types.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -19,7 +19,7 @@ async function findBinary(name: string, fallbacks: string[]): Promise<string | u
   return undefined;
 }
 
-export async function detectEngines(config: OmnaiConfig = {}): Promise<EngineStatus[]> {
+export async function detectEngines(config: SweechConfig = {}): Promise<EngineStatus[]> {
   const home = homedir();
 
   const [claudePath, qwenPath, geminiPath, amazonQPath, piPath, opencodePath, goosePath, codexPath, copilotPath] = await Promise.all([

@@ -35,7 +35,7 @@ describe('retry-policy', () => {
 
     const first = resolveRetryDecision(
       {
-        managedBy: 'omnai',
+        managedBy: 'sweech',
         retryClasses: {
           throttle: { maxAttempts: 2, baseDelayMs: 100, maxDelayMs: 180, jitterMs: 20, retriable: true },
         },
@@ -54,7 +54,7 @@ describe('retry-policy', () => {
 
     const exhausted = resolveRetryDecision(
       {
-        managedBy: 'omnai',
+        managedBy: 'sweech',
         retryClasses: {
           throttle: { maxAttempts: 2, baseDelayMs: 100, maxDelayMs: 180, jitterMs: 20, retriable: true },
         },
@@ -72,7 +72,7 @@ describe('retry-policy', () => {
   it('keeps tool retries behind an explicit safety flag', () => {
     const disabled = resolveRetryDecision(
       {
-        managedBy: 'omnai',
+        managedBy: 'sweech',
         retryClasses: {
           tool: { maxAttempts: 2, retriable: true, baseDelayMs: 10, maxDelayMs: 20, jitterMs: 0, requiresSafeRetry: true },
         },
@@ -88,7 +88,7 @@ describe('retry-policy', () => {
 
     const enabled = resolveRetryDecision(
       {
-        managedBy: 'omnai',
+        managedBy: 'sweech',
         safeToRetryTools: true,
         retryClasses: {
           tool: { maxAttempts: 2, retriable: true, baseDelayMs: 10, maxDelayMs: 20, jitterMs: 0, requiresSafeRetry: true },
@@ -107,7 +107,7 @@ describe('retry-policy', () => {
 
   it('preserves explicit policy-table overrides', () => {
     const policies = resolveRetryClassPolicies({
-      managedBy: 'omnai',
+      managedBy: 'sweech',
       retryClasses: {
         parse: { maxAttempts: 2, retriable: true, baseDelayMs: 15, maxDelayMs: 30, jitterMs: 1 },
       },

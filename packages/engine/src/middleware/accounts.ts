@@ -2,7 +2,7 @@ import type { EngineId, Provider, RunOptions } from '../types.js';
 import { loadProfiles, resolveProfile } from './profiles.js';
 import { loadProvidersWithCache, resolveApiKey } from '../providers.js';
 import { loadEstate } from '../estate.js';
-import { isOmnaiMigrationError } from '../persistence-contract.js';
+import { isSweechMigrationError } from '../persistence-contract.js';
 
 export interface NamedAccountResolution {
   account: string;
@@ -16,9 +16,9 @@ export interface NamedAccountResolution {
  * Resolve a named runtime account into concrete run options.
  *
  * Resolution order:
- * 1. ~/.omnai/profiles.json for Sweech-style local CLI accounts
- * 2. ~/.omnai/providers.yaml for named API/openai-compatible accounts
- * 3. ~/.omnai/estate.yaml for quota-aware account metadata
+ * 1. ~/.sweech/profiles.json for Sweech-style local CLI accounts
+ * 2. ~/.sweech/providers.yaml for named API/openai-compatible accounts
+ * 3. ~/.sweech/estate.yaml for quota-aware account metadata
  */
 export async function resolveAccount(accountName: string, opts: RunOptions): Promise<NamedAccountResolution> {
   let profilesLoadError: Error | null = null;
@@ -34,7 +34,7 @@ export async function resolveAccount(accountName: string, opts: RunOptions): Pro
       };
     }
   } catch (error) {
-    if (isOmnaiMigrationError(error)) {
+    if (isSweechMigrationError(error)) {
       profilesLoadError = error;
     } else {
       throw error;
@@ -101,6 +101,6 @@ export async function resolveAccount(accountName: string, opts: RunOptions): Pro
 
   throw new Error(
     `Account "${accountName}" not found.\n` +
-    `Expected a Sweech-imported profile in ~/.omnai/profiles.json or a named account in ~/.omnai/providers.yaml / estate.yaml.`
+    `Expected a Sweech-imported profile in ~/.sweech/profiles.json or a named account in ~/.sweech/providers.yaml / estate.yaml.`
   );
 }

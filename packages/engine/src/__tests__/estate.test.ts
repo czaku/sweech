@@ -157,7 +157,7 @@ describe('loadEstate', () => {
 
   it('merges official sweech subscription profiles into the estate', async () => {
     const port = 17860;
-    const dir = await mkdtemp(join(tmpdir(), 'omnai-estate-'));
+    const dir = await mkdtemp(join(tmpdir(), 'sweech-estate-'));
     const estatePath = join(dir, 'estate.yaml');
 
     await writeFile(estatePath, VALID_YAML);

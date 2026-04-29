@@ -14,7 +14,7 @@ function sleep(ms: number): Promise<void> {
  * in RunOptions to activate. Designed for transient network failures, not
  * application-level failover (which consumers handle themselves).
  *
- * Set `retryPolicy.managedBy: 'omnai'` to use omnai's built-in retry.
+ * Set `retryPolicy.managedBy: 'sweech'` to use sweech's built-in retry.
  * When `managedBy` is `'consumer'` (default), this middleware is a no-op.
  *
  * Note: Quota exhaustion is handled at the daemon level (POST /select with
@@ -26,7 +26,7 @@ export function fallbackMiddleware(
   getRunner?: (engine: EngineId) => ModelRunner | undefined,
 ): Middleware {
   return async function* (runner, prompt, opts, next) {
-    const retryManagedByOmnai = policy?.managedBy === 'omnai';
+    const retryManagedBySweech = policy?.managedBy === 'sweech';
     const engines = policy?.engines ?? [];
     let attempt = 0;
     let currentNext = next;
@@ -46,7 +46,7 @@ export function fallbackMiddleware(
             break;
           }
 
-          if (retryManagedByOmnai) {
+          if (retryManagedBySweech) {
             const decision = resolveRetryDecision(policy, event, attempt);
             if (decision.shouldRetry) {
               failed = true;
@@ -62,7 +62,7 @@ export function fallbackMiddleware(
           type: 'error',
           message: err instanceof Error ? err.message : String(err),
         } as AgentEvent;
-        if (retryManagedByOmnai) {
+        if (retryManagedBySweech) {
           const decision = resolveRetryDecision(policy, event, attempt);
           if (decision.shouldRetry) {
             failed = true;
@@ -89,7 +89,7 @@ export function fallbackMiddleware(
           yield {
             type: 'error',
             code: 'budget_reroute_unavailable',
-            message: `[omnai reroute ${rerouteDecision.reason}] no alternate engine available for tier "${rerouteDecision.targetTier ?? 'unknown'}".`,
+            message: `[sweech reroute ${rerouteDecision.reason}] no alternate engine available for tier "${rerouteDecision.targetTier ?? 'unknown'}".`,
             reroute: rerouteDecision,
           } as AgentEvent;
           return;
@@ -105,7 +105,7 @@ export function fallbackMiddleware(
         yield {
           type: 'error',
           code: 'reroute_scheduled',
-          message: `[omnai reroute ${rerouteDecision.reason} ${rerouteDecision.attempt}] switching from ${rerouteDecision.fromEngine} to ${nextRunner.engine}${rerouteDecision.targetTier ? ` via tier "${rerouteDecision.targetTier}"` : ''}`,
+          message: `[sweech reroute ${rerouteDecision.reason} ${rerouteDecision.attempt}] switching from ${rerouteDecision.fromEngine} to ${nextRunner.engine}${rerouteDecision.targetTier ? ` via tier "${rerouteDecision.targetTier}"` : ''}`,
           reroute: scheduledReroute,
         } as AgentEvent;
         continue;
@@ -123,7 +123,7 @@ export function fallbackMiddleware(
       yield {
         type: 'error',
         code: 'retry_scheduled',
-        message: `[omnai retry ${retryDecision?.classification ?? 'fatal'} ${retryDecision?.attempt ?? attempt}/${retryDecision?.maxAttempts ?? attempt}] retrying on ${currentRunner.engine} in ${delayMs}ms`,
+        message: `[sweech retry ${retryDecision?.classification ?? 'fatal'} ${retryDecision?.attempt ?? attempt}/${retryDecision?.maxAttempts ?? attempt}] retrying on ${currentRunner.engine} in ${delayMs}ms`,
         retry: retryDecision ? toRetryAudit(retryDecision) : undefined,
       } as AgentEvent;
     }

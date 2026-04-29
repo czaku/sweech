@@ -67,7 +67,7 @@ export function ConfigApp() {
   return (
     <Box flexDirection="column" padding={1}>
       <Box marginBottom={1}>
-        <Text bold color="cyan">Omnai Config</Text>
+        <Text bold color="cyan">Sweech Config</Text>
         <Text color="gray"> — {engines.filter(e => e.available).length} engines, {profileList.length} profiles, {modelCount} models</Text>
       </Box>
 
@@ -98,7 +98,7 @@ export function ConfigApp() {
       <Box flexDirection="column" marginBottom={1}>
         <Text bold underline>Profiles</Text>
         {profileList.length === 0 && (
-          <Text color="gray">  No profiles configured. Run: omnai profiles add &lt;name&gt;</Text>
+          <Text color="gray">  No profiles configured. Run: sweech profiles add &lt;name&gt;</Text>
         )}
         {profileList.map((p, i) => {
           const idx = engines.length + i;

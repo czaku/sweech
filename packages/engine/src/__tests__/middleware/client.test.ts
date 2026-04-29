@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { OmnaiClient } from '../../client.js';
+import { SweechClient } from '../../client.js';
 
-describe('OmnaiClient', () => {
+describe('SweechClient', () => {
   const originalFetch = globalThis.fetch;
 
   afterEach(() => {
@@ -9,25 +9,25 @@ describe('OmnaiClient', () => {
   });
 
   it('defaults to port 7845 and 127.0.0.1', () => {
-    const client = new OmnaiClient();
+    const client = new SweechClient();
     // Access private baseUrl via any cast
     expect((client as any).baseUrl).toBe('http://127.0.0.1:7845');
   });
 
   it('accepts custom port and host', () => {
-    const client = new OmnaiClient({ port: 9999, host: 'localhost' });
+    const client = new SweechClient({ port: 9999, host: 'localhost' });
     expect((client as any).baseUrl).toBe('http://localhost:9999');
   });
 
   it('ping returns false when daemon is not running', async () => {
-    const client = new OmnaiClient({ port: 1 }); // port 1 won't have anything
+    const client = new SweechClient({ port: 1 }); // port 1 won't have anything
     const result = await client.ping();
     expect(result).toBe(false);
   });
 
   it('ping returns true when daemon responds ok', async () => {
     globalThis.fetch = vi.fn().mockResolvedValue({ ok: true });
-    const client = new OmnaiClient();
+    const client = new SweechClient();
     const result = await client.ping();
     expect(result).toBe(true);
     expect(globalThis.fetch).toHaveBeenCalledWith(
@@ -42,7 +42,7 @@ describe('OmnaiClient', () => {
       status: 500,
       text: async () => 'Internal Server Error',
     });
-    const client = new OmnaiClient();
+    const client = new SweechClient();
     await expect(client.select({ provider: 'claude' })).rejects.toThrow(
       'Daemon select failed: 500 Internal Server Error',
     );
@@ -53,7 +53,7 @@ describe('OmnaiClient', () => {
       ok: true,
       json: async () => ({ engine: 'claude-code', account: 'claude-sub' }),
     });
-    const client = new OmnaiClient();
+    const client = new SweechClient();
     const result = await client.select({ provider: 'claude' });
     expect(result).toEqual({ engine: 'claude-code', account: 'claude-sub' });
   });
@@ -63,7 +63,7 @@ describe('OmnaiClient', () => {
       ok: true,
       json: async () => ({ engine: 'claude-code', account: 'claude-pole' }),
     });
-    const client = new OmnaiClient();
+    const client = new SweechClient();
     await client.select({ account: 'claude-pole' });
     expect(globalThis.fetch).toHaveBeenCalledWith(
       'http://127.0.0.1:7845/select',
@@ -79,7 +79,7 @@ describe('OmnaiClient', () => {
       ok: true,
       json: async () => ({ engine: 'pi-mono', account: 'kimi-api' }),
     });
-    const client = new OmnaiClient();
+    const client = new SweechClient();
     await client.select({ provider: 'kimi', fallbackAccounts: ['kimi-api', 'minimax-api'] });
     expect(globalThis.fetch).toHaveBeenCalledWith(
       'http://127.0.0.1:7845/select',
@@ -92,19 +92,19 @@ describe('OmnaiClient', () => {
 
   it('getEngines throws on non-ok response', async () => {
     globalThis.fetch = vi.fn().mockResolvedValue({ ok: false, status: 503 });
-    const client = new OmnaiClient();
+    const client = new SweechClient();
     await expect(client.getEngines()).rejects.toThrow('Daemon engines failed: 503');
   });
 
   it('getEstate throws on non-ok response', async () => {
     globalThis.fetch = vi.fn().mockResolvedValue({ ok: false, status: 404 });
-    const client = new OmnaiClient();
+    const client = new SweechClient();
     await expect(client.getEstate()).rejects.toThrow('Daemon estate failed: 404');
   });
 
   it('getQuota throws on non-ok response', async () => {
     globalThis.fetch = vi.fn().mockResolvedValue({ ok: false, status: 401 });
-    const client = new OmnaiClient();
+    const client = new SweechClient();
     await expect(client.getQuota()).rejects.toThrow('Daemon quota failed: 401');
   });
 });

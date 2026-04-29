@@ -6,16 +6,16 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname } from 'node:path';
 
-const PID_FILE = join(homedir(), '.omnai', 'daemon.pid');
+const PID_FILE = join(homedir(), '.sweech', 'daemon.pid');
 const DEFAULT_PORT = 7801;
 
 async function resolvePort(): Promise<number> {
-  const envPort = parseInt(process.env.OMNAI_PORT ?? '');
+  const envPort = parseInt(process.env.SWEECH_PORT ?? '');
   if (Number.isFinite(envPort) && envPort > 0) return envPort;
   try {
     const raw = await readFile(join(homedir(), '.fed', 'config.json'), 'utf-8');
     const cfg = JSON.parse(raw) as { tools?: Record<string, { dash?: number }> };
-    return cfg?.tools?.omnai?.dash ?? DEFAULT_PORT;
+    return cfg?.tools?.sweech?.dash ?? DEFAULT_PORT;
   } catch { return DEFAULT_PORT; }
 }
 const HEALTHZ_TIMEOUT_MS = 2_000;
@@ -82,11 +82,11 @@ async function waitForProcessExit(pid: number): Promise<boolean> {
 export function registerDaemonCommands(program: Command) {
   const daemon = program
     .command('daemon')
-    .description('Manage the omnai HTTP daemon');
+    .description('Manage the sweech HTTP daemon');
 
   daemon
     .command('start')
-    .description('Start the daemon in the background; check readiness with `omnai daemon status` or `/healthz`')
+    .description('Start the daemon in the background; check readiness with `sweech daemon status` or `/healthz`')
     .action(async () => {
       const existingPid = await readPid();
       if (existingPid && isProcessAlive(existingPid)) {
@@ -101,7 +101,7 @@ export function registerDaemonCommands(program: Command) {
       });
       child.unref();
 
-      console.log(`omnai daemon started (pid ${child.pid})`);
+      console.log(`sweech daemon started (pid ${child.pid})`);
     });
 
   daemon
@@ -180,7 +180,7 @@ export function registerDaemonCommands(program: Command) {
       let restarts = 0;
       let backoffMs = WATCH_BACKOFF_BASE_MS;
 
-      const log = (msg: string) => console.log(`[omnai watchdog ${new Date().toISOString()}] ${msg}`);
+      const log = (msg: string) => console.log(`[sweech watchdog ${new Date().toISOString()}] ${msg}`);
 
       log(`Starting watchdog (max-restarts=${maxRestarts})`);
 

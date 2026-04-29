@@ -28,7 +28,7 @@ export function registerConfigCommands(program: Command) {
     .option('--json', 'Output as JSON')
     .action(async (flags: { json?: boolean }) => {
       if (!(await providersExists())) {
-        process.stderr.write('providers.yaml not found. Run `omnai config init` to create it.\n');
+        process.stderr.write('providers.yaml not found. Run `sweech config init` to create it.\n');
         process.exitCode = 1;
         return;
       }

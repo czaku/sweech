@@ -1,5 +1,5 @@
 import { detectEngines } from './detect.js';
-import type { EngineId, OmnaiConfig, Provider, ThinkingLevel } from './types.js';
+import type { EngineId, SweechConfig, Provider, ThinkingLevel } from './types.js';
 
 const ANTHROPIC_MODELS = ['claude-opus-4-6', 'claude-sonnet-4-6', 'claude-haiku-4-5'];
 const OPENAI_MODELS = ['gpt-4o', 'gpt-4o-mini', 'gpt-4.1', 'gpt-4.1-mini', 'gpt-4.1-nano', 'o3', 'o3-mini', 'o4-mini'];
@@ -50,7 +50,7 @@ export interface AvailableOptions {
   thinkingLevels: ThinkingLevel[];
 }
 
-export async function queryAvailable(config?: OmnaiConfig): Promise<AvailableOptions> {
+export async function queryAvailable(config?: SweechConfig): Promise<AvailableOptions> {
   const statuses = await detectEngines(config);
 
   const engines: EngineQuery[] = statuses.map((status) => {

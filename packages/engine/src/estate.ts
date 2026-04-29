@@ -37,7 +37,7 @@ const VALID_ACCOUNT_TYPES: AccountType[] = ['subscription', 'api-key', 'free-tie
 const VALID_PERIODS: QuotaDef['period'][] = ['daily', 'weekly', 'monthly'];
 
 export function getEstatePath(): string {
-  return join(homedir(), '.omnai', 'estate.yaml');
+  return join(homedir(), '.sweech', 'estate.yaml');
 }
 
 const SWEECH_FED_PORT = 7854;

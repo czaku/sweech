@@ -37,7 +37,7 @@ describe('fallbackMiddleware', () => {
     expect(events[0].type).toBe('error');
   });
 
-  it('retries on network error when managedBy is omnai', async () => {
+  it('retries on network error when managedBy is sweech', async () => {
     let callCount = 0;
     const flaky: ModelRunner = {
       engine: 'pi-mono',
@@ -55,7 +55,7 @@ describe('fallbackMiddleware', () => {
 
     const runner = wrapRunner(
       flaky,
-      fallbackMiddleware({ managedBy: 'omnai', maxRetries: 2, delayMs: 10 }),
+      fallbackMiddleware({ managedBy: 'sweech', maxRetries: 2, delayMs: 10 }),
     );
     const events: AgentEvent[] = [];
     for await (const e of runner.run('test', {})) events.push(e);
@@ -78,7 +78,7 @@ describe('fallbackMiddleware', () => {
     const runner = wrapRunner(
       failingRunner('claude-code', 'ECONNREFUSED'),
       fallbackMiddleware(
-        { managedBy: 'omnai', maxRetries: 1, engines: ['qwen-code'], delayMs: 10 },
+        { managedBy: 'sweech', maxRetries: 1, engines: ['qwen-code'], delayMs: 10 },
         (id) => id === 'qwen-code' ? backup : undefined,
       ),
     );
@@ -180,7 +180,7 @@ describe('fallbackMiddleware', () => {
       {
         type: 'error',
         code: 'budget_reroute_unavailable',
-        message: '[omnai reroute cost] no alternate engine available for tier "missing-tier".',
+        message: '[sweech reroute cost] no alternate engine available for tier "missing-tier".',
         reroute: {
           reason: 'cost',
           attempt: 1,
@@ -214,7 +214,7 @@ describe('fallbackMiddleware', () => {
           yield { type: 'error', message: '401 Unauthorized' } as AgentEvent;
         },
       },
-      fallbackMiddleware({ managedBy: 'omnai', maxRetries: 3, delayMs: 0 }),
+      fallbackMiddleware({ managedBy: 'sweech', maxRetries: 3, delayMs: 0 }),
     );
 
     const events: AgentEvent[] = [];
@@ -236,7 +236,7 @@ describe('fallbackMiddleware', () => {
         },
       },
       fallbackMiddleware({
-        managedBy: 'omnai',
+        managedBy: 'sweech',
         safeToRetryTools: false,
         retryClasses: {
           tool: { maxAttempts: 2, retriable: true },

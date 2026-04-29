@@ -1,37 +1,37 @@
 import type { AgentEvent } from './types.js';
 
-export const STREAM_PROTOCOL = 'omnai.stream' as const;
+export const STREAM_PROTOCOL = 'sweech.stream' as const;
 export const STREAM_PROTOCOL_VERSION = 1 as const;
 export const STREAM_KIND_DAEMON = 'agent_event' as const;
 export const STREAM_KIND_UI = 'ui_event' as const;
 export const STREAM_KIND_UNSUPPORTED = 'unsupported_event' as const;
 
-export type OmnaiStreamProtocol = typeof STREAM_PROTOCOL;
-export type OmnaiStreamVersion = typeof STREAM_PROTOCOL_VERSION;
-export type OmnaiEnvelopeKind = typeof STREAM_KIND_DAEMON | typeof STREAM_KIND_UI;
-export type OmnaiStreamKind = OmnaiEnvelopeKind | typeof STREAM_KIND_UNSUPPORTED;
-export type OmnaiStreamSeverity = 'debug' | 'info' | 'warn' | 'error';
+export type SweechStreamProtocol = typeof STREAM_PROTOCOL;
+export type SweechStreamVersion = typeof STREAM_PROTOCOL_VERSION;
+export type SweechEnvelopeKind = typeof STREAM_KIND_DAEMON | typeof STREAM_KIND_UI;
+export type SweechStreamKind = SweechEnvelopeKind | typeof STREAM_KIND_UNSUPPORTED;
+export type SweechStreamSeverity = 'debug' | 'info' | 'warn' | 'error';
 
-export interface OmnaiStreamEnvelope<TEvent extends { type: string }, TKind extends OmnaiEnvelopeKind = OmnaiEnvelopeKind> {
-  schema: OmnaiStreamProtocol;
-  version: OmnaiStreamVersion;
+export interface SweechStreamEnvelope<TEvent extends { type: string }, TKind extends SweechEnvelopeKind = SweechEnvelopeKind> {
+  schema: SweechStreamProtocol;
+  version: SweechStreamVersion;
   kind: TKind;
   streamId: string;
   requestId?: string;
   sequence?: number;
   traceId?: string;
-  severity?: OmnaiStreamSeverity;
+  severity?: SweechStreamSeverity;
   componentId?: string;
   correlationId?: string;
   ts: string;
   event: TEvent;
 }
 
-export type OmnaiDaemonStreamEnvelope = OmnaiStreamEnvelope<AgentEvent, typeof STREAM_KIND_DAEMON> & {
+export type SweechDaemonStreamEnvelope = SweechStreamEnvelope<AgentEvent, typeof STREAM_KIND_DAEMON> & {
   requestId: string;
   sequence: number;
   traceId: string;
-  severity: OmnaiStreamSeverity;
+  severity: SweechStreamSeverity;
   componentId: string;
   correlationId: string;
 };
@@ -44,7 +44,7 @@ export interface QuestionOption {
   label: string;
 }
 
-export interface OmnaiUnsupportedStreamEvent {
+export interface SweechUnsupportedStreamEvent {
   type: typeof STREAM_KIND_UNSUPPORTED;
   kind: typeof STREAM_KIND_UNSUPPORTED;
   streamKind: string;
@@ -54,7 +54,7 @@ export interface OmnaiUnsupportedStreamEvent {
   taskId?: string;
 }
 
-export type OmnaiUiEvent =
+export type SweechUiEvent =
   | { type: 'session_started'; sessionId?: string }
   | { type: 'task_started'; taskId: string; title: string; attempt: number; maxAttempts: number }
   | { type: 'task_output'; taskId: string; text: string }
@@ -73,13 +73,13 @@ export type OmnaiUiEvent =
   | { type: 'session_failed'; error: string }
   | { type: 'connection_lost' }
   | { type: 'connection_restored' }
-  | OmnaiUnsupportedStreamEvent;
+  | SweechUnsupportedStreamEvent;
 
-export type OmnaiUiStreamEnvelope = OmnaiStreamEnvelope<OmnaiUiEvent, typeof STREAM_KIND_UI>;
+export type SweechUiStreamEnvelope = SweechStreamEnvelope<SweechUiEvent, typeof STREAM_KIND_UI>;
 
-export interface OmnaiStreamErrorEvent {
+export interface SweechStreamErrorEvent {
   type: 'stream_error';
-  kind: OmnaiStreamKind;
+  kind: SweechStreamKind;
   reason: string;
 }
 
@@ -99,7 +99,7 @@ function isOptionalString(value: unknown): boolean {
   return value === undefined || typeof value === 'string';
 }
 
-function isStreamSeverity(value: unknown): value is OmnaiStreamSeverity {
+function isStreamSeverity(value: unknown): value is SweechStreamSeverity {
   return value === 'debug' || value === 'info' || value === 'warn' || value === 'error';
 }
 
@@ -113,9 +113,9 @@ function isQuestionOptions(value: unknown): value is QuestionOption[] {
   ));
 }
 
-export function makeOmnaiUnsupportedStreamEvent(
-  input: Pick<OmnaiUnsupportedStreamEvent, 'reason' | 'raw' | 'streamKind' | 'version' | 'taskId'>,
-): OmnaiUnsupportedStreamEvent {
+export function makeSweechUnsupportedStreamEvent(
+  input: Pick<SweechUnsupportedStreamEvent, 'reason' | 'raw' | 'streamKind' | 'version' | 'taskId'>,
+): SweechUnsupportedStreamEvent {
   return {
     type: STREAM_KIND_UNSUPPORTED,
     kind: STREAM_KIND_UNSUPPORTED,
@@ -127,7 +127,7 @@ export function makeOmnaiUnsupportedStreamEvent(
   };
 }
 
-export function getOmnaiStreamSeverity(event: { type: string }): OmnaiStreamSeverity {
+export function getSweechStreamSeverity(event: { type: string }): SweechStreamSeverity {
   switch (event.type) {
     case 'error':
     case 'session_failed':
@@ -141,7 +141,7 @@ export function getOmnaiStreamSeverity(event: { type: string }): OmnaiStreamSeve
   }
 }
 
-export function isOmnaiUnsupportedStreamEvent(value: unknown): value is OmnaiUnsupportedStreamEvent {
+export function isSweechUnsupportedStreamEvent(value: unknown): value is SweechUnsupportedStreamEvent {
   return isRecord(value)
     && value.type === STREAM_KIND_UNSUPPORTED
     && value.kind === STREAM_KIND_UNSUPPORTED
@@ -152,7 +152,7 @@ export function isOmnaiUnsupportedStreamEvent(value: unknown): value is OmnaiUns
     && isOptionalString(value.taskId);
 }
 
-export function isOmnaiUiEvent(value: unknown): value is OmnaiUiEvent {
+export function isSweechUiEvent(value: unknown): value is SweechUiEvent {
   if (!isRecord(value) || typeof value.type !== 'string') return false;
 
   switch (value.type) {
@@ -219,13 +219,13 @@ export function isOmnaiUiEvent(value: unknown): value is OmnaiUiEvent {
     case 'connection_restored':
       return true;
     case STREAM_KIND_UNSUPPORTED:
-      return isOmnaiUnsupportedStreamEvent(value);
+      return isSweechUnsupportedStreamEvent(value);
     default:
       return false;
   }
 }
 
-export function isOmnaiDaemonStreamEnvelope(value: unknown): value is OmnaiDaemonStreamEnvelope {
+export function isSweechDaemonStreamEnvelope(value: unknown): value is SweechDaemonStreamEnvelope {
   return isRecord(value)
     && value.schema === STREAM_PROTOCOL
     && value.version === STREAM_PROTOCOL_VERSION
@@ -242,7 +242,7 @@ export function isOmnaiDaemonStreamEnvelope(value: unknown): value is OmnaiDaemo
     && typeof value.event.type === 'string';
 }
 
-export function isOmnaiUiStreamEnvelope(value: unknown): value is OmnaiUiStreamEnvelope {
+export function isSweechUiStreamEnvelope(value: unknown): value is SweechUiStreamEnvelope {
   return isRecord(value)
     && value.schema === STREAM_PROTOCOL
     && value.version === STREAM_PROTOCOL_VERSION
@@ -255,5 +255,5 @@ export function isOmnaiUiStreamEnvelope(value: unknown): value is OmnaiUiStreamE
     && isOptionalString(value.componentId)
     && isOptionalString(value.correlationId)
     && typeof value.ts === 'string'
-    && isOmnaiUiEvent(value.event);
+    && isSweechUiEvent(value.event);
 }

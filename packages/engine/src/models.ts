@@ -1,6 +1,6 @@
 /**
  * Curated model options with UI-relevant capabilities.
- * Drives ModelSelect in @omnai/ui — products can filter or extend this list.
+ * Drives ModelSelect in @sweech/engine — products can filter or extend this list.
  */
 
 export type CostTier = 'free' | 'cheap' | 'mid' | 'premium';

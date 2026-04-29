@@ -8,7 +8,7 @@ export function registerTiersCommands(parent: Command): void {
     .command('tiers')
     .description('Manage engine budget tiers');
 
-  // ── omnai tiers list ────────────────────────────────────────────────────────
+  // ── sweech tiers list ────────────────────────────────────────────────────────
   tiers
     .command('list')
     .description('Show all tiers and their engines')
@@ -24,10 +24,10 @@ export function registerTiersCommands(parent: Command): void {
       }
     });
 
-  // ── omnai tiers set ─────────────────────────────────────────────────────────
+  // ── sweech tiers set ─────────────────────────────────────────────────────────
   tiers
     .command('set <tier> <engines...>')
-    .description('Set engines for a tier (e.g. omnai tiers set free gemini-cli amazon-q)')
+    .description('Set engines for a tier (e.g. sweech tiers set free gemini-cli amazon-q)')
     .action(async (tier: string, engines: string[]) => {
       const config = await loadRules();
       config.tiers[tier] = engines as EngineId[];
@@ -35,7 +35,7 @@ export function registerTiersCommands(parent: Command): void {
       console.log(`Tier "${tier}" set to: ${engines.join(', ')}`);
     });
 
-  // ── omnai tiers remove ──────────────────────────────────────────────────────
+  // ── sweech tiers remove ──────────────────────────────────────────────────────
   tiers
     .command('remove <tier>')
     .description('Remove a tier')
@@ -50,7 +50,7 @@ export function registerTiersCommands(parent: Command): void {
       console.log(`Tier "${tier}" removed.`);
     });
 
-  // ── omnai tiers reset ───────────────────────────────────────────────────────
+  // ── sweech tiers reset ───────────────────────────────────────────────────────
   tiers
     .command('reset')
     .description('Reset tiers to defaults')

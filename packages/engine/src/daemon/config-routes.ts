@@ -20,7 +20,7 @@ const SAFE_NAME_RE = /^[a-zA-Z0-9_.-]+$/;
 const VALID_ENGINES = new Set(['claude-code', 'codex', 'qwen-code', 'gemini-cli', 'pi-mono', 'opencode', 'goose', 'copilot', 'amazon-q']);
 
 // Env vars that are safe to set via the config API — prevent LD_PRELOAD, NODE_OPTIONS, etc.
-const ALLOWED_ENV_PREFIXES = ['CLAUDE_', 'CODEX_', 'OPENAI_', 'ANTHROPIC_', 'GOOGLE_', 'OMNAI_', 'PATH'];
+const ALLOWED_ENV_PREFIXES = ['CLAUDE_', 'CODEX_', 'OPENAI_', 'ANTHROPIC_', 'GOOGLE_', 'SWEECH_', 'PATH'];
 
 function isSafeName(name: string): boolean {
   return SAFE_NAME_RE.test(name) && !RESERVED_KEYS.has(name);

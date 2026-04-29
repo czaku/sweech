@@ -1,13 +1,13 @@
 import type { AgentEvent, EngineStatus } from './types.js';
 import type { Estate } from './estate.js';
 import {
-  type OmnaiDaemonStreamEnvelope,
-  type OmnaiUnsupportedStreamEvent,
-  isOmnaiDaemonStreamEnvelope,
-  isOmnaiUnsupportedStreamEvent,
+  type SweechDaemonStreamEnvelope,
+  type SweechUnsupportedStreamEvent,
+  isSweechDaemonStreamEnvelope,
+  isSweechUnsupportedStreamEvent,
 } from './stream-contract.js';
 
-type DaemonSSEFrame = AgentEvent | OmnaiDaemonStreamEnvelope | OmnaiUnsupportedStreamEvent;
+type DaemonSSEFrame = AgentEvent | SweechDaemonStreamEnvelope | SweechUnsupportedStreamEvent;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
@@ -28,10 +28,10 @@ function parseDaemonEventFrame(raw: string): AgentEvent | null {
     };
   }
 
-  if (isOmnaiDaemonStreamEnvelope(payload)) {
+  if (isSweechDaemonStreamEnvelope(payload)) {
     return payload.event;
   }
-  if (isOmnaiUnsupportedStreamEvent(payload)) {
+  if (isSweechUnsupportedStreamEvent(payload)) {
     return {
       type: 'error',
       message: `daemon stream unsupported event: ${payload.reason}`,
@@ -45,7 +45,7 @@ function parseDaemonEventFrame(raw: string): AgentEvent | null {
   };
 }
 
-export class OmnaiClient {
+export class SweechClient {
   private baseUrl: string;
 
   constructor(opts?: { port?: number; host?: string }) {

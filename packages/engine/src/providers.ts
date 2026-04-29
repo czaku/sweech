@@ -39,7 +39,7 @@ const VALID_TYPES = ['subscription', 'api-key', 'free-tier'] as const;
 const VALID_PERIODS = ['daily', 'weekly', 'monthly'] as const;
 
 export function getProvidersPath(): string {
-  return join(homedir(), '.omnai', 'providers.yaml');
+  return join(homedir(), '.sweech', 'providers.yaml');
 }
 
 export function parseAndValidateProviders(content: string): ProvidersConfig {

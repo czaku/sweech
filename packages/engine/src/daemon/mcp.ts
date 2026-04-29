@@ -8,20 +8,20 @@ import { wrapRunner, costMiddleware, toolTimingMiddleware, mcpMiddleware } from 
 import type { RunOptions, EngineId } from '../types.js';
 import { getDaemonLifecycleState, startRunSession, endRunSession, getCachedQuotaTracker } from './server.js';
 
-const SERVER_INFO = { name: 'omnai', version: '0.1.0' };
+const SERVER_INFO = { name: 'sweech', version: '0.1.0' };
 
 function createMcpServer(): McpServer {
   const server = new McpServer(SERVER_INFO);
 
-  server.registerTool('omnai_status', {
-    description: 'Get omnai daemon lifecycle state and active session count.',
+  server.registerTool('sweech_status', {
+    description: 'Get sweech daemon lifecycle state and active session count.',
     inputSchema: undefined,
   }, async () => {
     const state = getDaemonLifecycleState();
     return { content: [{ type: 'text' as const, text: JSON.stringify(state) }] };
   });
 
-  server.registerTool('omnai_engines', {
+  server.registerTool('sweech_engines', {
     description: 'Detect locally installed AI engines (claude-code, codex, gemini-cli, etc.).',
     inputSchema: undefined,
   }, async () => {
@@ -29,7 +29,7 @@ function createMcpServer(): McpServer {
     return { content: [{ type: 'text' as const, text: JSON.stringify(engines) }] };
   });
 
-  server.registerTool('omnai_accounts', {
+  server.registerTool('sweech_accounts', {
     description: 'List provider accounts from providers.yaml with enabled state, models, and failover order.',
     inputSchema: undefined,
   }, async () => {
@@ -54,7 +54,7 @@ function createMcpServer(): McpServer {
     }
   });
 
-  server.registerTool('omnai_quota', {
+  server.registerTool('sweech_quota', {
     description: 'Get per-account quota usage, cost, and canUse status.',
     inputSchema: undefined,
   }, async () => {
@@ -83,7 +83,7 @@ function createMcpServer(): McpServer {
     };
   });
 
-  server.registerTool('omnai_select', {
+  server.registerTool('sweech_select', {
     description: 'Select the best engine/account for a task without running it.',
     inputSchema: {
       taskType: z.enum(['coding', 'analysis', 'planning', 'review', 'chat', 'research'])
@@ -124,7 +124,7 @@ function createMcpServer(): McpServer {
     }
   });
 
-  server.registerTool('omnai_run', {
+  server.registerTool('sweech_run', {
     description: 'Run a prompt through the best available AI engine. Returns final text output.',
     inputSchema: {
       prompt: z.string().min(1).max(500_000).describe('The prompt to execute'),
@@ -214,7 +214,7 @@ function createMcpServer(): McpServer {
     };
   });
 
-  server.registerResource('omnai://catalog', 'omnai://catalog', {
+  server.registerResource('sweech://catalog', 'sweech://catalog', {
     description: 'Model catalog: all models available across enabled provider accounts.',
     mimeType: 'application/json',
   }, async () => {
@@ -230,7 +230,7 @@ function createMcpServer(): McpServer {
       }
       return {
         contents: [{
-          uri: 'omnai://catalog',
+          uri: 'sweech://catalog',
           mimeType: 'application/json',
           text: JSON.stringify({ models }),
         }],
@@ -238,7 +238,7 @@ function createMcpServer(): McpServer {
     } catch {
       return {
         contents: [{
-          uri: 'omnai://catalog',
+          uri: 'sweech://catalog',
           mimeType: 'application/json',
           text: JSON.stringify({ models: [] }),
         }],
@@ -246,7 +246,7 @@ function createMcpServer(): McpServer {
     }
   });
 
-  server.registerResource('omnai://routes', 'omnai://routes', {
+  server.registerResource('sweech://routes', 'sweech://routes', {
     description: 'Active routes: which engine/account is currently selected for each provider.',
     mimeType: 'application/json',
   }, async () => {
@@ -260,7 +260,7 @@ function createMcpServer(): McpServer {
       }
       return {
         contents: [{
-          uri: 'omnai://routes',
+          uri: 'sweech://routes',
           mimeType: 'application/json',
           text: JSON.stringify({ routes, failoverOrder: providers.failoverOrder }),
         }],
@@ -268,7 +268,7 @@ function createMcpServer(): McpServer {
     } catch {
       return {
         contents: [{
-          uri: 'omnai://routes',
+          uri: 'sweech://routes',
           mimeType: 'application/json',
           text: JSON.stringify({ routes: {} }),
         }],
@@ -276,7 +276,7 @@ function createMcpServer(): McpServer {
     }
   });
 
-  server.registerResource('omnai://usage', 'omnai://usage', {
+  server.registerResource('sweech://usage', 'sweech://usage', {
     description: 'Usage stats: per-account cost, request count, and quota utilization.',
     mimeType: 'application/json',
   }, async () => {
@@ -284,7 +284,7 @@ function createMcpServer(): McpServer {
     if (!tracker) {
       return {
         contents: [{
-          uri: 'omnai://usage',
+          uri: 'sweech://usage',
           mimeType: 'application/json',
           text: JSON.stringify({ accounts: {}, totalCostUsd: 0 }),
         }],
@@ -306,7 +306,7 @@ function createMcpServer(): McpServer {
     }
     return {
       contents: [{
-        uri: 'omnai://usage',
+        uri: 'sweech://usage',
         mimeType: 'application/json',
         text: JSON.stringify({ accounts, totalCostUsd, lastFlushed: state.lastFlushed }),
       }],

@@ -9,7 +9,7 @@ import { GooseRunner } from './runner/goose.js';
 import { CodexRunner } from './runner/codex.js';
 import { CopilotRunner } from './runner/copilot.js';
 import { OpenAICompatRunner } from './runner/openai-compat.js';
-import type { ModelRunner, OmnaiConfig, Provider, EngineId, RunOptions } from './types.js';
+import type { ModelRunner, SweechConfig, Provider, EngineId, RunOptions } from './types.js';
 import type { ModelOption } from './models.js';
 import { resolveExecutionTarget, type ExecutionSelection, type ExecutionTarget, type ContentType } from './execution-target.js';
 import type { Capability } from './capabilities.js';
@@ -29,7 +29,7 @@ export interface SelectOptions {
   account?: string;
   fallbackAccounts?: string[];
   accountStrategy?: import('./subscription-routing.js').AccountRoutingStrategy;
-  config?: OmnaiConfig;
+  config?: SweechConfig;
   profile?: string;
   taskType?: RunOptions['taskType'];
   contentType?: ContentType;
@@ -83,8 +83,8 @@ export async function select(opts: SelectOptions = {}): Promise<ModelRunner> {
 
 export async function selectViaDaemon(opts: SelectOptions = {}): Promise<ModelRunner> {
   try {
-    const { OmnaiClient } = await import('./client.js');
-    const client = new OmnaiClient();
+    const { SweechClient } = await import('./client.js');
+    const client = new SweechClient();
     const isUp = await client.ping();
     if (isUp) {
       const result = await client.select({

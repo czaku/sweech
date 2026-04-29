@@ -8,7 +8,7 @@ export function registerProfilesCommands(parent: Command): void {
     .command('profiles')
     .description('Manage credential profiles (multi-account support)');
 
-  // ── omnai profiles list ─────────────────────────────────────────────────────
+  // ── sweech profiles list ─────────────────────────────────────────────────────
   profiles
     .command('list')
     .description('Show all profiles')
@@ -23,7 +23,7 @@ export function registerProfilesCommands(parent: Command): void {
       const entries = Object.values(all);
       if (entries.length === 0) {
         console.log('No profiles configured.');
-        console.log(`Run "omnai profiles import-sweech" to import from sweech, or "omnai profiles add" to create one.`);
+        console.log(`Run "sweech profiles import-sweech" to import from sweech, or "sweech profiles add" to create one.`);
         return;
       }
       const defaults = config._config?.defaults ?? {};
@@ -51,7 +51,7 @@ export function registerProfilesCommands(parent: Command): void {
       }
     });
 
-  // ── omnai profiles add ──────────────────────────────────────────────────────
+  // ── sweech profiles add ──────────────────────────────────────────────────────
   profiles
     .command('add <name>')
     .description('Add a credential profile')
@@ -72,7 +72,7 @@ export function registerProfilesCommands(parent: Command): void {
       console.log(`Profile "${name}" saved.`);
     });
 
-  // ── omnai profiles remove ───────────────────────────────────────────────────
+  // ── sweech profiles remove ───────────────────────────────────────────────────
   profiles
     .command('remove <name>')
     .description('Remove a profile')
@@ -87,7 +87,7 @@ export function registerProfilesCommands(parent: Command): void {
       console.log(`Profile "${name}" removed.`);
     });
 
-  // ── omnai profiles import-sweech ────────────────────────────────────────────
+  // ── sweech profiles import-sweech ────────────────────────────────────────────
   profiles
     .command('import-sweech')
     .description('Auto-import profiles from ~/.sweech/config.json')
@@ -102,10 +102,10 @@ export function registerProfilesCommands(parent: Command): void {
       console.log(`Config: ${getProfilesPath()}`);
     });
 
-  // ── omnai profiles set-default ──────────────────────────────────────────────
+  // ── sweech profiles set-default ──────────────────────────────────────────────
   profiles
     .command('set-default <engine> <profile>')
-    .description('Set the default profile for an engine (e.g. omnai profiles set-default claude-code claude)')
+    .description('Set the default profile for an engine (e.g. sweech profiles set-default claude-code claude)')
     .action(async (engine: string, profile: string) => {
       const all = await loadProfiles();
       if (!all[profile]) {
@@ -116,10 +116,10 @@ export function registerProfilesCommands(parent: Command): void {
       console.log(`Default for ${engine}: ${profile}`);
     });
 
-  // ── omnai profiles set-failover ─────────────────────────────────────────────
+  // ── sweech profiles set-failover ─────────────────────────────────────────────
   profiles
     .command('set-failover <profiles...>')
-    .description('Set failover order for profiles (e.g. omnai profiles set-failover claude claude-pole)')
+    .description('Set failover order for profiles (e.g. sweech profiles set-failover claude claude-pole)')
     .action(async (profileNames: string[]) => {
       const all = await loadProfiles();
       for (const name of profileNames) {

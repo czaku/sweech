@@ -1,61 +1,61 @@
 import type { EngineId } from './types.js'
 import type { CredentialProfile } from './middleware/types.js'
 
-export const OMNAI_RUNTIME_DOCUMENT_SCHEMA = 'omnai.runtime' as const
-export const OMNAI_RUNTIME_DOCUMENT_VERSION = 2 as const
-export const OMNAI_SESSION_ARCHIVE_SNAPSHOT_VERSION = 2 as const
+export const SWEECH_RUNTIME_DOCUMENT_SCHEMA = 'sweech.runtime' as const
+export const SWEECH_RUNTIME_DOCUMENT_VERSION = 2 as const
+export const SWEECH_SESSION_ARCHIVE_SNAPSHOT_VERSION = 2 as const
 
-export type OmnaiMigrationCode = 'invalid_shape' | 'unknown_version'
+export type SweechMigrationCode = 'invalid_shape' | 'unknown_version'
 
-export class OmnaiMigrationError extends Error {
-  readonly code: OmnaiMigrationCode
+export class SweechMigrationError extends Error {
+  readonly code: SweechMigrationCode
   readonly remediation: string
   readonly source: string
 
-  constructor(code: OmnaiMigrationCode, source: string, detail: string, remediation: string) {
+  constructor(code: SweechMigrationCode, source: string, detail: string, remediation: string) {
     super(`${detail} ${remediation}`)
-    this.name = 'OmnaiMigrationError'
+    this.name = 'SweechMigrationError'
     this.code = code
     this.remediation = remediation
     this.source = source
   }
 }
 
-export function isOmnaiMigrationError(value: unknown): value is OmnaiMigrationError {
-  return value instanceof OmnaiMigrationError
+export function isSweechMigrationError(value: unknown): value is SweechMigrationError {
+  return value instanceof SweechMigrationError
 }
 
-export interface OmnaiRuntimeConfigBlock {
+export interface SweechRuntimeConfigBlock {
   defaults?: Partial<Record<EngineId, string>>
   failoverOrder?: string[]
 }
 
-export interface OmnaiLegacyRuntimeConfig {
-  _config?: OmnaiRuntimeConfigBlock
-  [name: string]: CredentialProfile | OmnaiRuntimeConfigBlock | undefined
+export interface SweechLegacyRuntimeConfig {
+  _config?: SweechRuntimeConfigBlock
+  [name: string]: CredentialProfile | SweechRuntimeConfigBlock | undefined
 }
 
-export interface OmnaiRuntimeDocumentV1 {
-  schema: typeof OMNAI_RUNTIME_DOCUMENT_SCHEMA
+export interface SweechRuntimeDocumentV1 {
+  schema: typeof SWEECH_RUNTIME_DOCUMENT_SCHEMA
   version: 1
   defaults?: Partial<Record<EngineId, string>>
   failoverOrder?: string[]
   profiles: Record<string, CredentialProfile>
 }
 
-export interface OmnaiRuntimeDocumentV2 {
-  schema: typeof OMNAI_RUNTIME_DOCUMENT_SCHEMA
-  version: typeof OMNAI_RUNTIME_DOCUMENT_VERSION
-  runtime: OmnaiRuntimeConfigBlock
+export interface SweechRuntimeDocumentV2 {
+  schema: typeof SWEECH_RUNTIME_DOCUMENT_SCHEMA
+  version: typeof SWEECH_RUNTIME_DOCUMENT_VERSION
+  runtime: SweechRuntimeConfigBlock
   profiles: Record<string, CredentialProfile>
 }
 
-export type OmnaiRuntimeStoreData =
-  | OmnaiLegacyRuntimeConfig
-  | OmnaiRuntimeDocumentV1
-  | OmnaiRuntimeDocumentV2
+export type SweechRuntimeStoreData =
+  | SweechLegacyRuntimeConfig
+  | SweechRuntimeDocumentV1
+  | SweechRuntimeDocumentV2
 
-export type OmnaiSessionArchiveMessageType =
+export type SweechSessionArchiveMessageType =
   | 'text'
   | 'prompt'
   | 'tool_call'
@@ -65,9 +65,9 @@ export type OmnaiSessionArchiveMessageType =
   | 'success'
   | 'thinking'
 
-export interface OmnaiSessionArchiveMessage {
+export interface SweechSessionArchiveMessage {
   id: string
-  type: OmnaiSessionArchiveMessageType
+  type: SweechSessionArchiveMessageType
   taskId?: string
   content: string
   toolName?: string
@@ -78,30 +78,30 @@ export interface OmnaiSessionArchiveMessage {
   timestamp?: number
 }
 
-export interface OmnaiLegacySessionArchiveSnapshot<TMessage = OmnaiSessionArchiveMessage> {
+export interface SweechLegacySessionArchiveSnapshot<TMessage = SweechSessionArchiveMessage> {
   createdAt: number
   messages: TMessage[]
 }
 
-export interface OmnaiSessionArchiveSnapshotV1<TMessage = OmnaiSessionArchiveMessage> {
+export interface SweechSessionArchiveSnapshotV1<TMessage = SweechSessionArchiveMessage> {
   schemaVersion: 1
   createdAt: number | string
   messages: TMessage[]
 }
 
-export interface OmnaiSessionArchiveSnapshotV2<TMessage = OmnaiSessionArchiveMessage> {
-  schemaVersion: typeof OMNAI_SESSION_ARCHIVE_SNAPSHOT_VERSION
+export interface SweechSessionArchiveSnapshotV2<TMessage = SweechSessionArchiveMessage> {
+  schemaVersion: typeof SWEECH_SESSION_ARCHIVE_SNAPSHOT_VERSION
   createdAt: number
   messages: TMessage[]
 }
 
-export type OmnaiSessionArchiveSnapshot<TMessage = OmnaiSessionArchiveMessage> =
-  OmnaiSessionArchiveSnapshotV2<TMessage>
+export type SweechSessionArchiveSnapshot<TMessage = SweechSessionArchiveMessage> =
+  SweechSessionArchiveSnapshotV2<TMessage>
 
-export type OmnaiSessionArchiveStoreData<TMessage = OmnaiSessionArchiveMessage> = Array<
-  | OmnaiLegacySessionArchiveSnapshot<TMessage>
-  | OmnaiSessionArchiveSnapshotV1<TMessage>
-  | OmnaiSessionArchiveSnapshotV2<TMessage>
+export type SweechSessionArchiveStoreData<TMessage = SweechSessionArchiveMessage> = Array<
+  | SweechLegacySessionArchiveSnapshot<TMessage>
+  | SweechSessionArchiveSnapshotV1<TMessage>
+  | SweechSessionArchiveSnapshotV2<TMessage>
 >
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -109,7 +109,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function failInvalidShape(source: string, detail: string): never {
-  throw new OmnaiMigrationError(
+  throw new SweechMigrationError(
     'invalid_shape',
     source,
     `Invalid persisted data in ${source}: ${detail}.`,
@@ -118,11 +118,11 @@ function failInvalidShape(source: string, detail: string): never {
 }
 
 function failUnknownVersion(source: string, version: unknown, target: number): never {
-  throw new OmnaiMigrationError(
+  throw new SweechMigrationError(
     'unknown_version',
     source,
     `Unsupported schema version ${String(version)} in ${source}.`,
-    `Upgrade omnai to a build that understands version ${String(version)} or reset the stored data. Current version: ${target}.`,
+    `Upgrade sweech to a build that understands version ${String(version)} or reset the stored data. Current version: ${target}.`,
   )
 }
 
@@ -138,7 +138,7 @@ function cloneStringRecord(value: Record<string, unknown> | undefined, source: s
   return out
 }
 
-function cloneRuntimeConfigBlock(value: unknown, source: string): OmnaiRuntimeConfigBlock {
+function cloneRuntimeConfigBlock(value: unknown, source: string): SweechRuntimeConfigBlock {
   if (value === undefined) return {}
   if (!isRecord(value)) failInvalidShape(source, 'expected runtime config block to be an object')
 
@@ -201,16 +201,16 @@ function cloneProfilesMap(value: unknown, source: string): Record<string, Creden
   return profiles
 }
 
-export function createEmptyRuntimeDocument(): OmnaiRuntimeDocumentV2 {
+export function createEmptyRuntimeDocument(): SweechRuntimeDocumentV2 {
   return {
-    schema: OMNAI_RUNTIME_DOCUMENT_SCHEMA,
-    version: OMNAI_RUNTIME_DOCUMENT_VERSION,
+    schema: SWEECH_RUNTIME_DOCUMENT_SCHEMA,
+    version: SWEECH_RUNTIME_DOCUMENT_VERSION,
     runtime: {},
     profiles: {},
   }
 }
 
-export function migrateRuntimeDocument(value: unknown, source = 'runtime document'): OmnaiRuntimeDocumentV2 {
+export function migrateRuntimeDocument(value: unknown, source = 'runtime document'): SweechRuntimeDocumentV2 {
   if (!isRecord(value)) failInvalidShape(source, 'expected a JSON object')
 
   if (value.schema === undefined && value.version === undefined) {
@@ -221,21 +221,21 @@ export function migrateRuntimeDocument(value: unknown, source = 'runtime documen
       profiles[name] = cloneCredentialProfile(profile, `${source}.${name}`)
     }
     return {
-      schema: OMNAI_RUNTIME_DOCUMENT_SCHEMA,
-      version: OMNAI_RUNTIME_DOCUMENT_VERSION,
+      schema: SWEECH_RUNTIME_DOCUMENT_SCHEMA,
+      version: SWEECH_RUNTIME_DOCUMENT_VERSION,
       runtime,
       profiles,
     }
   }
 
-  if (value.schema !== OMNAI_RUNTIME_DOCUMENT_SCHEMA) {
-    failInvalidShape(source, `expected schema "${OMNAI_RUNTIME_DOCUMENT_SCHEMA}"`)
+  if (value.schema !== SWEECH_RUNTIME_DOCUMENT_SCHEMA) {
+    failInvalidShape(source, `expected schema "${SWEECH_RUNTIME_DOCUMENT_SCHEMA}"`)
   }
 
   if (value.version === 1) {
     return {
-      schema: OMNAI_RUNTIME_DOCUMENT_SCHEMA,
-      version: OMNAI_RUNTIME_DOCUMENT_VERSION,
+      schema: SWEECH_RUNTIME_DOCUMENT_SCHEMA,
+      version: SWEECH_RUNTIME_DOCUMENT_VERSION,
       runtime: {
         ...cloneRuntimeConfigBlock({ defaults: value.defaults, failoverOrder: value.failoverOrder }, `${source}.version1`),
       },
@@ -243,20 +243,20 @@ export function migrateRuntimeDocument(value: unknown, source = 'runtime documen
     }
   }
 
-  if (value.version === OMNAI_RUNTIME_DOCUMENT_VERSION) {
+  if (value.version === SWEECH_RUNTIME_DOCUMENT_VERSION) {
     return {
-      schema: OMNAI_RUNTIME_DOCUMENT_SCHEMA,
-      version: OMNAI_RUNTIME_DOCUMENT_VERSION,
+      schema: SWEECH_RUNTIME_DOCUMENT_SCHEMA,
+      version: SWEECH_RUNTIME_DOCUMENT_VERSION,
       runtime: cloneRuntimeConfigBlock(value.runtime, `${source}.runtime`),
       profiles: cloneProfilesMap(value.profiles, `${source}.profiles`),
     }
   }
 
-  failUnknownVersion(source, value.version, OMNAI_RUNTIME_DOCUMENT_VERSION)
+  failUnknownVersion(source, value.version, SWEECH_RUNTIME_DOCUMENT_VERSION)
 }
 
-export function toLegacyRuntimeConfig(document: OmnaiRuntimeDocumentV2): OmnaiLegacyRuntimeConfig {
-  const config: OmnaiLegacyRuntimeConfig = {}
+export function toLegacyRuntimeConfig(document: SweechRuntimeDocumentV2): SweechLegacyRuntimeConfig {
+  const config: SweechLegacyRuntimeConfig = {}
   const runtime = cloneRuntimeConfigBlock(document.runtime, 'runtime')
   if (Object.keys(runtime).length > 0) {
     config._config = runtime
@@ -269,14 +269,14 @@ export function toLegacyRuntimeConfig(document: OmnaiRuntimeDocumentV2): OmnaiLe
   return config
 }
 
-export function serializeRuntimeDocument(config: OmnaiLegacyRuntimeConfig | OmnaiRuntimeDocumentV2): string {
-  const document = 'schema' in config && config.schema === OMNAI_RUNTIME_DOCUMENT_SCHEMA
+export function serializeRuntimeDocument(config: SweechLegacyRuntimeConfig | SweechRuntimeDocumentV2): string {
+  const document = 'schema' in config && config.schema === SWEECH_RUNTIME_DOCUMENT_SCHEMA
     ? migrateRuntimeDocument(config, 'runtime document')
     : migrateRuntimeDocument(config, 'legacy runtime document')
   return `${JSON.stringify(document, null, 2)}\n`
 }
 
-function isSessionArchiveMessageType(value: unknown): value is OmnaiSessionArchiveMessageType {
+function isSessionArchiveMessageType(value: unknown): value is SweechSessionArchiveMessageType {
   return value === 'text'
     || value === 'prompt'
     || value === 'tool_call'
@@ -287,7 +287,7 @@ function isSessionArchiveMessageType(value: unknown): value is OmnaiSessionArchi
     || value === 'thinking'
 }
 
-export function isOmnaiSessionArchiveMessage(value: unknown): value is OmnaiSessionArchiveMessage {
+export function isSweechSessionArchiveMessage(value: unknown): value is SweechSessionArchiveMessage {
   return isRecord(value)
     && typeof value.id === 'string'
     && isSessionArchiveMessageType(value.type)
@@ -314,7 +314,7 @@ export function migrateSessionArchiveSnapshots<TMessage>(
   value: unknown,
   isMessage: (value: unknown) => value is TMessage,
   source = 'session archive',
-): OmnaiSessionArchiveSnapshot<TMessage>[] {
+): SweechSessionArchiveSnapshot<TMessage>[] {
   if (!Array.isArray(value)) {
     failInvalidShape(source, 'expected an array of snapshots')
   }
@@ -329,7 +329,7 @@ export function migrateSessionArchiveSnapshots<TMessage>(
 
     if (snapshot.schemaVersion === undefined) {
       return {
-        schemaVersion: OMNAI_SESSION_ARCHIVE_SNAPSHOT_VERSION,
+        schemaVersion: SWEECH_SESSION_ARCHIVE_SNAPSHOT_VERSION,
         createdAt: normalizeSessionArchiveTimestamp(snapshot.createdAt, scope),
         messages: [...snapshot.messages],
       }
@@ -337,29 +337,29 @@ export function migrateSessionArchiveSnapshots<TMessage>(
 
     if (snapshot.schemaVersion === 1) {
       return {
-        schemaVersion: OMNAI_SESSION_ARCHIVE_SNAPSHOT_VERSION,
+        schemaVersion: SWEECH_SESSION_ARCHIVE_SNAPSHOT_VERSION,
         createdAt: normalizeSessionArchiveTimestamp(snapshot.createdAt, scope),
         messages: [...snapshot.messages],
       }
     }
 
-    if (snapshot.schemaVersion === OMNAI_SESSION_ARCHIVE_SNAPSHOT_VERSION) {
+    if (snapshot.schemaVersion === SWEECH_SESSION_ARCHIVE_SNAPSHOT_VERSION) {
       return {
-        schemaVersion: OMNAI_SESSION_ARCHIVE_SNAPSHOT_VERSION,
+        schemaVersion: SWEECH_SESSION_ARCHIVE_SNAPSHOT_VERSION,
         createdAt: normalizeSessionArchiveTimestamp(snapshot.createdAt, scope),
         messages: [...snapshot.messages],
       }
     }
 
-    failUnknownVersion(scope, snapshot.schemaVersion, OMNAI_SESSION_ARCHIVE_SNAPSHOT_VERSION)
+    failUnknownVersion(scope, snapshot.schemaVersion, SWEECH_SESSION_ARCHIVE_SNAPSHOT_VERSION)
   })
 }
 
 export function serializeSessionArchiveSnapshots<TMessage>(
-  snapshots: readonly OmnaiSessionArchiveSnapshot<TMessage>[],
-): OmnaiSessionArchiveSnapshot<TMessage>[] {
+  snapshots: readonly SweechSessionArchiveSnapshot<TMessage>[],
+): SweechSessionArchiveSnapshot<TMessage>[] {
   return snapshots.map((snapshot) => ({
-    schemaVersion: OMNAI_SESSION_ARCHIVE_SNAPSHOT_VERSION,
+    schemaVersion: SWEECH_SESSION_ARCHIVE_SNAPSHOT_VERSION,
     createdAt: snapshot.createdAt,
     messages: [...snapshot.messages],
   }))

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { OmnaiClient } from '../client.js';
+import { SweechClient } from '../client.js';
 import type { AgentEvent } from '../types.js';
 
 const envelopeEvent: AgentEvent = {
@@ -20,7 +20,7 @@ function createStreamResponse(text: string): Response {
   return new Response(stream);
 }
 
-describe('OmnaiClient', () => {
+describe('SweechClient', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
   });
@@ -28,7 +28,7 @@ describe('OmnaiClient', () => {
   it('decodes daemon stream envelopes in run()', async () => {
     const runResponse = createStreamResponse(
       `data: ${JSON.stringify({
-        schema: 'omnai.stream',
+        schema: 'sweech.stream',
         version: 1,
         kind: 'agent_event',
         streamId: 'stream-1',
@@ -45,7 +45,7 @@ describe('OmnaiClient', () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(runResponse);
 
     const events: AgentEvent[] = [];
-    for await (const event of new OmnaiClient({ port: 7845, host: '127.0.0.1' }).run('hello')) {
+    for await (const event of new SweechClient({ port: 7845, host: '127.0.0.1' }).run('hello')) {
       events.push(event);
     }
 
@@ -58,7 +58,7 @@ describe('OmnaiClient', () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(runResponse);
 
     const events: AgentEvent[] = [];
-    for await (const event of new OmnaiClient({ port: 7845, host: '127.0.0.1' }).run('hello')) {
+    for await (const event of new SweechClient({ port: 7845, host: '127.0.0.1' }).run('hello')) {
       events.push(event);
     }
 
@@ -71,7 +71,7 @@ describe('OmnaiClient', () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(runResponse);
 
     const events: AgentEvent[] = [];
-    for await (const event of new OmnaiClient({ port: 7845, host: '127.0.0.1' }).run('hello')) {
+    for await (const event of new SweechClient({ port: 7845, host: '127.0.0.1' }).run('hello')) {
       events.push(event);
     }
 
@@ -84,7 +84,7 @@ describe('OmnaiClient', () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(runResponse);
 
     const events: AgentEvent[] = [];
-    for await (const event of new OmnaiClient({ port: 7845, host: '127.0.0.1' }).run('hello')) {
+    for await (const event of new SweechClient({ port: 7845, host: '127.0.0.1' }).run('hello')) {
       events.push(event);
     }
 

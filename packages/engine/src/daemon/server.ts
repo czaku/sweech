@@ -18,11 +18,11 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { FedEventClient } from '@vykeai/fed';
 import {
-  getOmnaiStreamSeverity,
+  getSweechStreamSeverity,
   STREAM_PROTOCOL,
   STREAM_PROTOCOL_VERSION,
   STREAM_KIND_DAEMON,
-  type OmnaiDaemonStreamEnvelope,
+  type SweechDaemonStreamEnvelope,
 } from '../stream-contract.js';
 import { handleMcpRequest } from './mcp.js';
 import { runParallel, type ParallelStrategy } from '../parallel.js';
@@ -65,7 +65,7 @@ const KNOWN_ACCOUNT_STRATEGIES = new Set(['balanced', 'least-used', 'protect-wee
 const KNOWN_EFFORT = new Set(['low', 'medium', 'high', 'max']);
 const KNOWN_PERMISSION_MODES = new Set(['ask', 'bypass', 'auto', 'acceptEdits', 'plan', 'dontAsk']);
 const VALID_RETRY_EVENTS = new Set(['error', 'rate_limit', 'timeout', 'network']);
-const VALID_RETRY_MANAGED_BY = new Set(['omnai', 'consumer']);
+const VALID_RETRY_MANAGED_BY = new Set(['sweech', 'consumer']);
 const VALID_RETRY_CLASSES = new Set(['infra', 'throttle', 'tool', 'auth', 'parse', 'fatal']);
 const VALID_THINKING_TYPES = new Set(['disabled', 'adaptive', 'enabled']);
 const VALID_THINKING_LEVELS = new Set(['off', 'minimal', 'low', 'medium', 'high', 'xhigh']);
@@ -107,7 +107,7 @@ export function cancelAllRunSessions(): void {
   }
 }
 
-type DaemonStreamEnvelope = OmnaiDaemonStreamEnvelope;
+type DaemonStreamEnvelope = SweechDaemonStreamEnvelope;
 
 function createDaemonStreamEnvelope(
   event: AgentEvent,
@@ -125,7 +125,7 @@ function createDaemonStreamEnvelope(
     requestId,
     sequence,
     traceId,
-    severity: getOmnaiStreamSeverity(event),
+    severity: getSweechStreamSeverity(event),
     componentId: 'core.daemon.run',
     correlationId,
     ts: new Date().toISOString(),
@@ -191,7 +191,7 @@ const RUN_REQUEST_KEYS = new Set([
   'thinking',
   'continueSession',
   'persistSession',
-  'omnaiSessionId',
+  'sweechSessionId',
   'maxTurns',
   'outputFormat',
   'mcpServers',
@@ -241,7 +241,7 @@ type SelectRequest = {
 
 type RunRequest = SelectRequest & RunOptions & {
   prompt: string;
-  omnaiSessionId?: string;
+  sweechSessionId?: string;
   strategy?: ParallelStrategy;
   parallelAccounts?: string[];
 };
@@ -539,10 +539,10 @@ function validateRunRequest(raw: unknown): HandlerResult<RunRequest> {
   const persistSession = raw.persistSession;
   if (persistSession !== undefined && !isBoolean(persistSession)) return asFailure(400, 'invalid_field', 'persistSession must be a boolean', 'persistSession');
 
-  const omnaiSessionId = raw.omnaiSessionId;
-  if (omnaiSessionId !== undefined) {
-    if (typeof omnaiSessionId !== 'string' || omnaiSessionId.length === 0 || omnaiSessionId.length > 128) {
-      return asFailure(400, 'invalid_field', 'omnaiSessionId must be a non-empty string (max 128 chars)', 'omnaiSessionId');
+  const sweechSessionId = raw.sweechSessionId;
+  if (sweechSessionId !== undefined) {
+    if (typeof sweechSessionId !== 'string' || sweechSessionId.length === 0 || sweechSessionId.length > 128) {
+      return asFailure(400, 'invalid_field', 'sweechSessionId must be a non-empty string (max 128 chars)', 'sweechSessionId');
     }
   }
 
@@ -758,8 +758,8 @@ function validateRunRequest(raw: unknown): HandlerResult<RunRequest> {
   if (strategy !== undefined && parallelAccounts === undefined) {
     return asFailure(400, 'invalid_field', 'parallelAccounts is required when strategy is set', 'parallelAccounts');
   }
-  if (strategy !== undefined && omnaiSessionId !== undefined) {
-    return asFailure(400, 'invalid_field', 'omnaiSessionId is not supported with parallel strategy', 'omnaiSessionId');
+  if (strategy !== undefined && sweechSessionId !== undefined) {
+    return asFailure(400, 'invalid_field', 'sweechSessionId is not supported with parallel strategy', 'sweechSessionId');
   }
 
   const result: RunRequest = {
@@ -800,7 +800,7 @@ function validateRunRequest(raw: unknown): HandlerResult<RunRequest> {
     ...(raw.domain !== undefined ? { domain: raw.domain as string } : {}),
     ...(runTier !== undefined ? { tier: (runTier as string).toLowerCase() } : {}),
     ...(raw.sweechProfile !== undefined ? { sweechProfile: raw.sweechProfile as string } : {}),
-    ...(omnaiSessionId !== undefined ? { omnaiSessionId } : {}),
+    ...(sweechSessionId !== undefined ? { sweechSessionId } : {}),
     ...(strategy !== undefined ? { strategy: strategy as ParallelStrategy } : {}),
     ...(parallelAccounts !== undefined ? { parallelAccounts } : {}),
   };
@@ -904,7 +904,7 @@ async function getRoutedFallbackOrder(
 }
 
 function publishQuotaExceeded(accountId: string, provider: string, engine: string): void {
-  fedClient.publish('omnai.provider.throttled', 'omnai', {
+  fedClient.publish('sweech.provider.throttled', 'sweech', {
     accountId,
     provider,
     engine,
@@ -912,7 +912,7 @@ function publishQuotaExceeded(accountId: string, provider: string, engine: strin
 }
 
 function publishFailover(skipped: string[], accountId: string, engine: string, reason: string): void {
-  fedClient.publish('omnai.failover', 'omnai', {
+  fedClient.publish('sweech.failover', 'sweech', {
     from: skipped,
     to: accountId,
     engine,
@@ -1304,7 +1304,7 @@ export function createApp(opts?: { estate?: Estate; quotaTracker?: QuotaTracker;
       return jsonWithStatus(c, toValidationErrorBody(bodyValidation), bodyValidation.status);
     }
 
-    const { prompt, omnaiSessionId: reqOmnaiSessionId, strategy, parallelAccounts, ...opts } = bodyValidation.value;
+    const { prompt, sweechSessionId: reqSweechSessionId, strategy, parallelAccounts, ...opts } = bodyValidation.value;
 
     // sweechProfile resolves to account — Sweech profiles are auto-merged
     // into the estate with their commandName as the account ID.
@@ -1321,11 +1321,11 @@ export function createApp(opts?: { estate?: Estate; quotaTracker?: QuotaTracker;
       }
     }
 
-    // Session continuity: derive the omnai session ID for this request.
-    // - If the client supplies omnaiSessionId, resume that session.
+    // Session continuity: derive the sweech session ID for this request.
+    // - If the client supplies sweechSessionId, resume that session.
     // - If persistSession is true and no ID supplied, start a new session.
-    const omnaiSessionId: string | undefined =
-      reqOmnaiSessionId ?? (opts.persistSession ? randomUUID() : undefined);
+    const sweechSessionId: string | undefined =
+      reqSweechSessionId ?? (opts.persistSession ? randomUUID() : undefined);
 
     // sweechProfile resolves to account — Sweech profiles are auto-merged
     // into the estate with their commandName as the account ID.
@@ -1403,12 +1403,12 @@ export function createApp(opts?: { estate?: Estate; quotaTracker?: QuotaTracker;
       return c.json({ error: (err as Error).message }, 400);
     }
 
-    // Wrap with conversation middleware when an omnai session is active.
+    // Wrap with conversation middleware when an sweech session is active.
     // This prepends stored history to the prompt, ensuring context survives
     // engine switches (quota exhaustion, failover). Applied before fallback
     // middleware so history is injected regardless of which engine is ultimately used.
-    if (omnaiSessionId) {
-      runner = conversationMiddleware(daemonSessionStore, omnaiSessionId)(runner);
+    if (sweechSessionId) {
+      runner = conversationMiddleware(daemonSessionStore, sweechSessionId)(runner);
     }
 
     const middlewares = [costMiddleware, toolTimingMiddleware, mcpMiddleware];
@@ -1433,7 +1433,7 @@ export function createApp(opts?: { estate?: Estate; quotaTracker?: QuotaTracker;
       return createDaemonStreamEnvelope(event, streamId, requestId, traceId, correlationId, sequence);
     };
 
-    fedClient.publish('omnai.run.started', 'omnai', {
+    fedClient.publish('sweech.run.started', 'sweech', {
       runId,
       requestId,
       traceId,
@@ -1469,7 +1469,7 @@ export function createApp(opts?: { estate?: Estate; quotaTracker?: QuotaTracker;
                   ...event,
                   ...(resolvedOpts.account ? { account: resolvedOpts.account } : {}),
                   ...(resolvedOpts.provider ? { provider: resolvedOpts.provider } : {}),
-                  ...(omnaiSessionId ? { omnaiSessionId } : {}),
+                  ...(sweechSessionId ? { sweechSessionId } : {}),
                 } as AgentEvent;
                 const frame = serializeEvent(enriched);
                 controller.enqueue(encoder.encode(`data: ${frame}\n\n`));
@@ -1478,7 +1478,7 @@ export function createApp(opts?: { estate?: Estate; quotaTracker?: QuotaTracker;
                 controller.enqueue(encoder.encode(`data: ${frame}\n\n`));
               }
             }
-            fedClient.publish('omnai.run.completed', 'omnai', {
+            fedClient.publish('sweech.run.completed', 'sweech', {
               runId,
               requestId,
               traceId,
@@ -1488,7 +1488,7 @@ export function createApp(opts?: { estate?: Estate; quotaTracker?: QuotaTracker;
               ...(lastResult?.sessionId ? { sessionId: lastResult.sessionId } : {}),
             }).catch(() => {});
           } catch (err) {
-            fedClient.publish('omnai.run.completed', 'omnai', {
+            fedClient.publish('sweech.run.completed', 'sweech', {
               runId, requestId, traceId, engine: runner.engine, status: 'error', error: (err as Error).message,
             }).catch(() => {});
             const message = (err as Error).name === 'AbortError' ? 'daemon shutdown' : (err as Error).message;
@@ -1505,9 +1505,9 @@ export function createApp(opts?: { estate?: Estate; quotaTracker?: QuotaTracker;
           'Content-Type': 'text/event-stream',
           'Cache-Control': 'no-cache',
           Connection: 'keep-alive',
-          'X-Omnai-Request-Id': requestId,
-          'X-Omnai-Trace-Id': traceId,
-          'X-Omnai-Stream-Id': streamId,
+          'X-Sweech-Request-Id': requestId,
+          'X-Sweech-Trace-Id': traceId,
+          'X-Sweech-Stream-Id': streamId,
         },
       }
     );

@@ -153,7 +153,7 @@ describe('daemon server', () => {
   });
 
   it('POST /select honors explicit account ids from the estate', async () => {
-    // resolveSelectionTarget calls resolveAccount which reads ~/.omnai/estate.yaml.
+    // resolveSelectionTarget calls resolveAccount which reads ~/.sweech/estate.yaml.
     // Spy to avoid filesystem dependency for non-standard test account 'pole'.
     vi.spyOn(selectModule, 'resolveSelectionTarget').mockResolvedValueOnce({
       engine: 'claude-code', account: 'pole', binaryPath: '/usr/bin/claude', source: 'selection', provider: 'claude',
@@ -178,7 +178,7 @@ describe('daemon server', () => {
   });
 
   it('POST /select honors explicit fallback account order', async () => {
-    // resolveSelectionTarget calls resolveAccount which reads ~/.omnai/estate.yaml.
+    // resolveSelectionTarget calls resolveAccount which reads ~/.sweech/estate.yaml.
     // Spy to avoid filesystem dependency for non-standard test accounts.
     vi.spyOn(selectModule, 'resolveSelectionTarget').mockResolvedValueOnce({
       engine: 'pi-mono', account: 'kimi', binaryPath: '/usr/bin/pi', source: 'selection', provider: 'kimi',
@@ -344,7 +344,7 @@ describe('daemon server', () => {
     const frame = rawBody.split('\n').find((line) => line.startsWith('data: '));
     expect(frame).toBeTruthy();
     const rawPayload = JSON.parse(String(frame).slice(6));
-    expect(rawPayload.schema).toBe('omnai.stream');
+    expect(rawPayload.schema).toBe('sweech.stream');
     expect(rawPayload.version).toBe(1);
 
     const payload = extractFirstStreamEvent(rawBody);
@@ -561,7 +561,7 @@ describe('session continuity (T-LU-031)', () => {
     setDaemonLifecycleState('ready');
   });
 
-  it('returns omnaiSessionId in result when persistSession is true', async () => {
+  it('returns sweechSessionId in result when persistSession is true', async () => {
     const app = createApp({ estate: mockEstate });
     let capturedOpts: Record<string, unknown> = {};
     vi.spyOn(selectModule, 'makeRunner').mockImplementation((engine) => ({
@@ -578,11 +578,11 @@ describe('session continuity (T-LU-031)', () => {
     const raw = await res.text();
     const events = raw.split('\n\n').filter(l => l.startsWith('data: ')).map(l => JSON.parse(l.slice(6)));
     const result = events.find((e: Record<string, unknown>) => e.event?.type === 'result');
-    expect(result?.event?.omnaiSessionId).toMatch(/^[0-9a-f-]{36}$/);
+    expect(result?.event?.sweechSessionId).toMatch(/^[0-9a-f-]{36}$/);
     expect(capturedOpts).toBeDefined();
   });
 
-  it('uses provided omnaiSessionId and prepends history to prompt', async () => {
+  it('uses provided sweechSessionId and prepends history to prompt', async () => {
     const app = createApp({ estate: mockEstate });
     const sessionStore = getDaemonSessionStore();
 
@@ -603,7 +603,7 @@ describe('session continuity (T-LU-031)', () => {
       },
     }));
 
-    const res = await postRun(app, { prompt: 'new question', omnaiSessionId: sessionId });
+    const res = await postRun(app, { prompt: 'new question', sweechSessionId: sessionId });
     expect(res.status).toBe(200);
     await res.text();
 
@@ -616,15 +616,15 @@ describe('session continuity (T-LU-031)', () => {
     await sessionStore.clear(sessionId);
   });
 
-  it('rejects invalid omnaiSessionId', async () => {
+  it('rejects invalid sweechSessionId', async () => {
     const app = createApp({ estate: mockEstate });
-    const res = await postRun(app, { prompt: 'hi', omnaiSessionId: 42 });
+    const res = await postRun(app, { prompt: 'hi', sweechSessionId: 42 });
     expect(res.status).toBe(400);
     const body = await res.json() as { field?: string };
-    expect(body.field).toBe('omnaiSessionId');
+    expect(body.field).toBe('sweechSessionId');
   });
 
-  it('stores conversation after run when omnaiSessionId is provided', async () => {
+  it('stores conversation after run when sweechSessionId is provided', async () => {
     const app = createApp({ estate: mockEstate });
     const sessionStore = getDaemonSessionStore();
     const sessionId = 'test-store-session';
@@ -639,7 +639,7 @@ describe('session continuity (T-LU-031)', () => {
       },
     }));
 
-    const res = await postRun(app, { prompt: 'store this', omnaiSessionId: sessionId });
+    const res = await postRun(app, { prompt: 'store this', sweechSessionId: sessionId });
     expect(res.status).toBe(200);
     await res.text();
 

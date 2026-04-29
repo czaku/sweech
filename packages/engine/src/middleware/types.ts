@@ -14,8 +14,8 @@ export interface CostAccumulator {
 }
 
 export interface RetryPolicy {
-  /** Who manages retry: 'omnai' for built-in retry, 'consumer' to let the calling tool handle it. Default: 'consumer'. */
-  managedBy: 'omnai' | 'consumer';
+  /** Who manages retry: 'sweech' for built-in retry, 'consumer' to let the calling tool handle it. Default: 'consumer'. */
+  managedBy: 'sweech' | 'consumer';
   maxRetries?: number;
   engines?: EngineId[];
   retryOn?: ('error' | 'rate_limit' | 'timeout' | 'network')[];

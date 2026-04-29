@@ -164,7 +164,7 @@ export interface RunOptions {
   apiKey?: string;
 
   // ── Middleware options ──────────────────────────────────────────────────────
-  /** Credential profile name from ~/.omnai/profiles.json. */
+  /** Credential profile name from ~/.sweech/profiles.json. */
   profile?: string;
   /**
    * Sweech profile name (e.g. "codex-ted", "claude-pole").
@@ -178,12 +178,12 @@ export interface RunOptions {
    *
    * This is the preferred routing dimension above raw profile names:
    * - local Sweech-managed Claude/Codex accounts such as `claude-ted`
-   * - named API-key accounts from ~/.omnai/providers.yaml / estate.yaml such as `dashscope-prod`
+   * - named API-key accounts from ~/.sweech/providers.yaml / estate.yaml such as `dashscope-prod`
    *
    * When both `account` and `profile` are supplied, `account` wins.
    */
   account?: string;
-  /** Retry/fallback policy. Set `managedBy: 'omnai'` to use built-in retry, or 'consumer' (default) to handle it yourself. */
+  /** Retry/fallback policy. Set `managedBy: 'sweech'` to use built-in retry, or 'consumer' (default) to handle it yourself. */
   retryPolicy?: import('./middleware/types.js').RetryPolicy;
   /** Shared cost accumulator across runs. */
   costAccumulator?: import('./middleware/types.js').CostAccumulator;
@@ -223,7 +223,7 @@ export interface EngineStatus {
   providers?: Provider[];
 }
 
-export interface OmnaiConfig {
+export interface SweechConfig {
   defaultProvider?: Provider;
   defaultModel?: string;
   claudeBinaryPath?: string;

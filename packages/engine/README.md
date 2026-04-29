@@ -1,15 +1,15 @@
-# omnai
+# @sweech/engine
 
-`omnai` is the publishable core package for the workspace. It provides:
+`@sweech/engine` is the AI agent runner engine inside the sweech CLI. It provides:
 
-- `omnai run` for executing prompts through the selected engine
-- `omnai which` and `omnai config` for routing and account inspection
-- the daemon and HTTP APIs used by the higher-level tooling in this repo
+- `sweech run` for executing prompts through the selected engine
+- `sweech which` and `sweech config` for routing and account inspection
+- the daemon and HTTP APIs used by higher-level tooling
 
 ## Install
 
 ```bash
-npm install omnai
+npm install @sweech/engine
 ```
 
 ## What it depends on
@@ -25,8 +25,3 @@ to work.
 npm run build
 npm test
 ```
-
-## Notes
-
-- The workspace root is not the published artifact.
-- `packages/core` is the package you should document, test, and ship.

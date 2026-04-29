@@ -27,7 +27,7 @@ describe('keychain', () => {
     expect(getKey('test-profile')).toBe('sk-test-key-123');
     expect(execFileSync).toHaveBeenCalledWith(
       'security',
-      ['find-generic-password', '-a', 'test-profile', '-s', 'omnai', '-w'],
+      ['find-generic-password', '-a', 'test-profile', '-s', 'sweech', '-w'],
       expect.any(Object),
     );
   });
@@ -80,15 +80,15 @@ describe('keychain', () => {
       'class: "genp"',
       'attributes:',
       '    "acct"<blob>="my-profile"',
-      '    "svce"<blob>="omnai"',
+      '    "svce"<blob>="sweech"',
       'class: "genp"',
       'attributes:',
       '    "acct"<blob>="other-service"',
-      '    "svce"<blob>="not-omnai"',
+      '    "svce"<blob>="not-sweech"',
       'class: "genp"',
       'attributes:',
       '    "acct"<blob>="work-claude"',
-      '    "svce"<blob>="omnai"',
+      '    "svce"<blob>="sweech"',
     ].join('\n');
     (execFileSync as ReturnType<typeof vi.fn>).mockReturnValue(dump);
     const keys = listKeys();

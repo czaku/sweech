@@ -12,7 +12,7 @@ import { pathToFileURL } from 'node:url';
 import { registerTool } from '@vykeai/fed';
 
 let PORT = 7801;
-const PID_DIR = join(homedir(), '.omnai');
+const PID_DIR = join(homedir(), '.sweech');
 const PID_FILE = join(PID_DIR, 'daemon.pid');
 const FED_CONFIG_FILE = join(homedir(), '.fed', 'config.json');
 const SHUTDOWN_TIMEOUT_MS = 10_000;
@@ -40,9 +40,9 @@ export async function startDaemon(options: StartDaemonOptions = {}) {
   const shutdownTimeoutMs = options.shutdownTimeoutMs ?? SHUTDOWN_TIMEOUT_MS;
 
   // Resolve port: env var > fed config > fallback
-  const envPort = parseInt(process.env.OMNAI_PORT ?? '');
+  const envPort = parseInt(process.env.SWEECH_PORT ?? '');
   const fedCfg2 = await readFedConfig();
-  PORT = (Number.isFinite(envPort) && envPort > 0 ? envPort : fedCfg2?.tools?.omnai?.dash) ?? 7801;
+  PORT = (Number.isFinite(envPort) && envPort > 0 ? envPort : fedCfg2?.tools?.sweech?.dash) ?? 7801;
 
   setDaemonLifecycleState('booting', 'initializing');
   resetDaemonStartedAt();
@@ -164,32 +164,32 @@ export async function startDaemon(options: StartDaemonOptions = {}) {
   }
 
   const fedCfg = await readFedConfig().catch(() => null);
-  const fedPort = fedCfg?.tools?.omnai?.fed ?? (PORT + 50);
+  const fedPort = fedCfg?.tools?.sweech?.fed ?? (PORT + 50);
   const identity = fedCfg?.identity ?? os.hostname();
 
   server = serve({ fetch: app.fetch, port: PORT, hostname: '127.0.0.1' }, () => {
     void registerTool({
-      name: 'omnai',
-      displayName: 'Omnai',
+      name: 'sweech',
+      displayName: 'Sweech',
       port: PORT,
       fedPort,
       identity,
       version: '0.1.0',
       capabilities: ['engines', 'routing', 'quota', 'usage'],
       getInfo: async () => ({
-        displayName: 'Omnai',
+        displayName: 'Sweech',
         mainPort: PORT,
         capabilities: ['engines', 'routing', 'quota', 'usage'],
         tools: [{
-          id: 'omnai',
-          name: 'Omnai',
+          id: 'sweech',
+          name: 'Sweech',
           version: '0.1.0',
           actions: [
             { name: 'chat', method: 'POST', path: '/api/chat', description: 'Chat with AI engines' },
             { name: 'models', method: 'GET', path: '/api/models', description: 'List available models' },
           ],
           mcpEndpoint: `http://localhost:${PORT}/mcp`,
-          docsUrl: 'https://github.com/vykeai/omnai',
+          docsUrl: 'https://github.com/vykeai/sweech',
           healthPath: '/health',
         }],
       }),
@@ -224,7 +224,7 @@ async function runDaemonCli(): Promise<void> {
   } catch (error) {
     const message = (error as Error).message;
     setDaemonLifecycleState('terminated', `startup failed: ${message}`);
-    console.error(`omnai daemon failed to start: ${message}`);
+    console.error(`sweech daemon failed to start: ${message}`);
     process.exitCode = 1;
   }
 }

@@ -10,7 +10,7 @@ export function registerRulesCommands(parent: Command): void {
     .command('rules')
     .description('Manage failover, retry, and budget rules');
 
-  // ── omnai rules list ────────────────────────────────────────────────────────
+  // ── sweech rules list ────────────────────────────────────────────────────────
   rules
     .command('list')
     .description('Show all rules')
@@ -36,7 +36,7 @@ export function registerRulesCommands(parent: Command): void {
       }
     });
 
-  // ── omnai rules add ─────────────────────────────────────────────────────────
+  // ── sweech rules add ─────────────────────────────────────────────────────────
   rules
     .command('add <name>')
     .description('Add or update a rule')
@@ -77,7 +77,7 @@ export function registerRulesCommands(parent: Command): void {
       console.log(`Rule "${name}" saved.`);
     });
 
-  // ── omnai rules remove ──────────────────────────────────────────────────────
+  // ── sweech rules remove ──────────────────────────────────────────────────────
   rules
     .command('remove <name>')
     .description('Remove a rule')
@@ -91,7 +91,7 @@ export function registerRulesCommands(parent: Command): void {
       }
     });
 
-  // ── omnai rules enable/disable ──────────────────────────────────────────────
+  // ── sweech rules enable/disable ──────────────────────────────────────────────
   rules
     .command('enable <name>')
     .description('Enable a rule')
@@ -110,7 +110,7 @@ export function registerRulesCommands(parent: Command): void {
       else { console.error(`Rule "${name}" not found.`); process.exit(1); }
     });
 
-  // ── omnai rules test ────────────────────────────────────────────────────────
+  // ── sweech rules test ────────────────────────────────────────────────────────
   rules
     .command('test')
     .description('Dry-run: test which rule would match a scenario')
@@ -138,7 +138,7 @@ export function registerRulesCommands(parent: Command): void {
       }
     });
 
-  // ── omnai rules add-budget-guard ────────────────────────────────────────────
+  // ── sweech rules add-budget-guard ────────────────────────────────────────────
   rules
     .command('add-budget-guard')
     .description('Add a cost_exceeded rule that downgrades to a cheaper tier')
@@ -167,7 +167,7 @@ export function registerRulesCommands(parent: Command): void {
       console.log(`Config: ${getConfigPath()}`);
     });
 
-  // ── omnai rules reset ───────────────────────────────────────────────────────
+  // ── sweech rules reset ───────────────────────────────────────────────────────
   rules
     .command('reset')
     .description('Reset rules to defaults (keeps tiers)')
@@ -178,7 +178,7 @@ export function registerRulesCommands(parent: Command): void {
       console.log('All rules cleared.');
     });
 
-  // ── omnai rules init ────────────────────────────────────────────────────────
+  // ── sweech rules init ────────────────────────────────────────────────────────
   rules
     .command('init')
     .description('Create starter rules for common scenarios')
@@ -219,7 +219,7 @@ export function registerRulesCommands(parent: Command): void {
       }
       console.log(`Created ${starterRules.length} starter rules (some disabled by default).`);
       console.log(`Config: ${getConfigPath()}`);
-      console.log('Use "omnai rules list" to review, "omnai rules enable <name>" to activate.');
+      console.log('Use "sweech rules list" to review, "sweech rules enable <name>" to activate.');
     });
 }
 
