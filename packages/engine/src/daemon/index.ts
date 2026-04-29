@@ -50,6 +50,7 @@ export async function startDaemon(options: StartDaemonOptions = {}) {
   let quotaTracker: QuotaTracker | undefined;
   let stopProvidersWatch: (() => void) | null = null;
   let server: ReturnType<typeof serve> | null = null;
+  let fedCleanup: (() => void) | null = null;
   let shuttingDown = false;
   let shutdownPromise: Promise<void> | null = null;
   let closeServerPromise: Promise<void> | null = null;
@@ -126,6 +127,8 @@ export async function startDaemon(options: StartDaemonOptions = {}) {
       cancelAllRunSessions();
       stopProvidersWatch?.();
       stopProvidersWatch = null;
+      fedCleanup?.();
+      fedCleanup = null;
 
       const shutdownResult = await Promise.race([
         closeServer().then(() => 'closed' as const).catch(() => 'close-error' as const),
@@ -193,6 +196,8 @@ export async function startDaemon(options: StartDaemonOptions = {}) {
           healthPath: '/health',
         }],
       }),
+    }).then((cleanup) => {
+      fedCleanup = cleanup;
     }).catch(() => {});
   });
   setDaemonLifecycleState('ready', 'daemon running');
