@@ -10,7 +10,7 @@ import {
   setFailoverOrder,
   clearProfileCache,
 } from '../middleware/profiles.js';
-import { getKey, setKey, deleteKey, keyExists } from '../keychain.js';
+import { setKey, deleteKey, keyExists } from '../keychain.js';
 import { detectEngines } from '../detect.js';
 import { MODEL_OPTIONS } from '../models.js';
 import { PRICING } from '../pricing.js';
