@@ -907,9 +907,10 @@ program
         const { appendFileSync, mkdirSync } = require('node:fs');
         const { join } = require('node:path');
         const { homedir } = require('node:os');
+        const safeName = (profile?.commandName ?? commandName).replace(/[\n\r]/g, '');
         const auditDir = join(homedir(), '.sweech');
         mkdirSync(auditDir, { recursive: true });
-        appendFileSync(join(auditDir, 'audit.log'), `${new Date().toISOString()} launch --force profile=${profile?.commandName ?? commandName}\n`);
+        appendFileSync(join(auditDir, 'audit.log'), `${new Date().toISOString()} launch --force profile=${safeName}\n`);
       } catch { /* best effort */ }
     }
 

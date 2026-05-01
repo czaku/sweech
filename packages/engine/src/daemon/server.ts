@@ -1272,6 +1272,9 @@ export function createApp(opts?: { estate?: Estate; quotaTracker?: QuotaTracker;
     if (!profile) {
       return c.json({ error: 'profile query parameter required' }, 400);
     }
+    if (!/^[a-zA-Z0-9_.-]{1,128}$/.test(profile)) {
+      return c.json({ error: 'invalid profile name' }, 400);
+    }
     const result = await checkProfile(profile);
     return c.json(result);
   });

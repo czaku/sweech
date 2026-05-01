@@ -17,8 +17,35 @@ export interface CheckResult {
 const CACHE_TTL_MS = 5 * 60 * 1000;
 const checkCache = new Map<string, { result: CheckResult; expiresAt: number }>();
 
+const ALLOWED_PROVIDER_HOSTS = new Set([
+  'api.anthropic.com',
+  'api.openai.com',
+  'api.deepseek.com',
+  'api.groq.com',
+  'openrouter.ai',
+  'api.x.ai',
+  'api.mistral.ai',
+  'api.cerebras.ai',
+  'api.minimax.chat',
+  'generativelanguage.googleapis.com',
+]);
+
+function isAllowedBaseUrl(urlStr: string): boolean {
+  try {
+    const url = new URL(urlStr);
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return false;
+    return ALLOWED_PROVIDER_HOSTS.has(url.hostname.toLowerCase());
+  } catch {
+    return false;
+  }
+}
+
 function providerBaseUrl(provider: string, profile: CredentialProfile): string {
-  if (profile.baseUrl) return profile.baseUrl.replace(/\/+$/, '');
+  if (profile.baseUrl) {
+    const sanitized = profile.baseUrl.replace(/\/+$/, '');
+    if (!isAllowedBaseUrl(sanitized)) return '';
+    return sanitized;
+  }
   switch (provider) {
     case 'anthropic': return 'https://api.anthropic.com';
     case 'openai': return 'https://api.openai.com';
@@ -75,14 +102,21 @@ function isSubscriptionProvider(provider: string): boolean {
 
 async function checkSubscriptionProvider(profileName: string, profile: CredentialProfile): Promise<CheckResult> {
   const start = Date.now();
-  // Subscription providers (Claude Code, Codex CLI) don't have REST APIs to check.
-  // We check if the CLI binary is installed and if the config directory exists.
   const { execFileSync } = await import('node:child_process');
   const provider = profile.provider;
-  let command = provider;
-  if (provider === 'claude') command = 'claude';
-  else if (provider === 'codex') command = 'codex';
-  else if (provider === 'gemini') command = 'gemini';
+  const KNOWN_COMMANDS: Record<string, string> = { claude: 'claude', codex: 'codex', gemini: 'gemini', 'amazon-q': 'q', github: 'gh', copilot: 'copilot' };
+  const command = KNOWN_COMMANDS[provider];
+  if (!command) {
+    return {
+      profile: profileName,
+      model: providerDefaultModel(provider, profile),
+      reachable: false,
+      reason: 'base_url_down',
+      suggestedFallback: null,
+      checkedAt: new Date().toISOString(),
+      latencyMs: Date.now() - start,
+    };
+  }
 
   try {
     execFileSync('which', [command], { encoding: 'utf-8', stdio: 'pipe', timeout: 5000 });
@@ -140,13 +174,16 @@ async function checkApiProvider(profileName: string, profile: CredentialProfile)
     };
   }
 
-  // Anthropic uses x-api-key, others use Bearer auth
+  // Anthropic uses x-api-key, Google uses x-goog-api-key, others use Bearer auth
   const isAnthropic = provider === 'anthropic';
+  const isGoogle = provider === 'google';
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...(isAnthropic
       ? { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' }
-      : { 'Authorization': `Bearer ${apiKey}` }),
+      : isGoogle
+        ? { 'x-goog-api-key': apiKey }
+        : { 'Authorization': `Bearer ${apiKey}` }),
   };
 
   // For Anthropic: POST /v1/messages with max_tokens=1
@@ -164,7 +201,7 @@ async function checkApiProvider(profileName: string, profile: CredentialProfile)
       messages: [{ role: 'user', content: 'ping' }],
     });
   } else if (provider === 'google') {
-    checkUrl = `${baseUrl}/v1beta/models/${model ?? 'gemini-2.5-pro'}?key=${apiKey}`;
+    checkUrl = `${baseUrl}/v1beta/models/${model ?? 'gemini-2.5-pro'}`;
     method = 'GET';
   } else {
     // OpenAI-compatible
@@ -291,5 +328,13 @@ export async function checkProfile(profileName: string): Promise<CheckResult> {
 export async function checkAllProfiles(): Promise<CheckResult[]> {
   const profiles = await loadProfiles();
   const names = Object.keys(profiles);
-  return Promise.all(names.map(name => checkProfile(name)));
+  // Check in batches of 10 to avoid flooding external APIs
+  const BATCH_SIZE = 10;
+  const results: CheckResult[] = [];
+  for (let i = 0; i < names.length; i += BATCH_SIZE) {
+    const batch = names.slice(i, i + BATCH_SIZE);
+    const batchResults = await Promise.all(batch.map(name => checkProfile(name)));
+    results.push(...batchResults);
+  }
+  return results;
 }
