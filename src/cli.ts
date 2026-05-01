@@ -224,10 +224,8 @@ program
       }
     };
 
-    // Collect all account refs for getAccountInfo
+    // Detect installed default CLIs and collect account refs
     const accountRefs: Array<{ name: string; commandName: string; cliType?: string; isDefault?: boolean }> = [];
-
-    // Default CLIs
     const installedDefaults: typeof SUPPORTED_CLIS[keyof typeof SUPPORTED_CLIS][] = [];
     for (const cli of Object.values(SUPPORTED_CLIS)) {
       let installed = false;
@@ -240,64 +238,77 @@ program
         accountRefs.push({ name: cli.command, commandName: cli.name, cliType: cli.name, isDefault: true });
       }
     }
-
-    // Sweech-managed profiles
     for (const profile of profiles) {
       accountRefs.push({ name: profile.name, commandName: profile.commandName, cliType: profile.cliType });
     }
 
-    // Fetch account info (status, lastActive) for all accounts
-    const accountInfoMap = new Map<string, Awaited<ReturnType<typeof getAccountInfo>>[number]>();
-    try {
-      const infos = await getAccountInfo(accountRefs);
-      for (const info of infos) {
-        accountInfoMap.set(info.commandName, info);
+    // Helper: format a single profile line
+    const formatLine = (dot: string, name: string, tags: string, suffix: string): string =>
+      `  ${dot} ${chalk.bold(name)}${tags}  ${suffix}`;
+
+    // ── Phase 1: Render immediately from config (no network) ───────────────────
+    const isTTY = process.stdout.isTTY;
+
+    const renderProfiles = (accountInfoMap?: Map<string, Awaited<ReturnType<typeof getAccountInfo>>[number]>): number => {
+      console.log(chalk.bold('\n  sweech · profiles\n'));
+
+      for (const cli of installedDefaults) {
+        const configDir = path.join(os.homedir(), `.${cli.name}`);
+        const hasConfig = fs.existsSync(configDir);
+        const sharingProfiles = profiles.filter(p => p.sharedWith === cli.command);
+        const reverseTag = sharingProfiles.length > 0
+          ? chalk.dim(` (shared by: ${sharingProfiles.map(p => p.commandName).join(', ')})`)
+          : '';
+        const info = accountInfoMap?.get(cli.name);
+        const dot = accountInfoMap ? statusDot(info?.live, info?.needsReauth) : chalk.gray('●');
+        const planStr = info?.meta?.plan ? chalk.cyan(` [${info.meta.plan}]`) : '';
+        const lastStr = info ? relativeTime(info.lastActive) : chalk.dim('loading...');
+        const configTag = hasConfig ? '' : chalk.yellow(' (not configured)');
+        console.log(`  ${dot} ${chalk.bold(cli.command)}${chalk.gray(' [default]')}${planStr}${configTag}  ${lastStr}${reverseTag}`);
       }
-    } catch { /* proceed without live data */ }
 
-    console.log(chalk.bold('\n  sweech · profiles\n'));
+      for (const profile of profiles) {
+        const provider = getProvider(profile.provider);
+        const info = accountInfoMap?.get(profile.commandName);
+        const dot = accountInfoMap ? statusDot(info?.live, info?.needsReauth) : chalk.gray('●');
+        const sharedTag = profile.sharedWith ? chalk.magenta(` [shared -> ${profile.sharedWith}]`) : '';
+        const sharingProfiles = profiles.filter(p => p.sharedWith === profile.commandName);
+        const reverseTag = sharingProfiles.length > 0
+          ? chalk.dim(` (shared by: ${sharingProfiles.map(p => p.commandName).join(', ')})`)
+          : '';
+        const providerStr = chalk.dim(` ${provider?.displayName || profile.provider}`);
+        const modelStr = profile.model ? chalk.dim(` · ${profile.model}`) : '';
+        const planStr = info?.meta?.plan ? chalk.cyan(` [${info.meta.plan}]`) : '';
+        const lastStr = info ? relativeTime(info.lastActive) : '';
+        console.log(`  ${dot} ${chalk.bold(profile.commandName)}${planStr}${providerStr}${modelStr}${sharedTag}  ${lastStr}${reverseTag}`);
+      }
 
-    // Show detected default CLIs
-    for (const cli of installedDefaults) {
-      const configDir = path.join(os.homedir(), `.${cli.name}`);
-      const hasConfig = fs.existsSync(configDir);
-      const sharingProfiles = profiles.filter(p => p.sharedWith === cli.command);
-      const reverseTag = sharingProfiles.length > 0
-        ? chalk.dim(` (shared by: ${sharingProfiles.map(p => p.commandName).join(', ')})`)
-        : '';
-      const info = accountInfoMap.get(cli.name);
-      const dot = statusDot(info?.live, info?.needsReauth);
-      const planStr = info?.meta?.plan ? chalk.cyan(` [${info.meta.plan}]`) : '';
-      const lastStr = relativeTime(info?.lastActive);
-      const configTag = hasConfig ? '' : chalk.yellow(' (not configured)');
+      if (installedDefaults.length === 0 && profiles.length === 0) {
+        console.log(chalk.gray('  No profiles configured. Run'), chalk.bold('sweech add'), chalk.gray('to create one.'));
+      }
+      console.log();
+      return installedDefaults.length + profiles.length + 3;
+    };
 
-      console.log(`  ${dot} ${chalk.bold(cli.command)}${chalk.gray(' [default]')}${planStr}${configTag}  ${lastStr}${reverseTag}`);
+    if (isTTY) {
+      // Interactive: show profiles instantly, then refresh with live data
+      const lineCount = renderProfiles();
+      const accountInfoMap = new Map<string, Awaited<ReturnType<typeof getAccountInfo>>[number]>();
+      try {
+        const infos = await getAccountInfo(accountRefs);
+        for (const info of infos) accountInfoMap.set(info.commandName, info);
+      } catch { /* live data unavailable */ }
+      process.stdout.write(`\x1b[${lineCount}A\x1b[0J`);
+      renderProfiles(accountInfoMap);
+    } else {
+      // Non-interactive: fetch everything first, render once
+      const accountInfoMap = new Map<string, Awaited<ReturnType<typeof getAccountInfo>>[number]>();
+      try {
+        const infos = await getAccountInfo(accountRefs);
+        for (const info of infos) accountInfoMap.set(info.commandName, info);
+      } catch { /* live data unavailable */ }
+      renderProfiles(accountInfoMap);
     }
-
-    // Show sweech-managed profiles
-    for (const profile of profiles) {
-      const provider = getProvider(profile.provider);
-      const cli = getCLI(profile.cliType || 'claude');
-      const info = accountInfoMap.get(profile.commandName);
-      const dot = statusDot(info?.live, info?.needsReauth);
-      const sharedTag = profile.sharedWith ? chalk.magenta(` [shared -> ${profile.sharedWith}]`) : '';
-      const sharingProfiles = profiles.filter(p => p.sharedWith === profile.commandName);
-      const reverseTag = sharingProfiles.length > 0
-        ? chalk.dim(` (shared by: ${sharingProfiles.map(p => p.commandName).join(', ')})`)
-        : '';
-      const providerStr = chalk.dim(` ${provider?.displayName || profile.provider}`);
-      const modelStr = profile.model ? chalk.dim(` · ${profile.model}`) : '';
-      const planStr = info?.meta?.plan ? chalk.cyan(` [${info.meta.plan}]`) : '';
-      const lastStr = relativeTime(info?.lastActive);
-
-      console.log(`  ${dot} ${chalk.bold(profile.commandName)}${planStr}${providerStr}${modelStr}${sharedTag}  ${lastStr}${reverseTag}`);
-    }
-
-    if (installedDefaults.length === 0 && profiles.length === 0) {
-      console.log(chalk.gray('  No profiles configured. Run'), chalk.bold('sweech add'), chalk.gray('to create one.'));
-    }
-
-    console.log();
   });
 
 // Remove provider command
