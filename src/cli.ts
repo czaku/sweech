@@ -909,7 +909,7 @@ program
         const { homedir } = require('node:os');
         const safeName = (profile?.commandName ?? commandName).replace(/[\n\r]/g, '');
         const auditDir = join(homedir(), '.sweech');
-        mkdirSync(auditDir, { recursive: true });
+        mkdirSync(auditDir, { recursive: true, mode: 0o700 });
         appendFileSync(join(auditDir, 'audit.log'), `${new Date().toISOString()} launch --force profile=${safeName}\n`);
       } catch { /* best effort */ }
     }
@@ -1761,6 +1761,7 @@ const usageCmd = program
             tier: tierInfo.tier,
             tierUrgent: tierInfo.urgent,
             sortRank: enriched.length,
+            displayGroup: displayGroup(a.provider),
           });
         });
       }

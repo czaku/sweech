@@ -62,13 +62,14 @@ struct SweechAccount: Codable, Identifiable {
     let tier: String?          // "use_first", "use_next", "normal"
     let tierUrgent: Bool?
     let sortRank: Int?
+    let precomputedDisplayGroup: String?
 
     private enum CodingKeys: String, CodingKey {
         case name, commandName, cliType, isDefault, sharedWith, provider, meta, messages5h, messages7d, totalMessages
         case minutesUntilFirstCapacity, hoursUntilWeeklyReset, oldest5hMessageAt
         case lastActive, needsReauth, live, tokenStatus, tokenRefreshedAt, tokenExpiresAt
         case precomputedSmartScore = "smartScore"
-        case tier, tierUrgent, sortRank
+        case tier, tierUrgent, sortRank, precomputedDisplayGroup = "displayGroup"
     }
 
     struct AccountMeta: Codable {
@@ -92,8 +93,11 @@ struct SweechAccount: Codable, Identifiable {
     var liveStatus: String { live?.status ?? "unknown" }
     var planType: String? { live?.planType ?? meta?.plan }
 
-    /// Display group for UI grouping: 'claude', 'codex', or provider name
+    /// Display group for UI grouping: 'claude', 'codex', or provider display name.
+    /// Uses precomputed value from CLI (single source of truth) when available.
+    /// Falls back to local computation for older CLI versions without displayGroup.
     var displayGroup: String {
+        if let precomputed = precomputedDisplayGroup, !precomputed.isEmpty { return precomputed }
         guard let provider else { return cliType ?? "claude" }
         switch provider {
         case "anthropic": return "claude"

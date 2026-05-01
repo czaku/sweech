@@ -3,10 +3,11 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 63;
+	objectVersion = 77;
 	objects = {
 
 /* Begin PBXBuildFile section */
+		479F37307159C53FB04AD16F /* GroupedColumnLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = E15F02AB9190EF0AB641982E /* GroupedColumnLayout.swift */; };
 		4F137B8B1968FE5FCE76C661 /* SweechWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9FE5B11EBC32F55F8D884FBF /* SweechWidget.swift */; };
 		6379A7AB40CA3325378C6866 /* Design.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39736BD0892FB20FCF4B24B7 /* Design.swift */; };
 		69743C301028D763E39ACAC4 /* HotkeyManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 313054338C3638CC92835E5B /* HotkeyManager.swift */; };
@@ -24,6 +25,7 @@
 		870E05D6C8C1CDC5C8AAAE87 /* SweechBar.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SweechBar.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		9FE5B11EBC32F55F8D884FBF /* SweechWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SweechWidget.swift; sourceTree = "<group>"; };
 		C33A6F3E7186EF762C9A2241 /* SweechBarApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SweechBarApp.swift; sourceTree = "<group>"; };
+		E15F02AB9190EF0AB641982E /* GroupedColumnLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupedColumnLayout.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -32,6 +34,7 @@
 			children = (
 				6AEE1B9B334A64B2343D46DB /* AccountsView.swift */,
 				39736BD0892FB20FCF4B24B7 /* Design.swift */,
+				E15F02AB9190EF0AB641982E /* GroupedColumnLayout.swift */,
 				313054338C3638CC92835E5B /* HotkeyManager.swift */,
 				6E9D2CA882BDF033A3823214 /* SweechAPI.swift */,
 				C33A6F3E7186EF762C9A2241 /* SweechBarApp.swift */,
@@ -129,6 +132,7 @@
 			);
 			mainGroup = B404B61A0083B59634A357CF;
 			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
@@ -145,6 +149,7 @@
 			files = (
 				F87BE459FDE31A21B67E1A2C /* AccountsView.swift in Sources */,
 				6379A7AB40CA3325378C6866 /* Design.swift in Sources */,
+				479F37307159C53FB04AD16F /* GroupedColumnLayout.swift in Sources */,
 				69743C301028D763E39ACAC4 /* HotkeyManager.swift in Sources */,
 				89D0DA43357E57CA072F17E7 /* SweechAPI.swift in Sources */,
 				AFF2A34BA5F330AF2601F732 /* SweechBarApp.swift in Sources */,
@@ -168,7 +173,6 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				DEVELOPMENT_TEAM = 22ZJQFSW22;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -186,7 +190,6 @@
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				DEVELOPMENT_TEAM = 22ZJQFSW22;
 				GENERATE_INFOPLIST_FILE = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -205,7 +208,6 @@
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				DEVELOPMENT_TEAM = 22ZJQFSW22;
 				GENERATE_INFOPLIST_FILE = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -344,7 +346,6 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				DEVELOPMENT_TEAM = 22ZJQFSW22;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
