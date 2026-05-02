@@ -2966,6 +2966,116 @@ program
     }
   });
 
+// ── sweech scrub-thinking ──────────────────────────────────────────────────
+// Fast, single-file (or recent-N) scrub of cross-provider thinking blocks.
+// Wrappers invoke this before exec when --continue / --resume is in argv so
+// that resuming a session produced by GLM-5.1 (or any third-party
+// Anthropic-compat endpoint) against the real Anthropic API doesn't 400 with
+// "Invalid signature in thinking block".
+//
+// Designed to be fire-and-forget: never fails the launch. Silent on no-op.
+function scrubThinkingFromFile(file: string): { stripped: number; changed: boolean } {
+  let raw: string;
+  try { raw = fs.readFileSync(file, 'utf-8'); } catch { return { stripped: 0, changed: false }; }
+  const lines = raw.split('\n');
+  let stripped = 0;
+  let changed = false;
+  const patched = lines.map(ln => {
+    if (!ln.trim()) return ln;
+    let d: any;
+    try { d = JSON.parse(ln); } catch { return ln; }
+    if (d?.type !== 'assistant') return ln;
+    const msg = d.message;
+    if (!msg || msg.role !== 'assistant') return ln;
+    const content = Array.isArray(msg.content) ? msg.content : [];
+    const hasSignedThinking = content.some((c: any) => c && c.type === 'thinking' && typeof c.signature === 'string');
+    if (!hasSignedThinking) return ln;
+    const before = content.length;
+    const filtered = content.filter((c: any) => !(c && c.type === 'thinking'));
+    stripped += before - filtered.length;
+    const hasVisible = filtered.some((c: any) => c?.type === 'text' || c?.type === 'tool_use');
+    if (!hasVisible) filtered.push({ type: 'text', text: '[session recovered — prior turn stalled]' });
+    msg.content = filtered;
+    msg.stop_reason = msg.stop_reason ?? 'end_turn';
+    if (!('stop_sequence' in msg)) msg.stop_sequence = null;
+    d.message = msg;
+    changed = true;
+    return JSON.stringify(d);
+  });
+  if (changed) {
+    try {
+      const tmp = file + '.scrub.tmp';
+      fs.writeFileSync(tmp, patched.join('\n'));
+      fs.renameSync(tmp, file);
+    } catch { return { stripped: 0, changed: false }; }
+  }
+  return { stripped, changed };
+}
+
+program
+  .command('scrub-thinking')
+  .description('Strip cross-provider thinking blocks from session transcripts (auto-runs on --continue/--resume)')
+  .option('--cwd <path>', 'Working directory whose project transcripts to scrub', process.cwd())
+  .option('--profile <name>', 'Sweech profile (defaults to all sweech profiles)')
+  .option('--session <id>', 'Specific session id (without .jsonl)')
+  .option('--recent <n>', 'Only scrub the N most-recently-modified transcripts', '3')
+  .option('--quiet', 'Suppress output', false)
+  .action((opts: { cwd: string; profile?: string; session?: string; recent: string; quiet: boolean }) => {
+    try {
+      const cfgMgr = new ConfigManager();
+      const profiles = cfgMgr.getProfiles();
+      const targets = opts.profile
+        ? profiles.filter(p => p.commandName === opts.profile)
+        : profiles;
+      if (targets.length === 0) process.exit(0);
+
+      // Encode cwd → Claude Code project dir name (replace / with -)
+      const encodedCwd = path.resolve(opts.cwd).replace(/\//g, '-');
+      const recentN = Math.max(1, parseInt(opts.recent, 10) || 3);
+
+      const seenDirs = new Set<string>();
+      let totalStripped = 0;
+      let filesChanged = 0;
+
+      for (const p of targets) {
+        const projDir = path.join(cfgMgr.getProfileDir(p.commandName), 'projects', encodedCwd);
+        let realDir: string;
+        try { realDir = fs.realpathSync(projDir); } catch { continue; }
+        if (seenDirs.has(realDir)) continue;
+        seenDirs.add(realDir);
+
+        let entries: string[];
+        try { entries = fs.readdirSync(realDir).filter(f => f.endsWith('.jsonl')); }
+        catch { continue; }
+
+        let files: string[];
+        if (opts.session) {
+          const f = `${opts.session}.jsonl`;
+          files = entries.includes(f) ? [path.join(realDir, f)] : [];
+        } else {
+          const stat = entries
+            .map(f => ({ f, m: (() => { try { return fs.statSync(path.join(realDir, f)).mtimeMs; } catch { return 0; } })() }))
+            .sort((a, b) => b.m - a.m)
+            .slice(0, recentN);
+          files = stat.map(s => path.join(realDir, s.f));
+        }
+
+        for (const file of files) {
+          const { stripped, changed } = scrubThinkingFromFile(file);
+          totalStripped += stripped;
+          if (changed) filesChanged++;
+        }
+      }
+
+      if (!opts.quiet && totalStripped > 0) {
+        console.error(chalk.dim(`[sweech] scrubbed ${totalStripped} cross-provider thinking block(s) from ${filesChanged} transcript(s)`));
+      }
+    } catch {
+      // Never block launch
+    }
+    process.exit(0);
+  });
+
 // ── sweech daemon start/stop/status ────────────────────────────────────────────
 const PID_FILE = path.join(os.homedir(), '.sweech', 'daemon.pid');
 const DEFAULT_DAEMON_PORT = 7801;

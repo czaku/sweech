@@ -422,6 +422,20 @@ case "\${1:-}" in
   --help|-h|--version|-V) exec "${eCliCommand}" "$@" ;;
 esac
 
+# Auto-scrub: when resuming a session, strip cross-provider thinking blocks
+# so a transcript produced by GLM-5.1 (or any non-Anthropic provider) doesn't
+# 400 with "Invalid signature in thinking block" against the real Anthropic
+# API. Best-effort: failures are silent and never block launch.
+RESUME_DETECTED=0
+for arg in "$@"; do
+  case "\$arg" in
+    -c|--continue|-r|--resume) RESUME_DETECTED=1; break ;;
+  esac
+done
+if [ "\$RESUME_DETECTED" = "1" ] && command -v sweech &>/dev/null; then
+  sweech scrub-thinking --cwd "\$PWD" --profile "${eCommandName}" --quiet 2>/dev/null || true
+fi
+
 # Transform arguments and intercept --model <id>
 ARGS=()
 while [ $# -gt 0 ]; do
