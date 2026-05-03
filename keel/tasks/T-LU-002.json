@@ -14,7 +14,13 @@
   "spec": null,
   "parentId": null,
   "dueDate": null,
-  "context": [],
+  "context": [
+    {
+      "at": "2026-05-03T19:52:26.516Z",
+      "by": "human",
+      "text": "From runecode RUNECODE_NEEDS_v3.md (S1). Implements ROADMAP Phase 3. AC: 'sweech auto' (no args) runs suggestBestAccount() and launches; --cli=claude|codex filter; returns reason string. Evidence: 903 manual 'sweech use X' invocations on Studio in 30d."
+    }
+  ],
   "acceptanceCriteria": [],
   "cloudy_run": null,
   "statusHistory": [
@@ -29,7 +35,7 @@
   "stageHistory": [],
   "recurring": null,
   "createdAt": "2026-05-03T19:51:36.943Z",
-  "updatedAt": "2026-05-03T19:51:36.943Z",
+  "updatedAt": "2026-05-03T19:52:26.516Z",
   "validationOverrides": null,
   "executionMode": null,
   "cloudyTaskGraph": null,
