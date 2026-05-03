@@ -14,7 +14,13 @@
   "spec": null,
   "parentId": null,
   "dueDate": null,
-  "context": [],
+  "context": [
+    {
+      "at": "2026-05-03T19:52:27.521Z",
+      "by": "human",
+      "text": "From runecode RUNECODE_NEEDS_v3.md (S8). Implements ROADMAP Phase 3. AC: project-root .sweech.json with {profile,cliType,maxTier} pins routing; CLI inspects upward from cwd; doctor reports active pin per project."
+    }
+  ],
   "acceptanceCriteria": [],
   "cloudy_run": null,
   "statusHistory": [
@@ -29,7 +35,7 @@
   "stageHistory": [],
   "recurring": null,
   "createdAt": "2026-05-03T19:51:38.125Z",
-  "updatedAt": "2026-05-03T19:51:38.125Z",
+  "updatedAt": "2026-05-03T19:52:27.521Z",
   "validationOverrides": null,
   "executionMode": null,
   "cloudyTaskGraph": null,
