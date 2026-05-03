@@ -14,7 +14,13 @@
   "spec": null,
   "parentId": null,
   "dueDate": null,
-  "context": [],
+  "context": [
+    {
+      "at": "2026-05-03T19:52:27.257Z",
+      "by": "human",
+      "text": "From runecode RUNECODE_NEEDS_v3.md (S6). Implements ROADMAP Phase 1. AC: 'sweech cost' shows USD/M-token per profile + recent 7d spend; --budget filters accountSelector results. Cost table source: provider published rates + plan tier."
+    }
+  ],
   "acceptanceCriteria": [],
   "cloudy_run": null,
   "statusHistory": [
@@ -29,7 +35,7 @@
   "stageHistory": [],
   "recurring": null,
   "createdAt": "2026-05-03T19:51:37.852Z",
-  "updatedAt": "2026-05-03T19:51:37.852Z",
+  "updatedAt": "2026-05-03T19:52:27.257Z",
   "validationOverrides": null,
   "executionMode": null,
   "cloudyTaskGraph": null,
