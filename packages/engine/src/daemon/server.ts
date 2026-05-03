@@ -1011,29 +1011,72 @@ async function resolveRunTarget(options: {
   const { provider, engine, account, profile, taskType, contentType, domain, tier, fallbackAccounts, accountStrategy, capabilities } = options;
 
   // Tier routing: prefer accounts whose type matches the requested subscription tier.
+  //
+  // T-LU-859: when the caller has *explicitly* requested a tier and no
+  // matching enabled account exists (or every candidate is quota-exhausted),
+  // do NOT silently fall through to estate selection. Estate selection can
+  // pick a pricier account (e.g. a `subscription` account when the caller
+  // asked for `cheap`/`api-key`) and silently inflate spend. Surface a warn
+  // log and a structured `no-engine-for-tier` error so the caller can decide
+  // (retry with a different tier, surface to operator, etc.).
   if (tier && !provider && !engine && !account && !domain) {
     const providers = cachedProviders ?? await loadProvidersWithCache().catch(() => null);
     if (providers) {
       const targetType = TIER_TO_ACCOUNT_TYPE[tier];
       if (targetType) {
-        const tierAccount = Object.entries(providers.accounts).find(([, acc]) =>
+        const tierCandidates = Object.entries(providers.accounts).filter(([, acc]) =>
           acc.enabled && acc.type === targetType
         );
-        if (tierAccount) {
-          const [accountId] = tierAccount;
-          // Check quota before routing to tier account
-          if (cachedQuotaTracker && !cachedQuotaTracker.canUse(accountId)) {
-            // Fall through to normal estate selection
-          } else {
-            return resolveSelectionTarget({
-              account: accountId,
-              profile,
-              taskType,
-              contentType,
-              fallbackAccounts: Array.isArray(fallbackAccounts) ? fallbackAccounts as string[] : undefined,
-            });
-          }
+        // T-LU-859 Codex H1: cachedQuotaTracker is estate-derived, so it
+        // returns false for any account not present in the estate. A
+        // provider-only account (no estate row) is NOT quota-exhausted —
+        // the tracker just doesn't manage it. Skip the quota check unless
+        // the estate actually has the account.
+        const usableCandidate = tierCandidates.find(([accountId]) => {
+          if (!cachedQuotaTracker) return true;
+          const estateKnowsAccount = !!cachedEstate?.accounts?.[accountId];
+          if (!estateKnowsAccount) return true;
+          return cachedQuotaTracker.canUse(accountId);
+        });
+        if (usableCandidate) {
+          const [accountId] = usableCandidate;
+          return resolveSelectionTarget({
+            account: accountId,
+            profile,
+            taskType,
+            contentType,
+            fallbackAccounts: Array.isArray(fallbackAccounts) ? fallbackAccounts as string[] : undefined,
+          });
         }
+        // No usable account for this tier — emit a warn and throw a structured
+        // 503 error rather than silently routing to a different tier class.
+        // Throw rather than return so the existing /select + /run catch
+        // handlers (isEstateSelectionError-aware) forward status + body to the
+        // caller exactly the same way as other estate-selection failures.
+        const reason = tierCandidates.length === 0
+          ? 'no-enabled-account-of-target-type'
+          : 'all-tier-candidates-quota-exhausted';
+        console.warn(JSON.stringify({
+          level: 'warn',
+          source: 'sweech.daemon',
+          event: 'no-engine-for-tier',
+          tier,
+          targetType,
+          reason,
+          enabledCandidatesCount: tierCandidates.length,
+        }));
+        const tierError: Extract<EstateSelection, { ok: false }> = {
+          ok: false,
+          status: 503,
+          body: {
+            code: 'no-engine-for-tier',
+            error: `No usable account for tier "${tier}" (mapped to type "${targetType}"): ${reason}. Refusing to silently fall back to a different tier — would risk inflating spend (T-LU-859).`,
+            tier,
+            targetType,
+            reason,
+          },
+        };
+        throw tierError;
       }
     }
   }

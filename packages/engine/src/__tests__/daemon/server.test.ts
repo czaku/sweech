@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { createApp, preloadEstate, clearEstateCache, setDaemonLifecycleState, getDaemonSessionStore } from '../../daemon/server.js';
+import { createApp, preloadEstate, clearEstateCache, setDaemonLifecycleState, getDaemonSessionStore, preloadProviders } from '../../daemon/server.js';
 import type { Estate } from '../../estate.js';
 import * as estateModule from '../../estate.js';
 import * as subscriptionRouting from '../../subscription-routing.js';
@@ -549,6 +549,108 @@ describe('daemon server', () => {
     expect(resolvedEngine).toBe(selectBody.engine);
     expect(resolvedAccount).toBe(selectBody.account);
     expect(resolvedProvider).toBe('claude');
+  });
+});
+
+describe('tier routing — no-engine-for-tier (T-LU-859)', () => {
+  beforeEach(() => {
+    vi.spyOn(estateModule, 'loadEstate').mockResolvedValue(mockEstate);
+    vi.spyOn(subscriptionRouting, 'loadSweechTelemetry').mockResolvedValue([]);
+    clearEstateCache();
+    preloadEstate(mockEstate);
+    setDaemonLifecycleState('ready');
+  });
+
+  it('returns 503 no-engine-for-tier when caller asks for cheap (api-key) and no api-key account exists', async () => {
+    // Estate has only a subscription account — no 'api-key' tier candidate.
+    preloadProviders({
+      version: 1,
+      accounts: {
+        'claude-pole': {
+          provider: 'claude',
+          engine: 'claude-code',
+          type: 'subscription',
+          enabled: true,
+        },
+      },
+      failoverOrder: ['claude-pole'],
+    });
+
+    const tierApp = createApp({ estate: mockEstate });
+    const res = await tierApp.request('/select', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tier: 'cheap' }),
+    });
+
+    expect(res.status).toBe(503);
+    const body = await res.json();
+    expect(body.code).toBe('no-engine-for-tier');
+    expect(body.tier).toBe('cheap');
+    expect(body.targetType).toBe('api-key');
+    expect(body.reason).toBe('no-enabled-account-of-target-type');
+    // Critical: must NOT have silently fallen through to claude-pole subscription.
+    expect(body.account).toBeUndefined();
+    expect(body.engine).toBeUndefined();
+  });
+
+  it('routes to enabled api-key account when one exists for tier=cheap', async () => {
+    preloadProviders({
+      version: 1,
+      accounts: {
+        'cheap-key': { provider: 'kimi', engine: 'pi-mono', type: 'api-key', enabled: true },
+        'main-sub': { provider: 'claude', engine: 'claude-code', type: 'subscription', enabled: true },
+      },
+      failoverOrder: ['main-sub', 'cheap-key'],
+    });
+
+    vi.spyOn(selectModule, 'resolveSelectionTarget').mockResolvedValueOnce({
+      engine: 'pi-mono', account: 'cheap-key', binaryPath: '/usr/bin/pi', source: 'selection', provider: 'kimi',
+    });
+
+    const tierApp = createApp({
+      estate: {
+        version: 1,
+        accounts: {
+          'cheap-key': { provider: 'kimi', engine: 'pi-mono', type: 'api-key' },
+          'main-sub': { provider: 'claude', engine: 'claude-code', type: 'subscription' },
+        },
+        failoverOrder: ['main-sub', 'cheap-key'],
+      },
+    });
+    const res = await tierApp.request('/select', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tier: 'cheap' }),
+    });
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.account).toBe('cheap-key');
+    expect(body.engine).toBe('pi-mono');
+  });
+
+  it('returns 503 no-engine-for-tier when api-key account exists but is disabled', async () => {
+    preloadProviders({
+      version: 1,
+      accounts: {
+        'disabled-key': { provider: 'kimi', engine: 'pi-mono', type: 'api-key', enabled: false },
+        'main-sub': { provider: 'claude', engine: 'claude-code', type: 'subscription', enabled: true },
+      },
+      failoverOrder: ['main-sub'],
+    });
+
+    const tierApp = createApp({ estate: mockEstate });
+    const res = await tierApp.request('/select', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tier: 'cheap' }),
+    });
+
+    expect(res.status).toBe(503);
+    const body = await res.json();
+    expect(body.code).toBe('no-engine-for-tier');
+    expect(body.reason).toBe('no-enabled-account-of-target-type');
   });
 });
 
