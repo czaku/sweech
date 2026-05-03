@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { createApp, preloadEstate, clearEstateCache, setDaemonLifecycleState, getDaemonSessionStore, preloadProviders } from '../../daemon/server.js';
+import { createApp, preloadEstate, clearEstateCache, setDaemonLifecycleState, getDaemonSessionStore, preloadProviders, resetTierWarnThrottleForTesting, KNOWN_TIERS_FOR_TESTING, TIER_TO_ACCOUNT_TYPE_FOR_TESTING } from '../../daemon/server.js';
 import type { Estate } from '../../estate.js';
 import * as estateModule from '../../estate.js';
 import * as subscriptionRouting from '../../subscription-routing.js';
@@ -651,6 +651,123 @@ describe('tier routing — no-engine-for-tier (T-LU-859)', () => {
     const body = await res.json();
     expect(body.code).toBe('no-engine-for-tier');
     expect(body.reason).toBe('no-enabled-account-of-target-type');
+  });
+
+  // Codex M3 T-LU-859: tier-routing must respect estate.failoverOrder.
+  // Without this, Object.entries iteration order picks the candidate;
+  // with it, the operator's failoverOrder ranks the candidates.
+  it('Codex M3: tier routing picks the api-key account higher in failoverOrder when multiple match', async () => {
+    const estate = {
+      version: 1 as const,
+      accounts: {
+        'cheap-secondary': { provider: 'kimi', engine: 'pi-mono' as const, type: 'api-key' as const },
+        'cheap-primary': { provider: 'minimax', engine: 'pi-mono' as const, type: 'api-key' as const },
+      },
+      failoverOrder: ['cheap-primary', 'cheap-secondary'],
+    };
+    preloadEstate(estate);
+    preloadProviders({
+      version: 1,
+      accounts: {
+        // Object.entries order intentionally puts secondary first to
+        // prove it's failoverOrder, not iteration order, that ranks them.
+        'cheap-secondary': { provider: 'kimi', engine: 'pi-mono', type: 'api-key', enabled: true },
+        'cheap-primary': { provider: 'minimax', engine: 'pi-mono', type: 'api-key', enabled: true },
+      },
+      failoverOrder: ['cheap-primary', 'cheap-secondary'],
+    });
+
+    // Codex MED: assert the spy is called with cheap-primary, not just
+    // that the mock returns it. Otherwise a broken sort that picked
+    // cheap-secondary would still satisfy the response check.
+    const spy = vi.spyOn(selectModule, 'resolveSelectionTarget').mockResolvedValueOnce({
+      engine: 'pi-mono',
+      account: 'cheap-primary',
+      binaryPath: '/usr/bin/pi',
+      source: 'selection',
+      provider: 'minimax',
+    });
+
+    const app = createApp({ estate });
+    const res = await app.request('/select', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tier: 'cheap' }),
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.account).toBe('cheap-primary');
+    // Real proof of failover-rank ordering: server passed cheap-primary
+    // to resolveSelectionTarget, not cheap-secondary.
+    expect(spy).toHaveBeenCalledWith(expect.objectContaining({ account: 'cheap-primary' }));
+  });
+
+  // Codex M4 T-LU-859: KNOWN_TIERS must derive from TIER_TO_ACCOUNT_TYPE
+  // — single source of truth so additions can't drift.
+  it('Codex M4: KNOWN_TIERS contains exactly TIER_TO_ACCOUNT_TYPE keys', () => {
+    expect([...KNOWN_TIERS_FOR_TESTING].sort()).toEqual(
+      Object.keys(TIER_TO_ACCOUNT_TYPE_FOR_TESTING).sort(),
+    );
+    // Sanity: a tier that's not in the mapping must not be in the set.
+    expect(KNOWN_TIERS_FOR_TESTING.has('nonexistent-tier')).toBe(false);
+    // Every key must have a non-undefined account-type value.
+    for (const tier of KNOWN_TIERS_FOR_TESTING) {
+      expect(TIER_TO_ACCOUNT_TYPE_FOR_TESTING[tier]).toBeDefined();
+    }
+  });
+
+  // Codex M5 T-LU-859: warn must be rate-limited per tier.
+  it('Codex M5: no-engine-for-tier warn fires once per tier within throttle window', async () => {
+    resetTierWarnThrottleForTesting();
+    preloadProviders({
+      version: 1,
+      accounts: {
+        'sub-only': { provider: 'claude', engine: 'claude-code', type: 'subscription', enabled: true },
+      },
+      failoverOrder: ['sub-only'],
+    });
+
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const app = createApp({ estate: mockEstate });
+      const post = () =>
+        app.request('/select', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tier: 'cheap' }),
+        });
+
+      const r1 = await post();
+      const r2 = await post();
+      const r3 = await post();
+
+      expect(r1.status).toBe(503);
+      expect(r2.status).toBe(503);
+      expect(r3.status).toBe(503);
+
+      // Filter to no-engine-for-tier warns specifically (other warns
+      // may be present from other initialisation paths).
+      const tierWarns = warnSpy.mock.calls
+        .map((args) => args[0])
+        .filter((line) => typeof line === 'string' && line.includes('no-engine-for-tier'));
+      expect(tierWarns.length).toBe(1);
+
+      // Different tier should produce a separate warn (per-tier
+      // throttle, not global).
+      const r4 = await app.request('/select', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tier: 'silver' }),
+      });
+      expect(r4.status).toBe(503);
+
+      const allTierWarns = warnSpy.mock.calls
+        .map((args) => args[0])
+        .filter((line) => typeof line === 'string' && line.includes('no-engine-for-tier'));
+      expect(allTierWarns.length).toBe(2);
+    } finally {
+      warnSpy.mockRestore();
+    }
   });
 });
 

@@ -149,8 +149,9 @@ const SELECT_REQUEST_KEYS = new Set([
   'capabilities',
 ]);
 
-const KNOWN_TIERS = new Set(['free', 'bronze', 'economy', 'standard', 'silver', 'cheap', 'gold', 'premium', 'full']);
-
+// T-LU-859 Codex M4: TIER_TO_ACCOUNT_TYPE is the single source of
+// truth. KNOWN_TIERS derives from its keys so the two can never drift
+// — adding a new tier here automatically lifts validation in lockstep.
 const TIER_TO_ACCOUNT_TYPE: Record<string, ProviderAccount['type']> = {
   free: 'free-tier',
   bronze: 'free-tier',
@@ -162,6 +163,15 @@ const TIER_TO_ACCOUNT_TYPE: Record<string, ProviderAccount['type']> = {
   premium: 'subscription',
   full: 'subscription',
 };
+
+const KNOWN_TIERS = new Set(Object.keys(TIER_TO_ACCOUNT_TYPE));
+
+// T-LU-859 Codex M5: rate-limit the no-engine-for-tier warn so a hot
+// retry loop doesn't flood logs. Per-tier last-warn epoch (ms); a
+// repeat fires the structured event again only after the throttle
+// window has elapsed.
+const NO_ENGINE_WARN_THROTTLE_MS = 5_000;
+const lastNoEngineWarnAt = new Map<string, number>();
 
 const KNOWN_CONTENT_TYPES = new Set(['text', 'image', 'mixed']);
 
@@ -1027,17 +1037,33 @@ async function resolveRunTarget(options: {
         const tierCandidates = Object.entries(providers.accounts).filter(([, acc]) =>
           acc.enabled && acc.type === targetType
         );
+        // T-LU-859 Codex M3: tier-routing should respect estate
+        // failover order. Without this, the first match by Object.entries
+        // order wins, which can pick a lower-priority candidate over a
+        // higher-priority one operators have explicitly ranked. Sort
+        // tier candidates by their position in cachedEstate.failoverOrder
+        // (lower index = higher priority); accounts missing from the
+        // failover list sort last but keep their original relative order.
+        const failoverOrder = cachedEstate?.failoverOrder ?? [];
+        const failoverRank = (id: string): number => {
+          const idx = failoverOrder.indexOf(id);
+          return idx === -1 ? Number.MAX_SAFE_INTEGER : idx;
+        };
+        const orderedCandidates = tierCandidates
+          .map(([id, acc], i) => ({ id, acc, rank: failoverRank(id), originalIndex: i }))
+          .sort((a, b) => a.rank - b.rank || a.originalIndex - b.originalIndex);
         // T-LU-859 Codex H1: cachedQuotaTracker is estate-derived, so it
         // returns false for any account not present in the estate. A
         // provider-only account (no estate row) is NOT quota-exhausted —
         // the tracker just doesn't manage it. Skip the quota check unless
         // the estate actually has the account.
-        const usableCandidate = tierCandidates.find(([accountId]) => {
+        const usableEntry = orderedCandidates.find(({ id }) => {
           if (!cachedQuotaTracker) return true;
-          const estateKnowsAccount = !!cachedEstate?.accounts?.[accountId];
+          const estateKnowsAccount = !!cachedEstate?.accounts?.[id];
           if (!estateKnowsAccount) return true;
-          return cachedQuotaTracker.canUse(accountId);
+          return cachedQuotaTracker.canUse(id);
         });
+        const usableCandidate = usableEntry ? [usableEntry.id, usableEntry.acc] as const : undefined;
         if (usableCandidate) {
           const [accountId] = usableCandidate;
           return resolveSelectionTarget({
@@ -1056,15 +1082,24 @@ async function resolveRunTarget(options: {
         const reason = tierCandidates.length === 0
           ? 'no-enabled-account-of-target-type'
           : 'all-tier-candidates-quota-exhausted';
-        console.warn(JSON.stringify({
-          level: 'warn',
-          source: 'sweech.daemon',
-          event: 'no-engine-for-tier',
-          tier,
-          targetType,
-          reason,
-          enabledCandidatesCount: tierCandidates.length,
-        }));
+        // T-LU-859 Codex M5: throttle the warn to one log per
+        // NO_ENGINE_WARN_THROTTLE_MS per tier so a hot retry loop
+        // doesn't flood the log channel. The 503 still throws on
+        // every call — only the warn is throttled.
+        const now = Date.now();
+        const lastWarn = lastNoEngineWarnAt.get(tier) ?? 0;
+        if (now - lastWarn >= NO_ENGINE_WARN_THROTTLE_MS) {
+          lastNoEngineWarnAt.set(tier, now);
+          console.warn(JSON.stringify({
+            level: 'warn',
+            source: 'sweech.daemon',
+            event: 'no-engine-for-tier',
+            tier,
+            targetType,
+            reason,
+            enabledCandidatesCount: tierCandidates.length,
+          }));
+        }
         const tierError: Extract<EstateSelection, { ok: false }> = {
           ok: false,
           status: 503,
@@ -1610,6 +1645,20 @@ export function clearEstateCache() {
 export function getDaemonSessionStore() {
   return daemonSessionStore;
 }
+
+/// T-LU-859 Codex M5: clear the per-tier warn throttle map. Unit tests
+/// run multiple no-engine-for-tier scenarios in close succession; without
+/// resetting the throttle the second test may not see the warn fire and
+/// can't assert log output. Production callers never need this.
+export function resetTierWarnThrottleForTesting(): void {
+  lastNoEngineWarnAt.clear();
+}
+
+/// T-LU-859 Codex M4: expose the known-tiers set + tier→account-type
+/// mapping for tests so the single-source-of-truth invariant is
+/// programmatically verifiable.
+export const KNOWN_TIERS_FOR_TESTING: ReadonlySet<string> = KNOWN_TIERS;
+export const TIER_TO_ACCOUNT_TYPE_FOR_TESTING: Readonly<Record<string, ProviderAccount['type']>> = TIER_TO_ACCOUNT_TYPE;
 
 export function preloadProviders(providers: ProvidersConfig) {
   cachedProviders = providers;
