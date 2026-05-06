@@ -44,7 +44,7 @@ describe('Provider Management', () => {
       Object.values(PROVIDERS).forEach(provider => {
         expect(provider.compatibility.length).toBeGreaterThan(0);
         provider.compatibility.forEach(cli => {
-          expect(['claude', 'codex']).toContain(cli);
+          expect(['claude', 'codex', 'kimi']).toContain(cli);
         });
       });
     });

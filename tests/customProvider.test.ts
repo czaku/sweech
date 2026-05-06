@@ -165,7 +165,7 @@ describe('Custom Provider', () => {
 
       const config = createCustomProviderConfig(prompts, 'local-anthropic');
 
-      expect(config.compatibility).toEqual(['claude']);
+      expect(config.compatibility).toEqual(['claude', 'kimi']);
       expect(config.apiFormat).toBe('anthropic');
     });
 
@@ -460,7 +460,7 @@ describe('Custom Provider', () => {
 
       const config = createCustomProviderConfig(prompts, 'company-ai');
 
-      expect(config.compatibility).toEqual(['claude']);
+      expect(config.compatibility).toEqual(['claude', 'kimi']);
       expect(config.apiFormat).toBe('anthropic');
     });
   });

@@ -354,7 +354,7 @@ export async function getAccountInfo(
 
   return Promise.all(profiles.map(async p => {
     const configDir = getConfigDir(p.commandName)
-    const cliType = p.cliType || (p.commandName.startsWith('codex') ? 'codex' : 'claude')
+    const cliType = p.cliType || p.commandName || 'claude'
     const meta = allMeta[p.commandName] ?? {}
     const claude = readClaudeJson(configDir)
     const history = readHistory(configDir)

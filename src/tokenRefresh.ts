@@ -80,6 +80,8 @@ export async function refreshExpiringTokens(profiles: ProfileConfig[]): Promise<
 
         if (profile.cliType === 'codex') {
           settings.env.OPENAI_API_KEY = `sk-oauth-${newToken.accessToken}`;
+        } else if (profile.cliType === 'kimi') {
+          settings.env.KIMI_API_KEY = `bearer_${newToken.accessToken}`;
         } else {
           settings.env.ANTHROPIC_AUTH_TOKEN = `bearer_${newToken.accessToken}`;
         }

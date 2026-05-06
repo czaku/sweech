@@ -427,10 +427,56 @@ class SweechService: ObservableObject {
                     self.isConnected = false
                     self.lastError = error.localizedDescription
                     self.consecutiveFailures += 1
-                    // Auto-restart daemon after 3 consecutive failures
-                    if self.consecutiveFailures == 3 {
-                        NSLog("SweechBar: 3 consecutive failures, auto-restarting daemon...")
+                    if self.consecutiveFailures == 1 {
+                        // First failure: try starting daemon, then retry once
+                        NSLog("SweechBar: fetch failed, attempting to start daemon...")
+                        self.ensureDaemonAndRetry()
+                    } else if self.consecutiveFailures >= 4 {
+                        // Persistent failure: reinstall daemon
+                        NSLog("SweechBar: %d consecutive failures, reinstalling daemon...", self.consecutiveFailures)
                         self.restartDaemon()
+                    }
+                }
+            }
+        }
+    }
+
+    private func ensureDaemonAndRetry() {
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            // Try starting the daemon
+            _ = Self.runSweech(["daemon", "start"])
+            // Give it a moment to initialize
+            Thread.sleep(forTimeInterval: 2.0)
+            // Retry fetch once
+            DispatchQueue.main.async {
+                guard let self, !self.isFetching else { return }
+                self.isFetching = true
+                DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                    let retryResult = Self.runSweech(["usage", "--json"])
+                    DispatchQueue.main.async {
+                        guard let self else { return }
+                        self.isFetching = false
+                        switch retryResult {
+                        case .success(let data):
+                            do {
+                                let response = try JSONDecoder().decode(UsageResponse.self, from: data)
+                                self.fireStatusChangeNotifications(newAccounts: response.accounts)
+                                self.accounts = response.accounts
+                                self.isConnected = true
+                                self.lastError = nil
+                                self.lastFetched = Date()
+                                self.consecutiveFailures = 0
+                                if self.accountOrder.isEmpty {
+                                    self.accountOrder = response.accounts.map { $0.commandName }
+                                    self.saveOrder()
+                                }
+                                NSLog("SweechBar: daemon auto-start succeeded")
+                            } catch {
+                                NSLog("SweechBar: retry parse error: %@", error.localizedDescription)
+                            }
+                        case .failure:
+                            NSLog("SweechBar: daemon auto-start retry still failing")
+                        }
                     }
                 }
             }
