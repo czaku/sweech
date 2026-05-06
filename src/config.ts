@@ -87,6 +87,19 @@ export const KIMI_SHAREABLE_DIRS = ['sessions', 'user-history'] as const;
 export const KIMI_SHAREABLE_FILES = [] as const;
 
 /**
+ * Escape a string for safe inclusion inside a TOML double-quoted value.
+ * Handles: backslash, double-quote, tab, newline, carriage return.
+ */
+function tomlEscape(str: string): string {
+  return str
+    .replace(/\\/g, '\\\\')
+    .replace(/"/g, '\\"')
+    .replace(/\t/g, '\\t')
+    .replace(/\n/g, '\\n')
+    .replace(/\r/g, '\\r');
+}
+
+/**
  * Escape a string for safe inclusion inside double-quoted bash.
  * Handles: backslash, double-quote, dollar, backtick, newline.
  */
@@ -394,30 +407,30 @@ export class ConfigManager {
       const effectiveModel = modelOverride || provider.defaultModel;
       const tomlLines: string[] = [
         `# Sweech-managed config for ${commandName}`,
-        `default_model = "${effectiveModel || ''}"`,
+        `default_model = "${tomlEscape(effectiveModel || '')}"`,
         `default_thinking = true`,
         `default_yolo = false`,
         '',
-        `[models."${effectiveModel || 'default'}"]`,
+        `[models."${tomlEscape(effectiveModel || 'default')}"]`,
         `provider = "managed:sweech"`,
-        `model = "${effectiveModel || ''}"`,
+        `model = "${tomlEscape(effectiveModel || '')}"`,
         '',
         `[providers."managed:sweech"]`,
         `type = "openai"`,
       ];
       if (provider.baseUrl) {
-        tomlLines.push(`base_url = "${provider.baseUrl}/v1"`);
+        tomlLines.push(`base_url = "${tomlEscape(provider.baseUrl)}/v1"`);
       } else {
         tomlLines.push(`base_url = ""`);
       }
       if (!useNativeAuth && (apiKey || oauthToken?.accessToken)) {
-        tomlLines.push(`api_key = "${apiKey || ''}"`);
+        tomlLines.push(`api_key = "${tomlEscape(apiKey || '')}"`);
       } else {
         tomlLines.push(`api_key = ""`);
       }
 
       const configTomlPath = path.join(profileDir, 'config.toml');
-      fs.writeFileSync(configTomlPath, tomlLines.join('\n') + '\n');
+      fs.writeFileSync(configTomlPath, tomlLines.join('\n') + '\n', { mode: 0o600 });
 
       // Create empty dirs the kimi CLI expects
       for (const dir of ['sessions', 'user-history', 'logs', 'telemetry', 'credentials']) {

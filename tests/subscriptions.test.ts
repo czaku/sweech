@@ -21,6 +21,7 @@ describe('subscriptions', () => {
     expect(accounts.map(a => a.commandName)).toEqual([
       'claude',
       'codex',
+      'kimi',
       'claude-pole',
       'codex-pole',
     ])

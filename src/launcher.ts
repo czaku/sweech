@@ -306,9 +306,11 @@ export function getSorted(allEntries: LaunchEntry[], mode: string, grouped: bool
   if (!grouped) {
     return sortedWithinGroup(allEntries, mode);
   }
-  const claude = allEntries.filter(e => e.command !== 'codex');
+  const claude = allEntries.filter(e => e.command === 'claude');
+  const kimi   = allEntries.filter(e => e.command === 'kimi');
   const codex  = allEntries.filter(e => e.command === 'codex');
-  return [...sortedWithinGroup(claude, mode), ...sortedWithinGroup(codex, mode)];
+  const other  = allEntries.filter(e => e.command !== 'claude' && e.command !== 'kimi' && e.command !== 'codex');
+  return [...sortedWithinGroup(claude, mode), ...sortedWithinGroup(kimi, mode), ...sortedWithinGroup(codex, mode), ...sortedWithinGroup(other, mode)];
 }
 
 export function expiryAlert(e: LaunchEntry): string {
@@ -381,9 +383,11 @@ export function render(entries: LaunchEntry[], state: LaunchState, usageLoad: Us
   const useFirstSet = new Set<LaunchEntry>();
   if (state.sortMode === 'smart') {
     if (state.grouped) {
-      const claudeGroup = entries.filter(e => e.command !== 'codex');
+      const claudeGroup = entries.filter(e => e.command === 'claude');
+      const kimiGroup   = entries.filter(e => e.command === 'kimi');
       const codexGroup  = entries.filter(e => e.command === 'codex');
       if (claudeGroup[0] && entrySmartScore(claudeGroup[0]) >= 0) useFirstSet.add(claudeGroup[0]);
+      if (kimiGroup[0]   && entrySmartScore(kimiGroup[0])   >= 0) useFirstSet.add(kimiGroup[0]);
       if (codexGroup[0]  && entrySmartScore(codexGroup[0])  >= 0) useFirstSet.add(codexGroup[0]);
     } else {
       if (entries[0] && entrySmartScore(entries[0]) >= 0) useFirstSet.add(entries[0]);
@@ -394,9 +398,9 @@ export function render(entries: LaunchEntry[], state: LaunchState, usageLoad: Us
   let lastCliType = '';
   entries.forEach((entry, i) => {
     entryStartLines.push(body.length);
-    const cliType = entry.command === 'codex' ? 'codex' : 'claude';
+    const cliType = entry.command;
     if (state.grouped && cliType !== lastCliType) {
-      const cliLabel = cliType === 'codex' ? 'Codex (OpenAI)' : 'Claude (Anthropic)';
+      const cliLabel = cliType === 'codex' ? 'Codex (OpenAI)' : cliType === 'kimi' ? 'Kimi (Moonshot)' : 'Claude (Anthropic)';
       body.push(chalk.dim(`  ── ${cliLabel} ${'─'.repeat(Math.max(0, 42 - cliLabel.length))}`));
       body.push('');
       lastCliType = cliType;
@@ -443,7 +447,7 @@ export function render(entries: LaunchEntry[], state: LaunchState, usageLoad: Us
 
     // Provider line
     const providerStr = entry.isDefault
-      ? (entry.command === 'codex' ? 'OpenAI' : 'Anthropic')
+      ? (entry.command === 'codex' ? 'OpenAI' : entry.command === 'kimi' ? 'Moonshot AI' : 'Anthropic')
       : entry.label;
     const modelStr = entry.model ? ` · ${entry.model}` : '';
     const dirStr = entry.dataDir.replace(os.homedir(), '~');
@@ -596,8 +600,10 @@ export async function runLauncher(): Promise<void> {
   });
 
   const entries: LaunchEntry[] = [
-    ...unsorted.filter(e => e.command !== 'codex' && e.isDefault),
-    ...unsorted.filter(e => e.command !== 'codex' && !e.isDefault),
+    ...unsorted.filter(e => e.command === 'claude' && e.isDefault),
+    ...unsorted.filter(e => e.command === 'claude' && !e.isDefault),
+    ...unsorted.filter(e => e.command === 'kimi' && e.isDefault),
+    ...unsorted.filter(e => e.command === 'kimi' && !e.isDefault),
     ...unsorted.filter(e => e.command === 'codex' && e.isDefault),
     ...unsorted.filter(e => e.command === 'codex' && !e.isDefault),
   ];
@@ -846,7 +852,7 @@ export async function runLauncher(): Promise<void> {
       const env = { ...process.env };
       const launchArgs: string[] = [];
       if (entry.configDir) {
-        const cli = getCLI(entry.command === 'codex' ? 'codex' : 'claude');
+        const cli = getCLI(entry.command);
         if (cli) env[cli.configDirEnvVar] = entry.configDir;
       }
 
@@ -880,7 +886,7 @@ export async function runLauncher(): Promise<void> {
             const settingsPath = path.join(entry.configDir, 'settings.json');
             try {
               const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
-              const modelKey = entry.command === 'codex' ? 'OPENAI_MODEL' : 'ANTHROPIC_MODEL';
+              const modelKey = entry.command === 'codex' ? 'OPENAI_MODEL' : entry.command === 'kimi' ? 'KIMI_MODEL' : 'ANTHROPIC_MODEL';
               settings.env = settings.env || {};
               settings.env[modelKey] = selectedModel;
               fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
@@ -908,7 +914,7 @@ export async function runLauncher(): Promise<void> {
       delete env.CLAUDECODE;
       delete env.CLAUDE_CODE_ENTRYPOINT;
 
-      const cli = getCLI(entry.command === 'codex' ? 'codex' : 'claude');
+      const cli = getCLI(entry.command);
 
       if (isTmuxAvailable() && state.useTmux) {
         const status = launchInTmux({

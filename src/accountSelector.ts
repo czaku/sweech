@@ -81,7 +81,7 @@ export function enumerateAccounts(profiles?: ProfileConfig[]): AccountEntry[] {
   for (const p of resolvedProfiles) {
     if (seen.has(p.commandName)) continue;
 
-    const cliType = p.cliType === 'codex' ? 'codex' : 'claude';
+    const cliType = p.cliType || 'claude';
     entries.push({
       name: p.name || p.commandName,
       commandName: p.commandName,
@@ -93,10 +93,12 @@ export function enumerateAccounts(profiles?: ProfileConfig[]): AccountEntry[] {
     seen.add(p.commandName);
   }
 
-  // 3. Group: claude (defaults first, then profiles), then codex
+  // 3. Group: claude (defaults first, then profiles), then kimi, then codex
   return [
-    ...entries.filter(e => e.cliType !== 'codex' && e.isDefault),
-    ...entries.filter(e => e.cliType !== 'codex' && !e.isDefault),
+    ...entries.filter(e => e.cliType === 'claude' && e.isDefault),
+    ...entries.filter(e => e.cliType === 'claude' && !e.isDefault),
+    ...entries.filter(e => e.cliType === 'kimi' && e.isDefault),
+    ...entries.filter(e => e.cliType === 'kimi' && !e.isDefault),
     ...entries.filter(e => e.cliType === 'codex' && e.isDefault),
     ...entries.filter(e => e.cliType === 'codex' && !e.isDefault),
   ];
