@@ -4,6 +4,8 @@
  * 🍭 Sweetch CLI - Switch between Claude accounts and AI providers
  */
 
+import './cwdGuard';
+
 process.title = 'sweech'
 
 import { Command } from 'commander';
