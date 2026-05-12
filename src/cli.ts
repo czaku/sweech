@@ -817,7 +817,7 @@ program
       : path.join(require('os').homedir(), `.${cli.name}`);
 
     // Passthrough args (everything after the profile name)
-    const passthroughArgs = cmd.args.slice(1);
+    const passthroughArgs = autonameArgs(cli, cmd.args.slice(1));
 
     // Set config dir env var and exec the CLI
     const env = { ...process.env, [cli.configDirEnvVar]: profileDir };
@@ -840,6 +840,55 @@ program
     try {
       const { execFileSync } = require('child_process');
       execFileSync(cli.command, passthroughArgs, { env, stdio: 'inherit' });
+    } catch (error: unknown) {
+      if (error && typeof error === 'object' && 'status' in error) {
+        process.exit((error as { status: number }).status ?? 1);
+      }
+      process.exit(1);
+    }
+  });
+
+/** Append claude's --name <basename(cwd)> if not already present. No-op for other CLIs. */
+function autonameArgs(cli: { sessionNameFlag?: string }, args: string[]): string[] {
+  if (!cli.sessionNameFlag) return args;
+  if (args.includes(cli.sessionNameFlag)) return args; // user supplied one
+  const base = path.basename(process.cwd());
+  if (!base || base === '/') return args;
+  return [...args, cli.sessionNameFlag, base];
+}
+
+// Resume command — env-routed shortcut to the CLI's prior-session picker.
+// claude → `claude --resume`, codex → `codex resume`.
+program
+  .command('resume <command-name>')
+  .description('Open the underlying CLI\'s prior-session picker for a profile')
+  .allowUnknownOption(true)
+  .action((commandName: string, _opts: any, cmd: any) => {
+    const config = new ConfigManager();
+    const aliasManager = new AliasManager();
+    const resolvedName = aliasManager.resolveAlias(commandName);
+    const profile = config.getProfiles().find(p => p.commandName === resolvedName);
+    const cli = profile ? getCLI(profile.cliType) : getCLI(resolvedName);
+    if (!cli) {
+      console.error(chalk.red(`Profile '${commandName}' not found`));
+      process.exit(1);
+    }
+    if (!cli.sessionsCommand) {
+      console.error(chalk.yellow(`${cli.displayName} has no sessions subcommand.`));
+      process.exit(2);
+    }
+    const profileDir = profile
+      ? config.getProfileDir(profile.commandName)
+      : path.join(require('os').homedir(), `.${cli.name}`);
+    const passthrough = cmd.args.slice(1);
+    const args = [...cli.sessionsCommand, ...passthrough];
+    const env = { ...process.env, [cli.configDirEnvVar]: profileDir };
+    if (profile?.envOverrides) Object.assign(env, profile.envOverrides);
+    delete env.CLAUDECODE;
+    delete env.CLAUDE_CODE_ENTRYPOINT;
+    try {
+      const { execFileSync } = require('child_process');
+      execFileSync(cli.command, args, { env, stdio: 'inherit' });
     } catch (error: unknown) {
       if (error && typeof error === 'object' && 'status' in error) {
         process.exit((error as { status: number }).status ?? 1);
@@ -967,9 +1016,10 @@ program
 
     // Build arg list: sweech flags expand to CLI-native flags, rest pass through
     const passthroughExtras = cmd.args.slice(1).filter((a: string) => !SWEECH_LAUNCH_FLAGS.has(a));
-    const launchArgs = buildLaunchArgs(opts, cli, passthroughExtras);
+    const launchArgs = autonameArgs(cli, buildLaunchArgs(opts, cli, passthroughExtras));
 
     const env = { ...process.env, [cli.configDirEnvVar]: profileDir };
+    if (profile?.envOverrides) Object.assign(env, profile.envOverrides);
     delete env.CLAUDECODE;
     delete env.CLAUDE_CODE_ENTRYPOINT;
 

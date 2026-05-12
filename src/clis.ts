@@ -13,7 +13,9 @@ export interface CLIConfig {
   checkInstalled?: () => boolean;
   yoloFlag?: string;   // The actual CLI flag for skip-permissions mode
   resumeFlag?: string; // Flag/subcommand to resume last session
-  agentsCommand?: string[]; // Subcommand for "show me my agents/sessions"
+  agentsCommand?: string[]; // Subcommand for "show me my agents"
+  sessionsCommand?: string[]; // Subcommand for "show me my past sessions"
+  sessionNameFlag?: string; // CLI flag that sets a display name for a new session
 }
 
 export const SUPPORTED_CLIS: Record<string, CLIConfig> = {
@@ -27,6 +29,8 @@ export const SUPPORTED_CLIS: Record<string, CLIConfig> = {
     yoloFlag: '--dangerously-skip-permissions',
     resumeFlag: '--continue',
     agentsCommand: ['agents'],
+    sessionsCommand: ['--resume'],
+    sessionNameFlag: '--name',
   },
   codex: {
     name: 'codex',
@@ -38,6 +42,8 @@ export const SUPPORTED_CLIS: Record<string, CLIConfig> = {
     yoloFlag: '--dangerously-bypass-approvals-and-sandbox',
     resumeFlag: 'resume --last',
     agentsCommand: ['resume'], // codex has no `agents` — picker for prior sessions is closest
+    sessionsCommand: ['resume'], // codex resume is the cwd-filtered session picker
+    // codex has no equivalent of claude's --name (sessions are identified by cwd + id)
   },
   kimi: {
     name: 'kimi',

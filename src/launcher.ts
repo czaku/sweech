@@ -901,6 +901,13 @@ export async function runLauncher(): Promise<void> {
       if (state.yolo) launchArgs.push(entry.yoloFlag);
       if (state.resume) launchArgs.push(...entry.resumeFlag.split(' '));
 
+      // Autoname new sessions from cwd basename (Claude only — codex has no equivalent flag).
+      const launchCli = getCLI(entry.command);
+      if (!state.resume && launchCli?.sessionNameFlag && !launchArgs.includes(launchCli.sessionNameFlag)) {
+        const base = path.basename(process.cwd());
+        if (base && base !== '/') launchArgs.push(launchCli.sessionNameFlag, base);
+      }
+
       const preview = buildCommandPreview(entry, state);
       console.log(chalk.gray(`→ ${preview}\n`));
 
