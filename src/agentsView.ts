@@ -16,7 +16,9 @@ export interface LiveSession {
   updatedAt?: number;
   version?: string;
   profiles: string[]; // every ~/.claude* dir that registered this pid (shared sessions/)
+  primaryDir?: string; // first profile dir — used to locate the transcript file
   alive: boolean;    // pid still exists
+  lastAssistantText?: string; // preview of latest assistant response
 }
 
 export interface ConfiguredAgent {
@@ -44,6 +46,55 @@ export function enumerateClaudeConfigDirs(home: string = os.homedir()): ConfigDi
 
 function pidAlive(pid: number): boolean {
   try { process.kill(pid, 0); return true; } catch { return false; }
+}
+
+/** Claude encodes cwd by replacing / with - for project dir name. */
+function encodeCwdAsProjectDir(cwd: string): string {
+  return cwd.replace(/\//g, '-');
+}
+
+/** Find the JSONL transcript for a session under a given profile dir. */
+function findTranscriptPath(profileDir: string, cwd: string, sessionId: string): string | null {
+  if (!sessionId) return null;
+  const projectsDir = path.join(profileDir, 'projects');
+  const direct = path.join(projectsDir, encodeCwdAsProjectDir(cwd), `${sessionId}.jsonl`);
+  if (fs.existsSync(direct)) return direct;
+  // Fallback: glob — encoding may differ slightly for paths with special chars.
+  let projects: string[];
+  try { projects = fs.readdirSync(projectsDir); } catch { return null; }
+  for (const proj of projects) {
+    const candidate = path.join(projectsDir, proj, `${sessionId}.jsonl`);
+    if (fs.existsSync(candidate)) return candidate;
+  }
+  return null;
+}
+
+/** Read the last ~256KB of a JSONL transcript and walk backwards for the latest assistant text. */
+function lastAssistantText(transcriptPath: string, maxBytes = 256 * 1024): string | undefined {
+  let stat: fs.Stats;
+  try { stat = fs.statSync(transcriptPath); } catch { return undefined; }
+  const start = Math.max(0, stat.size - maxBytes);
+  let buf: Buffer;
+  try {
+    const fd = fs.openSync(transcriptPath, 'r');
+    buf = Buffer.alloc(stat.size - start);
+    fs.readSync(fd, buf, 0, buf.length, start);
+    fs.closeSync(fd);
+  } catch { return undefined; }
+  const text = buf.toString('utf-8');
+  // Drop a possibly-truncated first line if we didn't read from byte 0.
+  const lines = (start > 0 ? text.slice(text.indexOf('\n') + 1) : text).split('\n');
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i];
+    if (!line || !line.includes('"role":"assistant"')) continue;
+    let obj: any;
+    try { obj = JSON.parse(line); } catch { continue; }
+    const items = obj?.message?.content;
+    if (!Array.isArray(items)) continue;
+    const textPart = items.find((it: any) => it?.type === 'text' && typeof it.text === 'string');
+    if (textPart) return String(textPart.text).trim();
+  }
+  return undefined;
 }
 
 export function readLiveSessions(dirs?: ConfigDir[]): LiveSession[] {
@@ -76,9 +127,16 @@ export function readLiveSessions(dirs?: ConfigDir[]): LiveSession[] {
         updatedAt: obj.updatedAt,
         version: obj.version,
         profiles: [label],
+        primaryDir: dir,
         alive: pidAlive(obj.pid),
       });
     }
+  }
+  // Enrich each session with the latest assistant text (single-pass, lazy per row).
+  for (const s of byKey.values()) {
+    if (!s.primaryDir) continue;
+    const tp = findTranscriptPath(s.primaryDir, s.cwd, s.sessionId);
+    if (tp) s.lastAssistantText = lastAssistantText(tp);
   }
   return [...byKey.values()].sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
 }
@@ -233,6 +291,10 @@ export function renderLiveSessions(sessions: LiveSession[], dirCount: number): s
       timeAgo(s.updatedAt).padStart(8) + '  ' +
       (s.alive ? String(s.pid) : chalk.dim(String(s.pid)))
     );
+    if (s.lastAssistantText) {
+      const preview = s.lastAssistantText.replace(/\s+/g, ' ').slice(0, 120);
+      lines.push('    ' + chalk.dim('└ ') + chalk.gray(preview));
+    }
   }
   if (dead.length > 5) {
     lines.push(chalk.dim(`  …and ${dead.length - 5} more stale entries (run \`sweech agents --all\` to see them)`));
@@ -280,7 +342,7 @@ export function renderConfigured(records: ConfiguredAgent[], windowDays: number,
 
 // ── Entry points used by cli.ts ───────────────────────────────────────────
 
-export function runLiveAgents(opts: { showAll?: boolean } = {}): void {
+export async function runLiveAgents(opts: { showAll?: boolean; interactive?: boolean } = {}): Promise<void> {
   const dirs = enumerateClaudeConfigDirs();
   let sessions = readLiveSessions(dirs);
   if (!opts.showAll) {
@@ -289,6 +351,35 @@ export function runLiveAgents(opts: { showAll?: boolean } = {}): void {
     sessions = sessions.filter(s => s.alive || (s.updatedAt ?? 0) > cutoff);
   }
   console.log(renderLiveSessions(sessions, dirs.length));
+
+  // Interactive picker — only if TTY and there's anything live to attach to.
+  const live = sessions.filter(s => s.alive);
+  if (!opts.interactive || live.length === 0 || !process.stdout.isTTY) return;
+
+  const inquirer = (await import('inquirer')).default;
+  const { picked } = await inquirer.prompt([{
+    type: 'list',
+    name: 'picked',
+    message: 'Resume a session?',
+    pageSize: Math.min(15, live.length + 1),
+    choices: [
+      ...live.map(s => ({
+        name: `${s.name ?? s.sessionId.slice(0, 8)}  ${chalk.dim(s.profiles[0])}  ${shortCwd(s.cwd)}  ${chalk.dim(timeAgo(s.updatedAt))}`,
+        value: s,
+      })),
+      { name: chalk.dim('(cancel)'), value: null },
+    ],
+  }]);
+  if (!picked) return;
+
+  const profileLabel = (picked as LiveSession).profiles[0];
+  const profileDir = path.join(os.homedir(), '.' + profileLabel);
+  const env: Record<string, string | undefined> = { ...process.env, CLAUDE_CONFIG_DIR: profileDir };
+  delete env.CLAUDECODE;
+  delete env.CLAUDE_CODE_ENTRYPOINT;
+  const { spawnSync } = require('child_process');
+  const res = spawnSync('claude', ['--resume', (picked as LiveSession).sessionId], { env, stdio: 'inherit' });
+  process.exit(res.status ?? 0);
 }
 
 export function runConfiguredAgents(windowDays = 7): void {

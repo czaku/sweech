@@ -908,14 +908,20 @@ program
   .option('--native', 'Defer to the underlying `claude agents` instead of sweech-native view')
   .option('--configured', 'Show file-based configured agents + invocation counts (the old view)')
   .option('--all', 'With live view: include stale entries beyond the 24h cutoff')
+  .option('--no-interactive', 'Print and exit; skip the Enter-to-resume picker')
   .option('--days <n>', 'Invocation window in days for --configured view (default 7)', '7')
   .allowUnknownOption(true)
   .action((commandName: string | undefined, opts: { native?: boolean; configured?: boolean; all?: boolean; days: string }, cmd: any) => {
     // No-arg → sweech-native view (live by default, configured with flag)
     if (!commandName && !opts.native) {
       const view = require('./agentsView');
-      if (opts.configured) view.runConfiguredAgents(parseInt(opts.days, 10) || 7);
-      else view.runLiveAgents({ showAll: opts.all });
+      if (opts.configured) { view.runConfiguredAgents(parseInt(opts.days, 10) || 7); return; }
+      // Interactive picker by default in TTY; suppress with --no-interactive.
+      const interactive = (opts as any).interactive !== false;
+      view.runLiveAgents({ showAll: opts.all, interactive }).catch((e: any) => {
+        console.error(chalk.red(String(e?.message ?? e)));
+        process.exit(1);
+      });
       return;
     }
 
