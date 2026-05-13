@@ -15,7 +15,7 @@ export interface LiveSession {
   startedAt?: number;
   updatedAt?: number;
   version?: string;
-  profile: string;   // which ~/.claude* dir this came from
+  profiles: string[]; // every ~/.claude* dir that registered this pid (shared sessions/)
   alive: boolean;    // pid still exists
 }
 
@@ -48,7 +48,8 @@ function pidAlive(pid: number): boolean {
 
 export function readLiveSessions(dirs?: ConfigDir[]): LiveSession[] {
   const sources = dirs ?? enumerateClaudeConfigDirs();
-  const out: LiveSession[] = [];
+  // Dedupe by pid+sessionId — sweech profile shares symlink sessions/ across dirs.
+  const byKey = new Map<string, LiveSession>();
   for (const { label, dir } of sources) {
     const sessionsDir = path.join(dir, 'sessions');
     let files: string[];
@@ -61,7 +62,10 @@ export function readLiveSessions(dirs?: ConfigDir[]): LiveSession[] {
       let obj: any;
       try { obj = JSON.parse(raw); } catch { continue; }
       if (typeof obj?.pid !== 'number') continue;
-      out.push({
+      const key = `${obj.pid}:${obj.sessionId ?? ''}`;
+      const existing = byKey.get(key);
+      if (existing) { existing.profiles.push(label); continue; }
+      byKey.set(key, {
         pid: obj.pid,
         sessionId: obj.sessionId ?? '',
         cwd: obj.cwd ?? '',
@@ -71,12 +75,12 @@ export function readLiveSessions(dirs?: ConfigDir[]): LiveSession[] {
         startedAt: obj.startedAt,
         updatedAt: obj.updatedAt,
         version: obj.version,
-        profile: label,
+        profiles: [label],
         alive: pidAlive(obj.pid),
       });
     }
   }
-  return out.sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
+  return [...byKey.values()].sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
 }
 
 // ── Configured agents (file-based + invocation counts) ────────────────────
@@ -196,9 +200,15 @@ export function renderLiveSessions(sessions: LiveSession[], dirCount: number): s
     return lines.join('\n');
   }
 
+  const fmtProfiles = (arr: string[]): string => {
+    if (arr.length <= 1) return arr[0] ?? '';
+    if (arr.length <= 3) return arr.join(', ');
+    return `${arr[0]} +${arr.length - 1}`;
+  };
+
   const shown = [...alive, ...dead.slice(0, 5)]; // suppress most dead entries
-  const widthName = Math.max(6, ...shown.map(s => (s.name || s.sessionId.slice(0, 8)).length));
-  const widthProf = Math.max(7, ...shown.map(s => s.profile.length));
+  const widthName = Math.max(6, ...shown.map(s => (s.name ?? s.sessionId.slice(0, 8)).length));
+  const widthProf = Math.max(7, ...shown.map(s => fmtProfiles(s.profiles).length));
   const widthCwd  = Math.max(3, ...shown.map(s => shortCwd(s.cwd).length));
 
   lines.push(
@@ -212,18 +222,17 @@ export function renderLiveSessions(sessions: LiveSession[], dirCount: number): s
   );
 
   for (const s of shown) {
-    const label = s.name || chalk.dim(s.sessionId.slice(0, 8));
-    const labelPadded = (s.name ?? s.sessionId.slice(0, 8)).padEnd(widthName);
+    const labelText = s.name ?? s.sessionId.slice(0, 8);
+    const label = s.name ? labelText : chalk.dim(labelText);
     lines.push(
       '  ' +
-      (s.name ? label.padEnd(widthName) : label + ' '.repeat(widthName - 8)) + '  ' +
-      s.profile.padEnd(widthProf) + '  ' +
+      label + ' '.repeat(Math.max(0, widthName - labelText.length)) + '  ' +
+      fmtProfiles(s.profiles).padEnd(widthProf) + '  ' +
       colorStatus(s.status, s.alive) + '  ' +
       shortCwd(s.cwd).padEnd(widthCwd) + '  ' +
       timeAgo(s.updatedAt).padStart(8) + '  ' +
       (s.alive ? String(s.pid) : chalk.dim(String(s.pid)))
     );
-    void labelPadded;
   }
   if (dead.length > 5) {
     lines.push(chalk.dim(`  …and ${dead.length - 5} more stale entries (run \`sweech agents --all\` to see them)`));
