@@ -897,14 +897,25 @@ program
     }
   });
 
-// Agents command — env-routed shortcut to the CLI's agents view.
-// No arg → runs `claude agents` against the default claude config.
-// With profile → env-routes to that profile's CLI.
+// Agents command:
+//   sweech agents              → sweech-native aggregated view across all ~/.claude* dirs
+//   sweech agents --native     → defer to default `claude agents`
+//   sweech agents <profile>    → env-route to that profile's CLI agents view
+//   sweech agents --days 30    → widen invocation window from default 7d
 program
   .command('agents [command-name]')
-  .description('Open the underlying CLI\'s agents view (defaults to claude)')
+  .description('Aggregated agents view across all claude profiles (no arg), or env-route to one')
+  .option('--native', 'Defer to the underlying `claude agents` instead of sweech-native view')
+  .option('--days <n>', 'Invocation window in days (default 7)', '7')
   .allowUnknownOption(true)
-  .action((commandName: string | undefined, _opts: any, cmd: any) => {
+  .action((commandName: string | undefined, opts: { native?: boolean; days: string }, cmd: any) => {
+    // No-arg + no --native → sweech-native aggregated view
+    if (!commandName && !opts.native) {
+      const { runAggregatedAgents } = require('./agentsView');
+      runAggregatedAgents(parseInt(opts.days, 10) || 7);
+      return;
+    }
+
     const config = new ConfigManager();
     const aliasManager = new AliasManager();
     const resolvedName = commandName ? aliasManager.resolveAlias(commandName) : undefined;
