@@ -375,6 +375,13 @@ describe('recommendRoute', () => {
     ];
 
     (getKnownAccounts as jest.Mock).mockReturnValue(profiles.map(p => ({ ...p, isDefault: false })));
+    (getCLI as jest.Mock).mockReturnValue({
+      name: 'codex',
+      command: 'codex',
+      configDirEnvVar: 'CODEX_HOME',
+      resumeFlag: 'resume --last',
+      sessionsCommand: ['resume'],
+    });
     (getAccountInfo as jest.Mock).mockResolvedValue([
       makeAccountInfo({
         name: 'codex fast',
@@ -432,6 +439,42 @@ describe('recommendRoute', () => {
       totalMessages: 0,
       utilization7d: 0.3,
     });
+    expect(result.selected!.route.metadata).toMatchObject({
+      providerKey: 'openai',
+      providerDisplayName: 'OpenAI',
+      apiFormat: 'openai',
+      supportedEngines: ['codex'],
+      activeEngine: 'codex',
+      toolUseMode: 'native-agent-cli',
+      sessionSupport: {
+        resume: true,
+        list: true,
+        named: false,
+        resumeCommand: 'resume --last',
+      },
+      context: {
+        model: 'gpt-5.4-mini',
+        window: null,
+        tokens: null,
+        source: 'unknown',
+      },
+      costQuotaHints: {
+        pricing: 'ChatGPT Plus/Pro subscription',
+        quotaSource: 'live-cache',
+        planType: null,
+        planLabel: null,
+      },
+      headless: {
+        suitable: true,
+      },
+      taskSuitability: {
+        review: true,
+        edit: true,
+        proof: true,
+        longRunningSupervision: true,
+      },
+      unsupportedCapabilities: [],
+    });
     expect(result.rejected).toHaveLength(0);
   });
 
@@ -443,6 +486,14 @@ describe('recommendRoute', () => {
     ];
 
     (getKnownAccounts as jest.Mock).mockReturnValue(profiles.map(p => ({ ...p, isDefault: false })));
+    (getCLI as jest.Mock).mockReturnValue({
+      name: 'claude',
+      command: 'claude',
+      configDirEnvVar: 'CLAUDE_CONFIG_DIR',
+      resumeFlag: '--continue',
+      sessionsCommand: ['--resume'],
+      sessionNameFlag: '--name',
+    });
     (getAccountInfo as jest.Mock).mockResolvedValue([
       makeAccountInfo({
         name: 'good',
@@ -587,6 +638,58 @@ describe('recommendRoute', () => {
     });
     expect(result.selected!.route.lastFailure!.message).toContain('[REDACTED]');
     expect(result.selected!.route.lastFailure!.message).not.toContain('sk-ant');
+  });
+
+  test('returns explicit unsupported capability reasons for unsuitable provider tasks', async () => {
+    const profiles = [
+      {
+        name: 'deepseek',
+        commandName: 'claude-deepseek',
+        cliType: 'claude' as const,
+        provider: 'deepseek',
+        model: 'deepseek-chat',
+        createdAt: '2025-01-01T00:00:00Z',
+      },
+    ];
+
+    (getKnownAccounts as jest.Mock).mockReturnValue(profiles.map(p => ({ ...p, isDefault: false })));
+    (getAccountInfo as jest.Mock).mockResolvedValue([
+      makeAccountInfo({
+        name: 'deepseek',
+        commandName: 'claude-deepseek',
+        cliType: 'claude',
+        live: makeLive({ status: 'allowed', utilization7d: 0.2 }),
+      }),
+    ]);
+    (fs.existsSync as jest.Mock).mockReturnValue(true);
+
+    const result = await recommendRoute({
+      preferredProfile: 'claude-deepseek',
+      requiredCapabilities: ['task:proof'],
+    }, profiles as any);
+
+    expect(result.selected).toBeNull();
+    expect(result.rejected[0].reasons).toContain('missing-capability:task:proof');
+    expect(result.rejected[0].route.health.failureClass).toBe('unsupported-capability');
+    expect(result.rejected[0].route.metadata).toMatchObject({
+      providerKey: 'deepseek',
+      supportedEngines: ['claude'],
+      activeEngine: 'claude',
+      apiFormat: 'anthropic',
+      context: {
+        model: 'deepseek-chat',
+        window: '128k',
+        tokens: 128000,
+        source: 'model-catalog',
+      },
+      taskSuitability: {
+        review: true,
+        edit: true,
+        proof: false,
+        longRunningSupervision: true,
+      },
+      unsupportedCapabilities: ['task:proof'],
+    });
   });
 
   test('exposes native launch metadata for default CLI accounts', async () => {

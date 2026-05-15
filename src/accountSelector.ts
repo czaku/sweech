@@ -116,6 +116,43 @@ export interface RouteCandidate {
       failureClass: CodeuctorRouteFailureClass | null;
       message: string | null;
     } | null;
+    metadata: {
+      providerKey: string;
+      providerDisplayName: string;
+      apiFormat: string | null;
+      supportedEngines: string[];
+      activeEngine: string;
+      toolUseMode: 'native-agent-cli' | 'anthropic-compatible' | 'openai-compatible' | 'unknown';
+      sessionSupport: {
+        resume: boolean;
+        list: boolean;
+        named: boolean;
+        resumeCommand: string | null;
+      };
+      context: {
+        model: string | null;
+        window: string | null;
+        tokens: number | null;
+        source: 'model-catalog' | 'provider-default' | 'unknown';
+      };
+      costQuotaHints: {
+        pricing: string | null;
+        quotaSource: RouteCandidate['route']['quota']['source'];
+        planType: string | null;
+        planLabel: string | null;
+      };
+      headless: {
+        suitable: boolean;
+        reason: string;
+      };
+      taskSuitability: {
+        review: boolean;
+        edit: boolean;
+        proof: boolean;
+        longRunningSupervision: boolean;
+      };
+      unsupportedCapabilities: string[];
+    };
   };
   account: {
     name: string;
@@ -293,20 +330,51 @@ function modelFor(providerName: string, account: AccountEntry, profiles: Profile
 
 function routeCapabilities(account: AccountEntry, providerName: string, model: string | null): string[] {
   const provider = getProvider(providerName);
+  const cli = getCLI(account.cliType);
+  const metadata = routeMetadata(account, providerName, model, {
+    source: 'unknown',
+    status: null,
+    planType: null,
+    planLabel: null,
+    isStale: false,
+    messages5h: 0,
+    messages7d: 0,
+    totalMessages: 0,
+    utilization5h: null,
+    utilization7d: null,
+    reset5hAt: null,
+    reset7dAt: null,
+    weeklyResetAt: null,
+    hoursUntilWeeklyReset: null,
+    minutesUntilFirstCapacity: null,
+    buckets: [],
+    limits: null,
+  });
   const capabilities = new Set<string>([
     'coding',
     'agentic-coding',
     `cli:${account.cliType}`,
+    `engine:${account.cliType}`,
     `provider:${providerName}`,
+    'tool-use:native-agent-cli',
   ]);
 
   if (model) capabilities.add(`model:${model.toLowerCase()}`);
   if (provider?.apiFormat) capabilities.add(`api-format:${provider.apiFormat}`);
+  if (provider?.apiFormat) capabilities.add(`tool-use:${provider.apiFormat}-compatible`);
   if (provider?.authOptional) capabilities.add('local-provider');
   if (account.isManaged) capabilities.add('managed-profile');
   if (account.isDefault) capabilities.add('default-account');
   if (account.isManaged) capabilities.add('launch:sweech-wrapper');
   if (account.isDefault) capabilities.add('launch:native-cli-profile');
+  if (cli?.resumeFlag) capabilities.add('session:resume');
+  if (cli?.sessionsCommand) capabilities.add('session:list');
+  if (cli?.sessionNameFlag) capabilities.add('session:named');
+  if (metadata.headless.suitable) capabilities.add('headless:suitable');
+  if (metadata.taskSuitability.review) capabilities.add('task:review');
+  if (metadata.taskSuitability.edit) capabilities.add('task:edit');
+  if (metadata.taskSuitability.proof) capabilities.add('task:proof');
+  if (metadata.taskSuitability.longRunningSupervision) capabilities.add('task:long-running-supervision');
   if (account.cliType === 'claude') capabilities.add('claude');
   if (account.cliType === 'codex') capabilities.add('codex');
   if (account.cliType === 'kimi') capabilities.add('kimi');
@@ -314,6 +382,83 @@ function routeCapabilities(account: AccountEntry, providerName: string, model: s
   if (provider?.availableModels?.some((candidate) => candidate.type === 'vision')) capabilities.add('vision');
 
   return Array.from(capabilities).sort();
+}
+
+function parseContextTokens(value?: string): number | null {
+  if (!value) return null;
+  const normalized = value.trim().toLowerCase();
+  const match = normalized.match(/^(\d+(?:\.\d+)?)(k|m)?$/);
+  if (!match) return null;
+  const amount = Number(match[1]);
+  if (!Number.isFinite(amount)) return null;
+  const multiplier = match[2] === 'm' ? 1_000_000 : match[2] === 'k' ? 1_000 : 1;
+  return Math.round(amount * multiplier);
+}
+
+function routeMetadata(
+  account: AccountEntry,
+  providerName: string,
+  model: string | null,
+  quota: RouteCandidate['route']['quota'],
+): RouteCandidate['route']['metadata'] {
+  const provider = getProvider(providerName);
+  const cli = getCLI(account.cliType);
+  const modelInfo = provider?.availableModels?.find((candidate) => candidate.id === model);
+  const contextWindow = modelInfo?.context ?? null;
+  const contextTokens = parseContextTokens(contextWindow ?? undefined);
+  const apiFormat = provider?.apiFormat ?? null;
+  const hasTooling = Boolean(cli);
+  const hasResume = Boolean(cli?.resumeFlag);
+  const hasVision = modelInfo?.type === 'vision'
+    || Boolean(provider?.availableModels?.some((candidate) => candidate.type === 'vision'))
+    || providerName === 'openai'
+    || providerName === 'anthropic';
+
+  return {
+    providerKey: providerName,
+    providerDisplayName: provider?.displayName ?? providerName,
+    apiFormat,
+    supportedEngines: provider?.compatibility ?? [account.cliType],
+    activeEngine: account.cliType,
+    toolUseMode: hasTooling
+      ? 'native-agent-cli'
+      : apiFormat === 'anthropic'
+        ? 'anthropic-compatible'
+        : apiFormat === 'openai'
+          ? 'openai-compatible'
+          : 'unknown',
+    sessionSupport: {
+      resume: hasResume,
+      list: Boolean(cli?.sessionsCommand),
+      named: Boolean(cli?.sessionNameFlag),
+      resumeCommand: cli?.resumeFlag ?? null,
+    },
+    context: {
+      model,
+      window: contextWindow,
+      tokens: contextTokens,
+      source: modelInfo?.context ? 'model-catalog' : provider?.defaultModel === model ? 'provider-default' : 'unknown',
+    },
+    costQuotaHints: {
+      pricing: provider?.pricing ?? null,
+      quotaSource: quota.source,
+      planType: quota.planType,
+      planLabel: quota.planLabel,
+    },
+    headless: {
+      suitable: hasTooling,
+      reason: hasTooling
+        ? `${account.cliType} exposes a non-interactive command path through Sweech`
+        : 'No supported coding CLI engine is known for this route',
+    },
+    taskSuitability: {
+      review: hasTooling,
+      edit: hasTooling,
+      proof: hasTooling && hasVision,
+      longRunningSupervision: hasTooling && hasResume && (contextTokens === null || contextTokens >= 128_000),
+    },
+    unsupportedCapabilities: [],
+  };
 }
 
 function wrapperPathFor(commandName: string): string {
@@ -534,6 +679,7 @@ function buildCandidate(
 ): RouteCandidate {
   const provider = providerFor(account, info, profiles);
   const model = modelFor(provider, account, profiles);
+  const quota = routeQuota(info);
   const capabilities = routeCapabilities(account, provider, model);
   const cli = getCLI(account.cliType);
   const launch = buildLaunchPlan(account);
@@ -550,8 +696,9 @@ function buildCandidate(
       launchCommand: account.isManaged ? launch.command : (cli?.command ?? account.cliType),
       launch,
       health: routeHealth([], launch, info),
-      quota: routeQuota(info),
+      quota,
       lastFailure: lastFailureFor(account.commandName),
+      metadata: routeMetadata(account, provider, model, quota),
     },
     account: {
       name: account.name,
@@ -572,6 +719,9 @@ function buildCandidate(
   }
   candidate.reasons = rejectionReasons(request, candidate);
   candidate.route.health = routeHealth(candidate.reasons, launch, info);
+  candidate.route.metadata.unsupportedCapabilities = candidate.reasons
+    .filter((reason) => reason.startsWith('missing-capability:'))
+    .map((reason) => reason.replace(/^missing-capability:/, ''));
   return candidate;
 }
 
