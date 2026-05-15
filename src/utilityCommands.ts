@@ -146,7 +146,7 @@ export async function runDoctor(): Promise<void> {
   let reauthNeeded: string[] = [];
   try {
     const accountList = getKnownAccounts(profiles);
-    const accounts = await getAccountInfo(accountList);
+    const accounts = await getAccountInfo(accountList, { timeoutMs: 5000 });
     for (const acct of accounts) {
       if (acct.needsReauth) {
         reauthNeeded.push(acct.name);

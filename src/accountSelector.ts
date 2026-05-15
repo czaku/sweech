@@ -172,7 +172,7 @@ export async function suggestBestAccount(
 ): Promise<AccountRecommendation | undefined> {
   const resolvedProfiles = profiles ?? new ConfigManager().getProfiles();
   const known = getKnownAccounts(resolvedProfiles);
-  const infos = await getAccountInfo(known);
+  const infos = await getAccountInfo(known, { cacheOnly: true });
   const available = getAvailableAccounts(resolvedProfiles);
   const byCommand = new Map(available.map((entry) => [entry.commandName, entry]));
 

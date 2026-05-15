@@ -150,7 +150,7 @@ function writeCache(store: CacheStore): void {
   fs.writeFileSync(CACHE_FILE, JSON.stringify(store, null, 2))
 }
 
-function getCached(configDir: string): LiveRateLimitData | null {
+export function getCached(configDir: string): LiveRateLimitData | null {
   const store = readCache()
   const entry = store[configDir]
   if (!entry) return null
@@ -158,7 +158,7 @@ function getCached(configDir: string): LiveRateLimitData | null {
   return entry
 }
 
-function getStaleCache(configDir: string): LiveRateLimitData | null {
+export function getStaleCache(configDir: string): LiveRateLimitData | null {
   const store = readCache()
   const entry = store[configDir]
   if (!entry) return null
@@ -255,7 +255,7 @@ async function readOAuthToken(configDir: string): Promise<OAuthReadResult> {
           method: 'POST',
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
           body: params.toString(),
-          signal: AbortSignal.timeout(8000),
+          signal: AbortSignal.timeout(5000),
         })
         if (!res.ok) throw new Error('refresh failed')
         const data = await res.json() as any
@@ -320,7 +320,7 @@ async function fetchRateLimitHeaders(accessToken: string): Promise<LiveRateLimit
         max_tokens: 1,
         messages: [{ role: 'user', content: 'quota' }],
       }),
-      signal: AbortSignal.timeout(8000),
+      signal: AbortSignal.timeout(5000),
     })
 
     const get = (k: string) => res.headers.get(k)
@@ -382,7 +382,7 @@ async function fetchCodexRateLimits(configDir: string): Promise<LiveRateLimitDat
   const { spawn } = require('child_process')
 
   return new Promise<LiveRateLimitData | null>((resolve) => {
-    const timeout = setTimeout(() => { proc.kill(); resolve(null) }, 10_000)
+    const timeout = setTimeout(() => { proc.kill(); resolve(null) }, 5_000)
 
     const proc = spawn('codex', ['app-server', '--listen', 'stdio://'], {
       stdio: ['pipe', 'pipe', 'ignore'],

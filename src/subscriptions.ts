@@ -348,7 +348,7 @@ export function getKnownAccounts(
 
 export async function getAccountInfo(
   profiles: Array<{ name: string; commandName: string; cliType?: string; provider?: string; isDefault?: boolean; sharedWith?: string }>,
-  options: { refresh?: boolean } = {},
+  options: { refresh?: boolean; timeoutMs?: number; cacheOnly?: boolean } = {},
 ): Promise<AccountInfo[]> {
   const allMeta = readMeta()
 
@@ -365,8 +365,21 @@ export async function getAccountInfo(
       ? computeWeeklyReset(sub.subscriptionCreatedAt)
       : undefined
 
-    const usageFn = options.refresh ? refreshLiveUsage : getLiveUsage
-    const live = await usageFn(configDir, cliType).catch(() => undefined) ?? undefined
+    let live: LiveRateLimitData | undefined
+    if (options.cacheOnly) {
+      // Never touch the network — return whatever's in cache (fresh or stale).
+      const { getCached, getStaleCache } = await import('./liveUsage')
+      live = (getCached(configDir) ?? getStaleCache(configDir)) ?? undefined
+    } else {
+      const usageFn = options.refresh ? refreshLiveUsage : getLiveUsage
+      const usagePromise = usageFn(configDir, cliType).catch(() => undefined)
+      live = ((options.timeoutMs
+        ? await Promise.race<LiveRateLimitData | null | undefined>([
+            usagePromise,
+            new Promise<undefined>(res => setTimeout(() => res(undefined), options.timeoutMs)),
+          ])
+        : await usagePromise) ?? undefined)
+    }
 
     // Check for usage threshold crossings and emit events
     if (live) {

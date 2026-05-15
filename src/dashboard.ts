@@ -38,7 +38,7 @@ async function collectDashboardData(): Promise<DashboardData> {
   const accountRefs = getKnownAccounts(profiles)
   let accounts: AccountInfo[] = []
   try {
-    accounts = await getAccountInfo(accountRefs)
+    accounts = await getAccountInfo(accountRefs, { cacheOnly: true })
   } catch { /* proceed without live data */ }
 
   const history = getHistory(168) // 7 days

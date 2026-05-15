@@ -192,7 +192,8 @@ program
   .command('list')
   .alias('ls')
   .description('List all configured providers')
-  .action(async () => {
+  .option('--refresh', 'Force a live quota fetch (up to 5s). Default is cache-only.')
+  .action(async (opts: { refresh?: boolean }) => {
     const config = new ConfigManager();
     const profiles = config.getProfiles();
     const { execFileSync } = require('child_process');
@@ -308,7 +309,7 @@ program
       const lineCount = renderProfiles();
       const accountInfoMap = new Map<string, Awaited<ReturnType<typeof getAccountInfo>>[number]>();
       try {
-        const infos = await getAccountInfo(accountRefs);
+        const infos = await getAccountInfo(accountRefs, opts.refresh ? { timeoutMs: 5000 } : { cacheOnly: true });
         for (const info of infos) accountInfoMap.set(info.commandName, info);
       } catch { /* live data unavailable */ }
       process.stdout.write(`\x1b[${lineCount}A\x1b[0J`);
@@ -317,11 +318,14 @@ program
       // Non-interactive: fetch everything first, render once
       const accountInfoMap = new Map<string, Awaited<ReturnType<typeof getAccountInfo>>[number]>();
       try {
-        const infos = await getAccountInfo(accountRefs);
+        const infos = await getAccountInfo(accountRefs, opts.refresh ? { timeoutMs: 5000 } : { cacheOnly: true });
         for (const info of infos) accountInfoMap.set(info.commandName, info);
       } catch { /* live data unavailable */ }
       renderProfiles(accountInfoMap);
     }
+    // Force exit so unawaited refresh promises (race losers with pending fetches)
+    // don't keep the event loop alive after the user has their final render.
+    process.exit(0);
   });
 
 // Remove provider command
