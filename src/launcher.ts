@@ -187,8 +187,16 @@ function timeAgo(iso: string): string {
 }
 
 export function resolveAuthType(account: AccountInfo, command: string): string {
-  // Claude accounts — check rateLimitTier (from Keychain or .credentials.json)
+  // Claude accounts — prefer LIVE status over stale keychain rateLimitTier.
+  // The keychain tier is whatever the token was issued with and never updates
+  // until OAuth re-issuance, so a cancelled Max sub still says "max_20x"
+  // there. The live API tells us the org's actual entitlement *now*.
   if (command !== 'codex') {
+    const liveStatus = account.live?.status;
+    const tokStatus = account.live?.tokenStatus;
+    if (liveStatus === 'org_disabled') return 'OAuth disabled';
+    if (liveStatus === 'forbidden') return 'Forbidden';
+    if (liveStatus === 'unauthorized' || tokStatus === 'expired' || tokStatus === 'no_token') return 'Re-login needed';
     if (account.rateLimitTier) {
       const tier = account.rateLimitTier;
       if (tier.includes('max_20x')) return 'Max 20x';

@@ -35,8 +35,10 @@ export interface RateLimitBucket {
 
 export interface LiveRateLimitData {
   buckets: RateLimitBucket[]
-  /** "allowed" | "allowed_warning" | "rejected" | "limit_reached" */
+  /** "allowed" | "allowed_warning" | "rejected" | "limit_reached" | "org_disabled" | "forbidden" | "unauthorized" */
   status?: string
+  /** Human-readable reason from the API when status is forbidden/org_disabled. */
+  forbiddenReason?: string
   /** Plan type — "pro", "max", etc. */
   planType?: string
   /** When this snapshot was captured (ms) */
@@ -322,6 +324,22 @@ async function fetchRateLimitHeaders(accessToken: string): Promise<LiveRateLimit
       }),
       signal: AbortSignal.timeout(5000),
     })
+
+    // Permission/org-level errors return a stable error body and no rate-limit
+    // headers. Surface them as authoritative status so display code can stop
+    // trusting the stale keychain `rateLimitTier` for these accounts.
+    if (res.status === 401 || res.status === 403) {
+      let errMsg = ''
+      try { const body = await res.json() as any; errMsg = body?.error?.message ?? '' } catch {}
+      const isOrgDisabled = /oauth.*not allowed for this organization/i.test(errMsg)
+      return {
+        buckets: [],
+        capturedAt: Date.now(),
+        status: isOrgDisabled ? 'org_disabled' : (res.status === 401 ? 'unauthorized' : 'forbidden'),
+        tokenStatus: res.status === 401 ? 'expired' : 'valid',
+        forbiddenReason: errMsg || undefined,
+      }
+    }
 
     const get = (k: string) => res.headers.get(k)
     const num = (k: string) => { const v = get(k); return v !== null ? Number(v) : undefined }

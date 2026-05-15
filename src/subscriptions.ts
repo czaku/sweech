@@ -434,7 +434,16 @@ export async function getAccountInfo(
     // Derive human-readable plan label from rateLimitTier / billingType when not
     // explicitly set in subscriptions.json. Keeps the UI consistent for the
     // default claude profile (which has no user-set meta.plan).
-    const derivedPlan = derivePlanLabel(sub?.rateLimitTier, sub?.billingType, cliType)
+    // Live status and tokenStatus override stale keychain claims. If the
+    // API returned a permission error, or the token is gone/unrenewable,
+    // the keychain's rateLimitTier ("max_20x") is a lie. Demote.
+    const liveStatus = live?.status
+    const tokStatus = live?.tokenStatus
+    let livePlanOverride: string | undefined
+    if (liveStatus === 'org_disabled') livePlanOverride = 'OAuth disabled'
+    else if (liveStatus === 'forbidden') livePlanOverride = 'Forbidden'
+    else if (liveStatus === 'unauthorized' || tokStatus === 'expired' || tokStatus === 'no_token') livePlanOverride = 'Re-login needed'
+    const derivedPlan = livePlanOverride ?? derivePlanLabel(sub?.rateLimitTier, sub?.billingType, cliType)
     const enrichedMeta = meta.plan ? meta : (derivedPlan ? { ...meta, plan: derivedPlan } : meta)
 
     return {
