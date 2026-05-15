@@ -31,6 +31,7 @@ import { runLauncher } from './launcher';
 import { isTmuxAvailable, launchInTmux } from './tmux';
 import { buildLaunchArgs, shouldUseTmux, SWEECH_LAUNCH_FLAGS } from './launchCommand';
 import { getAccountInfo, getKnownAccounts, setMeta } from './subscriptions';
+import { recommendRoute } from './accountSelector';
 import { appendSnapshot, allAccountSparklines } from './usageHistory';
 import { startSweechFedServerWithShutdown } from './fedServer';
 import { scrubSecrets } from './scrubSecrets';
@@ -1829,6 +1830,56 @@ program
     } catch (error: unknown) {
       const msg = scrubSecrets(error instanceof Error ? error.message : String(error));
       console.error(chalk.red('Failed to start server:'), msg);
+      process.exit(1);
+    }
+  });
+
+// ── sweech recommend ──────────────────────────────────────────────────────────
+program
+  .command('recommend')
+  .description('Recommend a machine-readable provider/account/model route for a coding task')
+  .option('--task-type <type>', 'Task type or lane, e.g. api, ui, mobile, backend')
+  .option('--repo <path>', 'Repository path or slug')
+  .option('--capability <capability...>', 'Required capability; repeat or pass space-separated values')
+  .option('--cli-type <type>', 'Restrict to a CLI type, e.g. claude, codex, kimi')
+  .option('--preferred-provider <provider>', 'Preferred provider key')
+  .option('--preferred-model <model>', 'Preferred model ID')
+  .option('--no-json', 'Print a compact human summary instead of JSON')
+  .action(async (opts: {
+    taskType?: string;
+    repo?: string;
+    capability?: string[];
+    cliType?: string;
+    preferredProvider?: string;
+    preferredModel?: string;
+    json?: boolean;
+  }) => {
+    try {
+      const recommendation = await recommendRoute({
+        taskType: opts.taskType,
+        repo: opts.repo,
+        requiredCapabilities: opts.capability ?? [],
+        cliType: opts.cliType,
+        preferredProvider: opts.preferredProvider,
+        preferredModel: opts.preferredModel,
+      });
+
+      if (opts.json !== false) {
+        process.stdout.write(JSON.stringify(recommendation, null, 2) + '\n');
+        return;
+      }
+
+      if (!recommendation.selected) {
+        console.log(chalk.yellow('No route available'));
+        process.exitCode = 1;
+        return;
+      }
+
+      const selected = recommendation.selected.route;
+      console.log(`${selected.commandName} ${chalk.dim(`[${selected.cliType}/${selected.provider}/${selected.model ?? 'default'}]`)}`);
+    } catch (error: unknown) {
+      const msg = scrubSecrets(error instanceof Error ? error.message : String(error));
+      console.error(chalk.red('Recommendation failed:'), msg);
       process.exit(1);
     }
   });

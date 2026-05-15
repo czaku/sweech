@@ -47,6 +47,7 @@ jest.mock('fs', () => {
   return {
     ...actual,
     readFileSync: jest.fn().mockReturnValue(JSON.stringify({ version: '0.2.0' })),
+    existsSync: jest.fn().mockReturnValue(true),
   };
 });
 
@@ -108,6 +109,7 @@ describe('Fed Server', () => {
       expect(body).toHaveProperty('accountCount');
       expect(body.capabilities).toContain('account-usage');
       expect(body.capabilities).toContain('account-recommendation');
+      expect(body.capabilities).toContain('route-recommendation');
       expect(body.capabilities).not.toContain('claude-usage');
     });
   });
@@ -147,6 +149,27 @@ describe('Fed Server', () => {
     test('returns 204 with CORS header', async () => {
       const { status } = await fetch('/fed/info', 'OPTIONS');
       expect(status).toBe(204);
+    });
+  });
+
+  describe('GET /fed/route-recommendation', () => {
+    test('returns machine-readable route recommendation with selected and rejected candidates', async () => {
+      const { status, body } = await fetch('/fed/route-recommendation?taskType=api&cliType=claude&requiredCapabilities=coding,provider:anthropic');
+      expect(status).toBe(200);
+      expect(body.schemaVersion).toBe('sweech.route-recommendation.v1');
+      expect(body.request).toMatchObject({
+        taskType: 'api',
+        cliType: 'claude',
+        requiredCapabilities: ['coding', 'provider:anthropic'],
+      });
+      expect(body.selected).toBeDefined();
+      expect(body.selected.route).toMatchObject({
+        commandName: 'claude',
+        cliType: 'claude',
+        provider: 'anthropic',
+      });
+      expect(Array.isArray(body.rejected)).toBe(true);
+      expect(Array.isArray(body.candidates)).toBe(true);
     });
   });
 

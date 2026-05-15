@@ -26,6 +26,7 @@ import {
   accountScore,
   accountReason,
   suggestBestAccount,
+  recommendRoute,
   enumerateAccounts,
   getAvailableAccounts,
   type AccountEntry,
@@ -341,5 +342,102 @@ describe('suggestBestAccount', () => {
     expect(result).toBeDefined();
     // The rejected account should score -Infinity, so good wins
     expect(result!.account.commandName).toBe('claude-good');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// recommendRoute — Codeuctor machine-readable route contract
+// ---------------------------------------------------------------------------
+
+describe('recommendRoute', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  test('returns selected route with provider, model, account, and capabilities', async () => {
+    const profiles = [
+      {
+        name: 'codex fast',
+        commandName: 'codex-fast',
+        cliType: 'codex' as const,
+        provider: 'openai',
+        model: 'gpt-5.4-mini',
+        createdAt: '2025-01-01T00:00:00Z',
+      },
+    ];
+
+    (getKnownAccounts as jest.Mock).mockReturnValue(profiles.map(p => ({ ...p, isDefault: false })));
+    (getAccountInfo as jest.Mock).mockResolvedValue([
+      makeAccountInfo({
+        name: 'codex fast',
+        commandName: 'codex-fast',
+        cliType: 'codex',
+        live: makeLive({ status: 'allowed', utilization7d: 0.3 }),
+        hoursUntilWeeklyReset: 24,
+      }),
+    ]);
+    (fs.existsSync as jest.Mock).mockReturnValue(true);
+
+    const result = await recommendRoute({
+      taskType: 'api',
+      repo: '/Users/luke/dev/coding-hq',
+      requiredCapabilities: ['coding', 'provider:openai'],
+      cliType: 'codex',
+    }, profiles as any);
+
+    expect(result.schemaVersion).toBe('sweech.route-recommendation.v1');
+    expect(result.selected).toBeDefined();
+    expect(result.selected!.route).toMatchObject({
+      commandName: 'codex-fast',
+      cliType: 'codex',
+      provider: 'openai',
+      model: 'gpt-5.4-mini',
+    });
+    expect(result.selected!.capabilities).toContain('coding');
+    expect(result.selected!.capabilities).toContain('provider:openai');
+    expect(result.rejected).toHaveLength(0);
+  });
+
+  test('returns rejected alternatives with reasons', async () => {
+    const profiles = [
+      { name: 'good', commandName: 'claude-good', cliType: 'claude' as const, provider: 'anthropic', createdAt: '2025-01-01T00:00:00Z' },
+      { name: 'limited', commandName: 'claude-limited', cliType: 'claude' as const, provider: 'anthropic', createdAt: '2025-01-01T00:00:00Z' },
+      { name: 'codex', commandName: 'codex-main', cliType: 'codex' as const, provider: 'openai', createdAt: '2025-01-01T00:00:00Z' },
+    ];
+
+    (getKnownAccounts as jest.Mock).mockReturnValue(profiles.map(p => ({ ...p, isDefault: false })));
+    (getAccountInfo as jest.Mock).mockResolvedValue([
+      makeAccountInfo({
+        name: 'good',
+        commandName: 'claude-good',
+        cliType: 'claude',
+        live: makeLive({ status: 'allowed', utilization7d: 0.4 }),
+      }),
+      makeAccountInfo({
+        name: 'limited',
+        commandName: 'claude-limited',
+        cliType: 'claude',
+        live: makeLive({ status: 'limit_reached', utilization7d: 0.9 }),
+      }),
+      makeAccountInfo({
+        name: 'codex',
+        commandName: 'codex-main',
+        cliType: 'codex',
+        live: makeLive({ status: 'allowed', utilization7d: 0.8 }),
+      }),
+    ]);
+    (fs.existsSync as jest.Mock).mockReturnValue(true);
+
+    const result = await recommendRoute({
+      cliType: 'claude',
+      requiredCapabilities: ['provider:anthropic'],
+    }, profiles as any);
+
+    expect(result.selected!.route.commandName).toBe('claude-good');
+    const limited = result.rejected.find(candidate => candidate.route.commandName === 'claude-limited');
+    const codex = result.rejected.find(candidate => candidate.route.commandName === 'codex-main');
+    expect(limited!.reasons).toContain('availability:limit_reached');
+    expect(codex!.reasons).toContain('cli-type-mismatch:codex');
+    expect(codex!.reasons).toContain('missing-capability:provider:anthropic');
   });
 });

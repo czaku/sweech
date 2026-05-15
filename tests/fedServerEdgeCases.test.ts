@@ -26,6 +26,15 @@ jest.mock('../src/subscriptions', () => ({
 
 jest.mock('../src/accountSelector', () => ({
   suggestBestAccount: jest.fn().mockResolvedValue(null),
+  recommendRoute: jest.fn().mockResolvedValue({
+    schemaVersion: 'sweech.route-recommendation.v1',
+    producer: 'sweech',
+    generatedAt: '2025-01-01T00:00:00.000Z',
+    request: { requiredCapabilities: [] },
+    selected: null,
+    rejected: [],
+    candidates: [],
+  }),
 }));
 
 jest.mock('../src/auditLog', () => ({

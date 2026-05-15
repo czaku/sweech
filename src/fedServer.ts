@@ -17,7 +17,7 @@ import * as fs from 'fs'
 import * as path from 'path'
 import { ConfigManager } from './config'
 import { getAccountInfo, getKnownAccounts } from './subscriptions'
-import { suggestBestAccount } from './accountSelector'
+import { recommendRoute, suggestBestAccount, type RouteRecommendationRequest } from './accountSelector'
 import { summarizeAccountsForTelemetry } from './usage'
 import { readAuditLog } from './auditLog'
 
@@ -40,6 +40,24 @@ function getMachineName(): string {
 
 function getProfiles() {
   return new ConfigManager().getProfiles()
+}
+
+function parseRequiredCapabilities(value: string | null): string[] {
+  return (value ?? '')
+    .split(',')
+    .map((capability) => capability.trim())
+    .filter(Boolean)
+}
+
+function routeRequestFromQuery(url: URL): RouteRecommendationRequest {
+  return {
+    taskType: url.searchParams.get('taskType') ?? undefined,
+    repo: url.searchParams.get('repo') ?? undefined,
+    requiredCapabilities: parseRequiredCapabilities(url.searchParams.get('requiredCapabilities')),
+    cliType: url.searchParams.get('cliType') ?? undefined,
+    preferredProvider: url.searchParams.get('preferredProvider') ?? undefined,
+    preferredModel: url.searchParams.get('preferredModel') ?? undefined,
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -126,7 +144,7 @@ export function createSweechFedServer(port: number): http.Server {
         uptime: process.uptime(),
         hostname: os.hostname(),
         accountCount: allAccounts.length,
-        capabilities: ['account-usage', 'account-recommendation', 'account-alerts'],
+        capabilities: ['account-usage', 'account-recommendation', 'route-recommendation', 'account-alerts'],
       })
       return
     }
@@ -179,6 +197,12 @@ export function createSweechFedServer(port: number): http.Server {
       const cliType = url.searchParams.get('cliType') ?? undefined
       const recommendation = await suggestBestAccount(cliType ?? undefined, getProfiles())
       sendJson(res, 200, recommendation ?? null)
+      return
+    }
+
+    if (pathname === '/fed/route-recommendation') {
+      const recommendation = await recommendRoute(routeRequestFromQuery(url), getProfiles())
+      sendJson(res, 200, recommendation)
       return
     }
 

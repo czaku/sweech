@@ -213,6 +213,7 @@ Sweech now exposes a recommendation endpoint for routers that need the best acco
 ```text
 GET /fed/recommendation?cliType=claude
 GET /fed/recommendation?cliType=codex
+GET /fed/route-recommendation?taskType=api&cliType=codex&requiredCapabilities=coding,provider:openai
 ```
 
 Current recommendation policy:
@@ -221,7 +222,15 @@ Current recommendation policy:
 2. prefer quota that resets sooner so expiring capacity gets used first
 3. prefer accounts with higher healthy weekly/session utilization
 
-That makes Sweech a living control plane instead of a static alias list. `cloudy` can use this recommendation when you do not pin an explicit account.
+For Codeuctor and other orchestration tools, `/fed/route-recommendation` returns `sweech.route-recommendation.v1` JSON with the selected route plus rejected alternatives and reasons. The selected route includes account, profile, CLI type, provider, model, config dir, launch command, capabilities, score, and current availability state.
+
+You can request the same contract from the CLI:
+
+```bash
+sweech recommend --task-type api --repo /path/to/repo --cli-type codex --capability coding --capability provider:openai
+```
+
+That makes Sweech a living control plane instead of a static alias list. Codeuctor can use this recommendation when you do not pin an explicit account.
 
 ### 🏠 Custom & Local Providers
 
