@@ -27,11 +27,12 @@ export const SUPPORTED_CLIS: Record<string, CLIConfig> = {
     description: 'Anthropic Claude Code CLI',
     installUrl: 'https://code.claude.com/',
     yoloFlag: '--dangerously-skip-permissions',
-    // --resume opens the interactive picker (which scans projects/ — symlinked
-    // across shared profiles). Survives crashed sessions where the JSONL tail
-    // is missing a deferred-tool marker, which --continue refuses to handle in
-    // claude-code 2.1.142+.
-    resumeFlag: '--resume',
+    // --continue is the right default: resumes the cwd's most-recent session
+    // without going through an account-level picker. claude --resume (the
+    // picker) re-checks OAuth state and can force a re-login flow which is
+    // undesirable for an automated launch. Crashed sessions that died with no
+    // deferred-tool marker need to be resumed by explicit session id instead.
+    resumeFlag: '--continue',
     agentsCommand: ['agents'],
     sessionsCommand: ['--resume'],
     sessionNameFlag: '--name',
