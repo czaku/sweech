@@ -14,6 +14,7 @@ import { ConfigManager, resolveApiKey } from './config';
 import { getProvider, getProviderList, PROVIDERS, displayGroup, isExternalProvider } from './providers';
 import { interactiveAddProvider, confirmRemoveProvider } from './interactive';
 import { getDefaultCLI, getCLI, SUPPORTED_CLIS } from './clis';
+import { logLaunch } from './launchLog';
 import { backupSweetch, restoreSweetch, backupClaude } from './backup';
 import { UsageTracker } from './usage';
 import { summarizeAccountsForTelemetry } from './usage';
@@ -1055,13 +1056,28 @@ program
     delete env.CLAUDECODE;
     delete env.CLAUDE_CODE_ENTRYPOINT;
 
-    if (shouldUseTmux(isTmuxAvailable(), opts)) {
+    const profileName = profile?.commandName ?? cli.command;
+    const useTmux = shouldUseTmux(isTmuxAvailable(), opts);
+    logLaunch({
+      source: useTmux ? 'tmux' : 'cli',
+      profile: profileName,
+      cliCommand: cli.command,
+      cliArgs: launchArgs,
+      configDir: profileDir,
+      cwd: process.cwd(),
+      resume: !!opts.resume,
+      yolo: !!opts.yolo,
+      tmux: useTmux,
+      forced: !!opts.force,
+    });
+
+    if (useTmux) {
       const status = launchInTmux({
         command: cli.command,
         args: launchArgs,
         configDirEnvVar: cli.configDirEnvVar,
         configDir: profileDir,
-        profileName: profile?.commandName ?? cli.command,
+        profileName,
         resumeArgs: (cli.resumeFlag || '--continue').split(' ').filter(Boolean),
         hasResume: !!opts.resume,
       });
