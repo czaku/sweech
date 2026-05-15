@@ -1077,10 +1077,10 @@ program
 // Check command — verify profile model reachability
 program
   .command('check [profile]')
-  .description('Check if a profile\'s model is reachable, or validate a Codeuctor launch route')
+  .description('Check if a profile\'s model is reachable, or validate a launch route')
   .option('--all', 'Check all profiles')
   .option('--json', 'Output as JSON')
-  .option('--route', 'Validate the exact launch route Codeuctor should use')
+  .option('--route', 'Validate the exact launch route a caller should use')
   .option('--task-type <type>', 'Route task type or lane, e.g. api, ui, mobile, backend')
   .option('--repo <path>', 'Repository path or slug')
   .option('--capability <capability...>', 'Required route capability; repeat or pass space-separated values')

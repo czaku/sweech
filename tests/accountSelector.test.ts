@@ -352,7 +352,7 @@ describe('suggestBestAccount', () => {
 });
 
 // ---------------------------------------------------------------------------
-// recommendRoute — Codeuctor machine-readable route contract
+// recommendRoute — machine-readable route contract
 // ---------------------------------------------------------------------------
 
 describe('recommendRoute', () => {

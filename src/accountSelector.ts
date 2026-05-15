@@ -17,7 +17,7 @@ import { getAccountInfo, getKnownAccounts, type AccountInfo } from './subscripti
 import { readAuditLog, type AuditEntry } from './auditLog';
 import { scrubSecrets } from './scrubSecrets';
 
-export type CodeuctorRouteFailureClass =
+export type RouteFailureClass =
   | 'auth-required'
   | 'quota-exhausted'
   | 'provider-rejected'
@@ -78,7 +78,7 @@ export interface RouteCandidate {
       status: 'healthy' | 'degraded' | 'unavailable' | 'unknown';
       checkMode: 'cache-only';
       checkedAt: string;
-      failureClass: CodeuctorRouteFailureClass | null;
+      failureClass: RouteFailureClass | null;
       reasons: string[];
       checks: {
         launch: 'pass' | 'fail';
@@ -113,7 +113,7 @@ export interface RouteCandidate {
     lastFailure: {
       at: string;
       action: string;
-      failureClass: CodeuctorRouteFailureClass | null;
+      failureClass: RouteFailureClass | null;
       message: string | null;
     } | null;
     metadata: {
@@ -543,7 +543,7 @@ function routeQuota(info: AccountInfo): RouteCandidate['route']['quota'] {
   };
 }
 
-function failureClassFromReasons(reasons: string[]): CodeuctorRouteFailureClass | null {
+function failureClassFromReasons(reasons: string[]): RouteFailureClass | null {
   if (reasons.includes('needs-reauth')) return 'auth-required';
   if (reasons.includes('availability:limit_reached')) return 'quota-exhausted';
   if (reasons.includes('availability:rejected')) return 'provider-rejected';
@@ -618,7 +618,7 @@ function lastFailureFor(commandName: string): RouteCandidate['route']['lastFailu
     'route-policy-mismatch',
     'unknown-unavailable',
   ].includes(rawFailureClass)
-    ? rawFailureClass as CodeuctorRouteFailureClass
+    ? rawFailureClass as RouteFailureClass
     : null;
   const rawMessage = typeof details.message === 'string'
     ? details.message
@@ -728,9 +728,8 @@ function buildCandidate(
 /**
  * Recommend the best executable route for a coding task.
  *
- * Codeuctor should call this contract instead of hardcoding provider/model
- * preference. It returns both the winning route and explicit rejection reasons
- * for alternatives that were filtered by CLI, capability, auth, or quota state.
+ * Returns both the winning route and explicit rejection reasons for alternatives
+ * that were filtered by CLI, capability, auth, quota, or launch-path state.
  */
 export async function recommendRoute(
   request: RouteRecommendationRequest = {},
