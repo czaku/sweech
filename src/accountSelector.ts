@@ -37,6 +37,7 @@ export interface RouteRecommendationRequest {
   cliType?: string;
   preferredProvider?: string;
   preferredModel?: string;
+  preferredProfile?: string;
 }
 
 export interface RouteCandidate {
@@ -49,6 +50,18 @@ export interface RouteCandidate {
     profile: string | null;
     configDir: string;
     launchCommand: string;
+    launch: {
+      mode: 'native-cli-profile' | 'sweech-wrapper';
+      status: 'available' | 'route-unavailable';
+      command: string;
+      args: string[];
+      env: Record<string, string>;
+      wrapperRequired: boolean;
+      wrapperPath: string | null;
+      nativeProfileUsable: boolean;
+      failureClass: 'missing-wrapper' | 'wrapper-not-executable' | null;
+      installGuidance: string | null;
+    };
   };
   account: {
     name: string;
@@ -238,6 +251,8 @@ function routeCapabilities(account: AccountEntry, providerName: string, model: s
   if (provider?.authOptional) capabilities.add('local-provider');
   if (account.isManaged) capabilities.add('managed-profile');
   if (account.isDefault) capabilities.add('default-account');
+  if (account.isManaged) capabilities.add('launch:sweech-wrapper');
+  if (account.isDefault) capabilities.add('launch:native-cli-profile');
   if (account.cliType === 'claude') capabilities.add('claude');
   if (account.cliType === 'codex') capabilities.add('codex');
   if (account.cliType === 'kimi') capabilities.add('kimi');
@@ -245,6 +260,60 @@ function routeCapabilities(account: AccountEntry, providerName: string, model: s
   if (provider?.availableModels?.some((candidate) => candidate.type === 'vision')) capabilities.add('vision');
 
   return Array.from(capabilities).sort();
+}
+
+function wrapperPathFor(commandName: string): string {
+  return path.join(os.homedir(), '.sweech', 'bin', commandName);
+}
+
+function executableStatus(filePath: string): 'available' | 'missing-wrapper' | 'wrapper-not-executable' {
+  if (!fs.existsSync(filePath)) return 'missing-wrapper';
+  try {
+    return (fs.statSync(filePath).mode & 0o111) !== 0
+      ? 'available'
+      : 'wrapper-not-executable';
+  } catch {
+    return 'wrapper-not-executable';
+  }
+}
+
+function buildLaunchPlan(account: AccountEntry): RouteCandidate['route']['launch'] {
+  const cli = getCLI(account.cliType);
+  const cliCommand = cli?.command ?? account.cliType;
+
+  if (!account.isManaged) {
+    return {
+      mode: 'native-cli-profile',
+      status: 'available',
+      command: cliCommand,
+      args: [],
+      env: cli ? { [cli.configDirEnvVar]: account.configDir } : {},
+      wrapperRequired: false,
+      wrapperPath: null,
+      nativeProfileUsable: true,
+      failureClass: null,
+      installGuidance: null,
+    };
+  }
+
+  const wrapperPath = wrapperPathFor(account.commandName);
+  const wrapperStatus = executableStatus(wrapperPath);
+  const failureClass = wrapperStatus === 'available' ? null : wrapperStatus;
+
+  return {
+    mode: 'sweech-wrapper',
+    status: wrapperStatus === 'available' ? 'available' : 'route-unavailable',
+    command: wrapperPath,
+    args: [],
+    env: {},
+    wrapperRequired: true,
+    wrapperPath,
+    nativeProfileUsable: false,
+    failureClass,
+    installGuidance: failureClass
+      ? `Run: sweech repair ${account.commandName}`
+      : null,
+  };
 }
 
 function requestedTaskBonus(request: RouteRecommendationRequest, candidate: RouteCandidate): number {
@@ -265,9 +334,15 @@ function rejectionReasons(
   if (request.cliType && candidate.route.cliType !== request.cliType) {
     reasons.push(`cli-type-mismatch:${candidate.route.cliType}`);
   }
+  if (request.preferredProfile && candidate.route.commandName !== request.preferredProfile) {
+    reasons.push(`profile-mismatch:${candidate.route.commandName}`);
+  }
   if (candidate.account.needsReauth) reasons.push('needs-reauth');
   if (candidate.account.liveStatus === 'rejected' || candidate.account.liveStatus === 'limit_reached') {
     reasons.push(`availability:${candidate.account.liveStatus}`);
+  }
+  if (candidate.route.launch.status === 'route-unavailable') {
+    reasons.push(`route-unavailable:${candidate.route.launch.failureClass ?? 'unknown'}`);
   }
 
   const capabilities = new Set(candidate.capabilities.map((capability) => capability.toLowerCase()));
@@ -288,6 +363,7 @@ function buildCandidate(
   const model = modelFor(provider, account, profiles);
   const capabilities = routeCapabilities(account, provider, model);
   const cli = getCLI(account.cliType);
+  const launch = buildLaunchPlan(account);
   const baseScore = accountScore(info);
   const candidate: RouteCandidate = {
     route: {
@@ -298,7 +374,8 @@ function buildCandidate(
       model,
       profile: account.isManaged ? account.commandName : null,
       configDir: account.configDir,
-      launchCommand: cli?.command ?? account.cliType,
+      launchCommand: account.isManaged ? launch.command : (cli?.command ?? account.cliType),
+      launch,
     },
     account: {
       name: account.name,

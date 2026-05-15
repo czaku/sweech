@@ -1077,10 +1077,76 @@ program
 // Check command — verify profile model reachability
 program
   .command('check [profile]')
-  .description('Check if a profile\'s model is reachable')
+  .description('Check if a profile\'s model is reachable, or validate a Codeuctor launch route')
   .option('--all', 'Check all profiles')
   .option('--json', 'Output as JSON')
-  .action(async (profileName: string | undefined, opts: { all?: boolean; json?: boolean }) => {
+  .option('--route', 'Validate the exact launch route Codeuctor should use')
+  .option('--task-type <type>', 'Route task type or lane, e.g. api, ui, mobile, backend')
+  .option('--repo <path>', 'Repository path or slug')
+  .option('--capability <capability...>', 'Required route capability; repeat or pass space-separated values')
+  .option('--cli-type <type>', 'Restrict route to a CLI type, e.g. claude, codex, kimi')
+  .option('--preferred-provider <provider>', 'Preferred provider key for route selection')
+  .option('--preferred-model <model>', 'Preferred model ID for route selection')
+  .action(async (profileName: string | undefined, opts: {
+    all?: boolean;
+    json?: boolean;
+    route?: boolean;
+    taskType?: string;
+    repo?: string;
+    capability?: string[];
+    cliType?: string;
+    preferredProvider?: string;
+    preferredModel?: string;
+  }) => {
+    if (opts.route) {
+      try {
+        const recommendation = await recommendRoute({
+          taskType: opts.taskType,
+          repo: opts.repo,
+          requiredCapabilities: opts.capability ?? [],
+          cliType: opts.cliType,
+          preferredProvider: opts.preferredProvider,
+          preferredModel: opts.preferredModel,
+          preferredProfile: profileName,
+        });
+        const selected = recommendation.selected;
+        const blocked = !selected
+          ? recommendation.candidates.find(candidate => (
+              profileName ? candidate.route.commandName === profileName : candidate.route.launch.status === 'route-unavailable'
+            ))
+          : null;
+        const routeCheck = {
+          schemaVersion: 'sweech.route-check.v1',
+          producer: 'sweech',
+          generatedAt: recommendation.generatedAt,
+          status: selected ? selected.route.launch.status : 'route-unavailable',
+          profile: profileName ?? selected?.route.commandName ?? blocked?.route.commandName ?? null,
+          launch: selected?.route.launch ?? blocked?.route.launch ?? null,
+          selected,
+          recommendation,
+        };
+
+        if (opts.json) {
+          process.stdout.write(JSON.stringify(routeCheck, null, 2) + '\n');
+        } else if (selected) {
+          console.log(chalk.green(`✓ ${selected.route.commandName}`));
+          console.log(chalk.gray(`  ${selected.route.launch.mode}: ${selected.route.launch.command}`));
+        } else {
+          const guidance = blocked?.route.launch.installGuidance;
+          console.log(chalk.yellow('No route available'));
+          if (blocked?.route.launch.failureClass) {
+            console.log(chalk.gray(`  route-unavailable: ${blocked.route.launch.failureClass}`));
+          }
+          if (guidance) console.log(chalk.gray(`  ${guidance}`));
+        }
+        if (!selected) process.exitCode = 1;
+      } catch (err) {
+        console.error(chalk.red(`Failed to check route: ${(err as Error).message}`));
+        process.exit(1);
+      }
+      return;
+    }
+
     const daemonPort = parseInt(process.env.SWEECH_PORT ?? '') || 7801;
     const baseUrl = `http://127.0.0.1:${daemonPort}`;
 
@@ -1844,6 +1910,7 @@ program
   .option('--cli-type <type>', 'Restrict to a CLI type, e.g. claude, codex, kimi')
   .option('--preferred-provider <provider>', 'Preferred provider key')
   .option('--preferred-model <model>', 'Preferred model ID')
+  .option('--preferred-profile <profile>', 'Preferred Sweech command/profile name')
   .option('--no-json', 'Print a compact human summary instead of JSON')
   .action(async (opts: {
     taskType?: string;
@@ -1852,6 +1919,7 @@ program
     cliType?: string;
     preferredProvider?: string;
     preferredModel?: string;
+    preferredProfile?: string;
     json?: boolean;
   }) => {
     try {
@@ -1862,6 +1930,7 @@ program
         cliType: opts.cliType,
         preferredProvider: opts.preferredProvider,
         preferredModel: opts.preferredModel,
+        preferredProfile: opts.preferredProfile,
       });
 
       if (opts.json !== false) {
@@ -1876,7 +1945,7 @@ program
       }
 
       const selected = recommendation.selected.route;
-      console.log(`${selected.commandName} ${chalk.dim(`[${selected.cliType}/${selected.provider}/${selected.model ?? 'default'}]`)}`);
+      console.log(`${selected.commandName} ${chalk.dim(`[${selected.cliType}/${selected.provider}/${selected.model ?? 'default'}] ${selected.launch.mode} ${selected.launch.command}`)}`);
     } catch (error: unknown) {
       const msg = scrubSecrets(error instanceof Error ? error.message : String(error));
       console.error(chalk.red('Recommendation failed:'), msg);

@@ -29,10 +29,10 @@ import {
   recommendRoute,
   enumerateAccounts,
   getAvailableAccounts,
-  type AccountEntry,
 } from '../src/accountSelector';
 import { getAccountInfo, getKnownAccounts } from '../src/subscriptions';
 import * as fs from 'fs';
+import { getCLI, SUPPORTED_CLIS } from '../src/clis';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -218,6 +218,7 @@ describe('accountReason', () => {
 describe('suggestBestAccount', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    (fs.statSync as jest.Mock).mockReturnValue({ mode: 0o755 });
   });
 
   test('returns undefined when no accounts available', async () => {
@@ -352,6 +353,7 @@ describe('suggestBestAccount', () => {
 describe('recommendRoute', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    (fs.statSync as jest.Mock).mockReturnValue({ mode: 0o755 });
   });
 
   test('returns selected route with provider, model, account, and capabilities', async () => {
@@ -395,6 +397,16 @@ describe('recommendRoute', () => {
     });
     expect(result.selected!.capabilities).toContain('coding');
     expect(result.selected!.capabilities).toContain('provider:openai');
+    expect(result.selected!.capabilities).toContain('launch:sweech-wrapper');
+    expect(result.selected!.route.launch).toMatchObject({
+      mode: 'sweech-wrapper',
+      status: 'available',
+      wrapperRequired: true,
+      nativeProfileUsable: false,
+      failureClass: null,
+    });
+    expect(result.selected!.route.launch.command).toContain('/.sweech/bin/codex-fast');
+    expect(result.selected!.route.launchCommand).toBe(result.selected!.route.launch.command);
     expect(result.rejected).toHaveLength(0);
   });
 
@@ -439,5 +451,91 @@ describe('recommendRoute', () => {
     expect(limited!.reasons).toContain('availability:limit_reached');
     expect(codex!.reasons).toContain('cli-type-mismatch:codex');
     expect(codex!.reasons).toContain('missing-capability:provider:anthropic');
+  });
+
+  test('rejects wrapper-only managed profiles when the wrapper is missing', async () => {
+    const profiles = [
+      {
+        name: 'codex missing',
+        commandName: 'codex-missing',
+        cliType: 'codex' as const,
+        provider: 'openai',
+        createdAt: '2025-01-01T00:00:00Z',
+      },
+    ];
+
+    (getKnownAccounts as jest.Mock).mockReturnValue(profiles.map(p => ({ ...p, isDefault: false })));
+    (getAccountInfo as jest.Mock).mockResolvedValue([
+      makeAccountInfo({
+        name: 'codex missing',
+        commandName: 'codex-missing',
+        cliType: 'codex',
+        live: makeLive({ status: 'allowed', utilization7d: 0.2 }),
+      }),
+    ]);
+    (fs.existsSync as jest.Mock).mockImplementation((value: string) => (
+      value.endsWith('/.codex-missing')
+    ));
+
+    const result = await recommendRoute({
+      preferredProfile: 'codex-missing',
+    }, profiles as any);
+
+    expect(result.selected).toBeNull();
+    expect(result.rejected).toHaveLength(1);
+    expect(result.rejected[0].reasons).toContain('route-unavailable:missing-wrapper');
+    expect(result.rejected[0].route.launch).toMatchObject({
+      mode: 'sweech-wrapper',
+      status: 'route-unavailable',
+      wrapperRequired: true,
+      nativeProfileUsable: false,
+      failureClass: 'missing-wrapper',
+      installGuidance: 'Run: sweech repair codex-missing',
+    });
+  });
+
+  test('exposes native launch metadata for default CLI accounts', async () => {
+    (SUPPORTED_CLIS as Record<string, any>).codex = {
+      name: 'codex',
+      command: 'codex',
+      configDirEnvVar: 'CODEX_HOME',
+    };
+    (getCLI as jest.Mock).mockReturnValue({
+      name: 'codex',
+      command: 'codex',
+      configDirEnvVar: 'CODEX_HOME',
+    });
+
+    (getKnownAccounts as jest.Mock).mockReturnValue([{
+      name: 'codex',
+      commandName: 'codex',
+      cliType: 'codex',
+      isDefault: true,
+    }]);
+    (getAccountInfo as jest.Mock).mockResolvedValue([
+      makeAccountInfo({
+        name: 'codex',
+        commandName: 'codex',
+        cliType: 'codex',
+        live: makeLive({ status: 'allowed', utilization7d: 0.1 }),
+      }),
+    ]);
+    (fs.existsSync as jest.Mock).mockReturnValue(true);
+
+    const result = await recommendRoute({ preferredProfile: 'codex' }, [] as any);
+
+    expect(result.selected!.route.launch).toMatchObject({
+      mode: 'native-cli-profile',
+      status: 'available',
+      command: 'codex',
+      args: [],
+      env: { CODEX_HOME: expect.stringContaining('/.codex') },
+      wrapperRequired: false,
+      wrapperPath: null,
+      nativeProfileUsable: true,
+      failureClass: null,
+      installGuidance: null,
+    });
+    expect(result.selected!.capabilities).toContain('launch:native-cli-profile');
   });
 });

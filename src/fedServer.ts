@@ -57,6 +57,7 @@ function routeRequestFromQuery(url: URL): RouteRecommendationRequest {
     cliType: url.searchParams.get('cliType') ?? undefined,
     preferredProvider: url.searchParams.get('preferredProvider') ?? undefined,
     preferredModel: url.searchParams.get('preferredModel') ?? undefined,
+    preferredProfile: url.searchParams.get('preferredProfile') ?? undefined,
   }
 }
 
