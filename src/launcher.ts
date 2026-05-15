@@ -736,33 +736,38 @@ export async function runLauncher(): Promise<void> {
       });
   };
 
-  // Phase 1: Show cached bars immediately (disk read, no network).
-  // Phase 2: Auto-refresh in background with fresh API data.
-  getAccountInfo(
-    accountList.map(a => ({ name: a.name, commandName: a.commandName })),
-  ).then(accounts => {
-    if (usageLoad !== 'loading') {
-      patchEntries(accounts);
-      try { appendSnapshot(accounts); } catch {}
-      state.usage = true;
-      usageLoad = 'loaded';
-      draw();
-      // Auto-refresh: silently fetch fresh data in background
-      getAccountInfo(
-        accountList.map(a => ({ name: a.name, commandName: a.commandName })),
-        { refresh: true },
-      ).then(fresh => {
-        patchEntries(fresh);
-        try { appendSnapshot(fresh); } catch {}
+  // Phase 1: cached bars (no network). Phase 2: optional background refresh.
+  // Defer via setImmediate so the synchronous portion of getAccountInfo
+  // (24 × file reads) doesn't block alt-screen + keypress wiring below.
+  setImmediate(() => {
+    getAccountInfo(
+      accountList.map(a => ({ name: a.name, commandName: a.commandName })),
+      { cacheOnly: true },
+    ).then(accounts => {
+      if (usageLoad !== 'loading') {
+        patchEntries(accounts);
+        try { appendSnapshot(accounts); } catch {}
+        state.usage = true;
+        usageLoad = 'loaded';
         draw();
-      }).catch(err => console.error('[sweech] usage refresh:', scrubSecrets(err.message || String(err))));
-    }
-  }).catch(err => console.error('[sweech] initial fetch:', scrubSecrets(err.message || String(err))));
+        setImmediate(() => {
+          getAccountInfo(
+            accountList.map(a => ({ name: a.name, commandName: a.commandName })),
+            { refresh: true, timeoutMs: 5000 },
+          ).then(fresh => {
+            patchEntries(fresh);
+            try { appendSnapshot(fresh); } catch {}
+            draw();
+          }).catch(err => console.error('[sweech] usage refresh:', scrubSecrets(err.message || String(err))));
+        });
+      }
+    }).catch(err => console.error('[sweech] initial fetch:', scrubSecrets(err.message || String(err))));
+  });
 
   // Enter alternate screen + hide cursor.
-  // Enable SGR mouse reporting so scroll wheel arrives as \x1b[<64/65;...M sequences
-  // (which our PassThrough filter drops) rather than being converted to arrow keys
-  // by the terminal's alternate-scroll mode before we ever see them.
+  // SGR mouse reporting: scroll wheel arrives as \x1b[<64/65;...M sequences
+  // (which our PassThrough filter drops) rather than being converted to arrow
+  // keys by the terminal's alternate-scroll mode before we ever see them.
   process.stdout.write('\x1b[?1049h\x1b[?25l\x1b[?1000h\x1b[?1006h\x1b[?1007l');
   draw();
 
@@ -804,6 +809,7 @@ export async function runLauncher(): Promise<void> {
         if (usageLoad === 'loaded') {
           getAccountInfo(
             accountList.map(a => ({ name: a.name, commandName: a.commandName })),
+            { cacheOnly: true },
           ).then(accounts => { patchEntries(accounts); draw(); }).catch(err => console.error('[sweech] bucket refresh:', scrubSecrets(err.message || String(err))));
         }
         draw();

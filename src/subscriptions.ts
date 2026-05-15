@@ -12,7 +12,7 @@ import * as fs from 'fs'
 import * as path from 'path'
 import * as os from 'os'
 import { atomicWriteFileSync } from './atomicWrite'
-import { getLiveUsage, refreshLiveUsage, type LiveRateLimitData } from './liveUsage'
+import { getLiveUsage, refreshLiveUsage, getCached, getStaleCache, type LiveRateLimitData } from './liveUsage'
 import { SUPPORTED_CLIS } from './clis'
 import { checkUsageThresholds } from './usageMonitor'
 
@@ -368,7 +368,6 @@ export async function getAccountInfo(
     let live: LiveRateLimitData | undefined
     if (options.cacheOnly) {
       // Never touch the network — return whatever's in cache (fresh or stale).
-      const { getCached, getStaleCache } = await import('./liveUsage')
       live = (getCached(configDir) ?? getStaleCache(configDir)) ?? undefined
     } else {
       const usageFn = options.refresh ? refreshLiveUsage : getLiveUsage
