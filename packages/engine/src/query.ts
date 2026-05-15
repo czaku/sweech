@@ -1,16 +1,25 @@
 import { detectEngines } from './detect.js';
 import type { EngineId, SweechConfig, Provider, ThinkingLevel } from './types.js';
 
-// Current model rosters (verified 2026-05-15):
-//   Anthropic: Opus 4.7 (newest), Sonnet 4.6, Haiku 4.5.
-//   OpenAI:    GPT-5.4 family (5.4, 5.4-mini, 5.3-codex), plus the o-series
-//              reasoning models still on offer.
-//   Google:    Gemini 3 Pro Preview is the newest tier; 2.5-pro/flash remain.
+// Current model rosters (verified 2026-05-15 by probing each CLI live):
 //
-// Keep this list in sync when Anthropic/OpenAI/Google ship a new flagship.
-// The user's preferred default is whichever model name appears first per provider.
+//   Anthropic — `claude --print --model X`; invalid models print
+//   "There's an issue with the selected model ...":
+//     ✓ claude-opus-4-7 (newest), claude-sonnet-4-6, claude-haiku-4-5
+//     ✗ 4-8 / sonnet-4-7 / haiku-4-6 all rejected
+//
+//   OpenAI / Codex — `codex exec --model X --json`; valid models emit
+//   `thread.started`, invalid models return `"not supported"`:
+//     ✓ gpt-5.5 (newest), gpt-5.4, gpt-5.3-codex, gpt-5-pro
+//     ✗ gpt-5.5-codex, gpt-5.5-mini, gpt-5.4-mini, gpt-4.1, o3, o4-mini,
+//       codex-mini — all rejected by ChatGPT-tier Codex account
+//
+//   Google — Gemini 3 Pro Preview is newest; 2.5-pro/flash remain.
+//
+// First model in each list is the picker's suggested default. Re-probe
+// whenever a vendor ships a new flagship (instructions in commit msg).
 const ANTHROPIC_MODELS = ['claude-opus-4-7', 'claude-sonnet-4-6', 'claude-haiku-4-5'];
-const OPENAI_MODELS = ['gpt-5.4', 'gpt-5.4-mini', 'gpt-5.3-codex', 'gpt-4.1', 'gpt-4.1-mini', 'o3', 'o4-mini'];
+const OPENAI_MODELS = ['gpt-5.5', 'gpt-5.4', 'gpt-5.3-codex', 'gpt-5-pro'];
 const GOOGLE_MODELS = ['gemini-3-pro-preview', 'gemini-2.5-pro', 'gemini-2.5-flash'];
 
 const MODELS_BY_ENGINE: Record<EngineId, string[]> = {
@@ -23,7 +32,7 @@ const MODELS_BY_ENGINE: Record<EngineId, string[]> = {
                   'grok-3', 'grok-3-mini'],
   'opencode':    [...ANTHROPIC_MODELS, ...OPENAI_MODELS, ...GOOGLE_MODELS],
   'goose':       [...ANTHROPIC_MODELS, ...OPENAI_MODELS, ...GOOGLE_MODELS],
-  'codex':       [...OPENAI_MODELS, 'codex-mini'],
+  'codex':       OPENAI_MODELS,
   'copilot':     ['claude-opus-4.7', 'claude-sonnet-4.6', 'claude-haiku-4.5',
                   'gpt-5.4', 'gpt-5.3-codex', 'gemini-3-pro-preview'],
   'http':        [],
