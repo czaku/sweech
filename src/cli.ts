@@ -31,6 +31,7 @@ import { runLauncher } from './launcher';
 import { isTmuxAvailable, launchInTmux } from './tmux';
 import { buildLaunchArgs, shouldUseTmux, SWEECH_LAUNCH_FLAGS } from './launchCommand';
 import { getAccountInfo, getKnownAccounts, setMeta } from './subscriptions';
+import { kickBackgroundRefresh } from './backgroundRefresh';
 import { recommendRoute } from './accountSelector';
 import { appendSnapshot, allAccountSparklines } from './usageHistory';
 import { startSweechFedServerWithShutdown } from './fedServer';
@@ -324,6 +325,10 @@ program
       } catch { /* live data unavailable */ }
       renderProfiles(accountInfoMap);
     }
+    // Stale-while-revalidate: cache-only render is instant, but kick a
+    // detached `sweech usage --refresh` if cache is stale (throttled to once
+    // per minute). Next invocation sees fresh data, this one doesn't wait.
+    if (!opts.refresh) kickBackgroundRefresh();
     // Force exit so unawaited refresh promises (race losers with pending fetches)
     // don't keep the event loop alive after the user has their final render.
     process.exit(0);
@@ -1916,6 +1921,10 @@ const usageCmd = program
       accountList,
       opts.refresh ? { refresh: true, timeoutMs: 5000 } : { cacheOnly: true },
     );
+
+    // Stale-while-revalidate: kick detached refresh if cache is stale.
+    // Not called when --refresh is set (we just did the fetch ourselves).
+    if (!opts.refresh) kickBackgroundRefresh();
 
     // Record history snapshot (non-blocking, max once per hour)
     try { appendSnapshot(accounts); } catch {}
