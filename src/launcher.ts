@@ -386,6 +386,44 @@ export function render(entries: LaunchEntry[], state: LaunchState, usageLoad: Us
   }
   header.push(chalk.dim('  ─────────────────────────────────────────────────'));
 
+  // ── ACCOUNTS (vault) ──
+  // Compact top-of-screen view of every identity in the vault. Not
+  // keyboard-selectable here (use `sweech accounts` to manage); shown so
+  // users can see at a glance which identities are available and their
+  // token health, decoupled from any specific workspace.
+  try {
+    const { listAccounts } = require('./vault');
+    const vault = listAccounts() as Array<{ kind: string; email: string; plan?: string; expiresAt?: number; status?: string }>;
+    if (vault.length > 0) {
+      header.push('');
+      header.push(chalk.bold.cyan('  ── ACCOUNTS (vault) ──'));
+      const byKind: Record<string, typeof vault> = {};
+      for (const a of vault) (byKind[a.kind] ||= []).push(a);
+      for (const kind of ['anthropic', 'openai']) {
+        const list = byKind[kind];
+        if (!list || list.length === 0) continue;
+        header.push(chalk.dim(`  ${kind === 'anthropic' ? 'Anthropic' : 'OpenAI'}`));
+        for (const a of list.sort((x, y) => x.email.localeCompare(y.email))) {
+          const email = a.email.endsWith('@unknown.local') ? chalk.dim('(no email)') : a.email;
+          const planStr = a.plan ? chalk.cyan(` [${a.plan}]`) : '';
+          let expiryStr = '';
+          if (a.expiresAt) {
+            const hrs = (a.expiresAt - Date.now()) / 3600000;
+            if (hrs < 0) expiryStr = chalk.red(' 🔑 expired');
+            else if (hrs < 1) expiryStr = chalk.yellow(` 🔑 ${Math.round(hrs * 60)}m`);
+            else if (hrs < 24) expiryStr = chalk.dim(` 🔑 ${Math.round(hrs)}h`);
+            else expiryStr = chalk.dim(` 🔑 ${Math.round(hrs / 24)}d`);
+          }
+          const showStatus = a.status && a.status !== 'ok' && a.status !== 'expired';
+          const statusStr = showStatus ? chalk.red(` · ${a.status}`) : '';
+          header.push(`    ● ${email}${planStr}${expiryStr}${statusStr}`);
+        }
+      }
+      header.push('');
+      header.push(chalk.bold.cyan('  ── WORKSPACES ──'));
+    }
+  } catch {}
+
   // "use first" badge: only meaningful in smart sort (in other modes rank-0 is arbitrary)
   const useFirstSet = new Set<LaunchEntry>();
   if (state.sortMode === 'smart') {
@@ -407,9 +445,8 @@ export function render(entries: LaunchEntry[], state: LaunchState, usageLoad: Us
     entryStartLines.push(body.length);
     const cliType = entry.command;
     if (state.grouped && cliType !== lastCliType) {
-      const cliLabel = cliType === 'codex' ? 'Codex (OpenAI)' : cliType === 'kimi' ? 'Kimi (Moonshot)' : 'Claude (Anthropic)';
-      body.push(chalk.dim(`  ── ${cliLabel} ${'─'.repeat(Math.max(0, 42 - cliLabel.length))}`));
-      body.push('');
+      const cliLabel = cliType === 'codex' ? 'Codex' : cliType === 'kimi' ? 'Kimi' : 'Claude';
+      body.push(chalk.bold.dim(`  ${cliLabel}`));
       lastCliType = cliType;
     }
     const selected = i === state.selectedIndex;
