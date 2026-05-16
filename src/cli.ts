@@ -206,9 +206,10 @@ program
 program
   .command('list')
   .alias('ls')
-  .description('List all configured providers')
+  .description('List all configured workspaces (grouped by upstream provider)')
   .option('--refresh', 'Force a live quota fetch (up to 5s). Default is cache-only.')
-  .action(async (opts: { refresh?: boolean }) => {
+  .option('--json', 'Output as JSON (mirrors SweechBar Workspaces shape)')
+  .action(async (opts: { refresh?: boolean; json?: boolean }) => {
     const config = new ConfigManager();
     const profiles = config.getProfiles();
     const { execFileSync } = require('child_process');
@@ -270,54 +271,159 @@ program
     // ── Phase 1: Render immediately from config (no network) ───────────────────
     const isTTY = process.stdout.isTTY;
 
+    const { effectiveProvider, displayGroup } = require('./providers');
+    const PROVIDER_LABEL: Record<string, string> = {
+      anthropic: 'Anthropic', openai: 'OpenAI', kimi: 'Kimi', 'kimi-coding': 'Kimi Coding',
+      glm: 'GLM (z.ai)', minimax: 'MiniMax', dashscope: 'Alibaba', openrouter: 'OpenRouter',
+      gemini: 'Gemini', groq: 'Groq', nvidia: 'NVIDIA', ollama: 'Ollama',
+      'ollama-cloud': 'Ollama Cloud', deepseek: 'DeepSeek', qwen: 'Qwen', 'local-proxy': 'Local Proxy',
+    };
+
     const renderProfiles = (accountInfoMap?: Map<string, Awaited<ReturnType<typeof getAccountInfo>>[number]>): number => {
       let lines = 0;
-
-      // Header: blank line + title + blank line = 3 lines
-      process.stdout.write('\n  sweech · profiles\n\n');
+      process.stdout.write('\n  sweech · workspaces\n\n');
       lines += 3;
+
+      // Collect every row, then group by displayGroup so the layout
+      // mirrors SweechBar's Workspaces tab: Claude → Codex → Providers.
+      type Row = {
+        name: string;
+        commandName: string;
+        isDefault: boolean;
+        cliType: string;
+        provider?: string;
+        baseUrl?: string;
+        sharedWith?: string;
+        model?: string;
+        sharingProfiles: string[];
+        info?: ReturnType<NonNullable<typeof accountInfoMap>['get']>;
+      };
+      const rows: Row[] = [];
 
       for (const cli of installedDefaults) {
         const configDir = path.join(os.homedir(), `.${cli.name}`);
-        const hasConfig = fs.existsSync(configDir);
-        const sharingProfiles = profiles.filter(p => p.sharedWith === cli.command);
-        const reverseTag = sharingProfiles.length > 0
-          ? chalk.dim(` (shared by: ${sharingProfiles.map(p => p.commandName).join(', ')})`)
-          : '';
-        const info = accountInfoMap?.get(cli.name);
-        const dot = accountInfoMap ? statusDot(info?.live, info?.needsReauth) : chalk.gray('●');
-        const planStr = info?.meta?.plan ? chalk.cyan(` [${info.meta.plan}]`) : '';
-        const lastStr = info ? relativeTime(info.lastActive) : chalk.dim('loading...');
-        const configTag = hasConfig ? '' : chalk.yellow(' (not configured)');
-        console.log(`  ${dot} ${chalk.bold(cli.command)}${chalk.gray(' [default]')}${planStr}${configTag}  ${lastStr}${reverseTag}`);
-        lines++;
+        if (!fs.existsSync(configDir)) continue;
+        rows.push({
+          name: cli.command,
+          commandName: cli.name,
+          isDefault: true,
+          cliType: cli.name,
+          provider: cli.name === 'claude' ? 'anthropic' : cli.name === 'kimi' ? 'kimi' : 'openai',
+          sharedWith: undefined,
+          sharingProfiles: profiles.filter(p => p.sharedWith === cli.command).map(p => p.commandName),
+          info: accountInfoMap?.get(cli.name),
+        });
+      }
+      for (const profile of profiles) {
+        rows.push({
+          name: profile.name,
+          commandName: profile.commandName,
+          isDefault: false,
+          cliType: profile.cliType,
+          provider: profile.provider,
+          baseUrl: profile.baseUrl,
+          sharedWith: profile.sharedWith,
+          model: profile.model,
+          sharingProfiles: profiles.filter(p => p.sharedWith === profile.commandName).map(p => p.commandName),
+          info: accountInfoMap?.get(profile.commandName),
+        });
       }
 
-      for (const profile of profiles) {
-        const provider = getProvider(profile.provider);
-        const info = accountInfoMap?.get(profile.commandName);
-        const dot = accountInfoMap ? statusDot(info?.live, info?.needsReauth) : chalk.gray('●');
-        const sharedTag = profile.sharedWith ? chalk.magenta(` [shared -> ${profile.sharedWith}]`) : '';
-        const sharingProfiles = profiles.filter(p => p.sharedWith === profile.commandName);
-        const reverseTag = sharingProfiles.length > 0
-          ? chalk.dim(` (shared by: ${sharingProfiles.map(p => p.commandName).join(', ')})`)
-          : '';
-        const providerStr = chalk.dim(` ${provider?.displayName || profile.provider}`);
-        const modelStr = profile.model ? chalk.dim(` · ${profile.model}`) : '';
-        const planStr = info?.meta?.plan ? chalk.cyan(` [${info.meta.plan}]`) : '';
-        const lastStr = info ? relativeTime(info.lastActive) : '';
-        console.log(`  ${dot} ${chalk.bold(profile.commandName)}${planStr}${providerStr}${modelStr}${sharedTag}  ${lastStr}${reverseTag}`);
+      // Group rows by displayGroup of effectiveProvider. Mirrors
+      // SweechBar Workspaces tab: only Claude and Codex get their own
+      // sections; every other workspace (external providers, local
+      // proxies, Kimi, …) is collapsed into a single "Providers"
+      // section so a single-workspace vendor doesn't waste a full
+      // section header.
+      const grouped = new Map<string, Row[]>();
+      for (const row of rows) {
+        const eff = effectiveProvider(row.provider, row.baseUrl);
+        const group = displayGroup(eff);
+        const bucket = (group === 'claude' || group === 'codex') ? group : '__providers__';
+        if (!grouped.has(bucket)) grouped.set(bucket, []);
+        grouped.get(bucket)!.push(row);
+      }
+
+      const groupOrder = ['claude', 'codex', '__providers__'];
+      const groupHeader = (g: string): string => {
+        if (g === 'claude') return 'Claude';
+        if (g === 'codex')  return 'Codex';
+        if (g === '__providers__') return 'Providers';
+        return g;
+      };
+
+      for (const group of groupOrder) {
+        const groupRows = grouped.get(group);
+        if (!groupRows || groupRows.length === 0) continue;
+        console.log(chalk.bold.cyan(`  ── ${groupHeader(group)} (${groupRows.length}) ──`));
+        lines++;
+        for (const row of groupRows) {
+          const info = row.info;
+          const dot = accountInfoMap ? statusDot(info?.live, info?.needsReauth) : chalk.gray('●');
+          const eff = effectiveProvider(row.provider, row.baseUrl);
+          const providerLabel = PROVIDER_LABEL[eff] ?? eff;
+          const planStr = info?.meta?.plan ? chalk.cyan(` [${info.meta.plan}]`) : '';
+          const emailStr = (info?.emailAddress || info?.activeAccount?.email)
+            ? chalk.dim(` · ${info?.emailAddress ?? info?.activeAccount?.email}`)
+            : '';
+          const isProxy = eff === 'local-proxy' || (row.baseUrl && (row.baseUrl.includes('127.0.0.1') || row.baseUrl.includes('localhost')));
+          const providerStr = group === 'claude' || group === 'codex'
+            ? (isProxy ? chalk.magenta(' (local proxy)') : '')
+            : chalk.dim(` ${providerLabel}`);
+          const modelStr = row.model ? chalk.dim(` · ${row.model}`) : '';
+          const sharedTag = row.sharedWith ? chalk.magenta(` [→ ${row.sharedWith}]`) : '';
+          const reverseTag = row.sharingProfiles.length > 0
+            ? chalk.dim(` (shared by: ${row.sharingProfiles.join(', ')})`)
+            : '';
+          const u5h = info?.live?.utilization5h;
+          const u7d = info?.live?.utilization7d;
+          const usageStr = (u5h !== undefined || u7d !== undefined)
+            ? chalk.dim(`  5h:${Math.round((u5h ?? 0) * 100)}% 7d:${Math.round((u7d ?? 0) * 100)}%`)
+            : '';
+          const lastStr = info ? relativeTime(info.lastActive) : '';
+          const defTag = row.isDefault ? chalk.gray(' [default]') : '';
+          console.log(`  ${dot} ${chalk.bold(row.commandName)}${defTag}${planStr}${emailStr}${providerStr}${modelStr}${sharedTag}${usageStr}  ${lastStr}${reverseTag}`);
+          lines++;
+        }
+        console.log();
         lines++;
       }
 
       if (installedDefaults.length === 0 && profiles.length === 0) {
-        console.log(chalk.gray('  No profiles configured. Run'), chalk.bold('sweech add'), chalk.gray('to create one.'));
+        console.log(chalk.gray('  No workspaces configured. Run'), chalk.bold('sweech add'), chalk.gray('to create one.'));
         lines++;
       }
-      console.log();
-      lines++;
       return lines;
     };
+
+    // JSON path: mirror SweechBar Workspaces tab shape so scripts can
+    // consume the same data the menubar renders.
+    if (opts.json) {
+      const infos = await getAccountInfo(accountRefs, { cacheOnly: !opts.refresh, timeoutMs: opts.refresh ? 5000 : undefined });
+      const { effectiveProvider, displayGroup } = require('./providers');
+      const out = infos.map((info: any) => ({
+        commandName: info.commandName,
+        cliType: info.cliType,
+        provider: info.provider,
+        baseUrl: info.baseUrl,
+        effectiveProvider: effectiveProvider(info.provider, info.baseUrl),
+        displayGroup: displayGroup(effectiveProvider(info.provider, info.baseUrl)),
+        isDefault: info.isDefault ?? false,
+        sharedWith: info.sharedWith,
+        plan: info.meta?.plan,
+        email: info.emailAddress ?? info.activeAccount?.email,
+        activeAccount: info.activeAccount,
+        live: info.live,
+        utilization5h: info.live?.utilization5h ?? 0,
+        utilization7d: info.live?.utilization7d ?? 0,
+        liveStatus: info.live?.status,
+        needsReauth: !!info.needsReauth,
+        lastActive: info.lastActive,
+      }));
+      process.stdout.write(JSON.stringify({ workspaces: out }, null, 2) + '\n');
+      if (!opts.refresh) kickBackgroundRefresh();
+      process.exit(0);
+    }
 
     if (isTTY) {
       // Interactive: show profiles instantly, then refresh with live data
@@ -3838,35 +3944,137 @@ program
     const act = action || 'list';
 
     if (act === 'list') {
+      // Mirrors SweechBar's Accounts tab: Anthropic + OpenAI sections
+      // from the vault, plus a Providers section for API-key vendors
+      // (synthetic one tile per provider derived from the workspace
+      // config + provider quota cache).
       const filterKind = opts.kind as 'anthropic' | 'openai' | undefined;
       const accounts = listAccounts(filterKind);
+      const { effectiveProvider } = require('./providers');
+      const { getCachedQuota } = require('./providerQuotas');
+      const config = new ConfigManager();
+      const profiles = config.getProfiles();
+
+      // Live workspace status — used to override stale vault plan when
+      // the org has since disabled OAuth on a mounted account.
+      const accountList = getKnownAccounts(profiles);
+      const workspaces = await getAccountInfo(accountList, { cacheOnly: true });
+      const wsByActive = new Map<string, typeof workspaces>();
+      for (const ws of workspaces) {
+        const id = ws.activeAccount?.id;
+        if (!id) continue;
+        if (!wsByActive.has(id)) wsByActive.set(id, []);
+        wsByActive.get(id)!.push(ws);
+      }
+
+      const liveStatusOverride = (id: string): string | undefined => {
+        const list = wsByActive.get(id) || [];
+        for (const ws of list) {
+          switch (ws.live?.status) {
+            case 'org_disabled':  return 'OAuth disabled';
+            case 'unauthorized':  return 'Re-login needed';
+            case 'forbidden':     return 'Forbidden';
+            case 'limit_reached': return 'Limit reached';
+          }
+        }
+        return undefined;
+      };
+
+      // Synthetic provider tiles for the Providers section.
+      const seenProviders = new Set<string>();
+      const providerTiles: Array<{ key: string; label: string; workspaces: string[]; quota: any }> = [];
+      const providerLabels: Record<string, string> = {
+        anthropic: 'Anthropic', openai: 'OpenAI',
+        kimi: 'Kimi', 'kimi-coding': 'Kimi Coding',
+        glm: 'GLM (z.ai)', minimax: 'MiniMax', dashscope: 'Alibaba',
+        openrouter: 'OpenRouter', gemini: 'Gemini', groq: 'Groq',
+        nvidia: 'NVIDIA', ollama: 'Ollama', 'ollama-cloud': 'Ollama Cloud',
+        deepseek: 'DeepSeek', qwen: 'Qwen', 'local-proxy': 'Local Proxy',
+      };
+      for (const p of profiles) {
+        const eff = effectiveProvider(p.provider, p.baseUrl);
+        if (!eff || eff === 'anthropic' || eff === 'openai') continue;
+        if (seenProviders.has(eff)) {
+          providerTiles.find(t => t.key === eff)!.workspaces.push(p.commandName);
+          continue;
+        }
+        seenProviders.add(eff);
+        providerTiles.push({
+          key: eff,
+          label: providerLabels[eff] ?? eff,
+          workspaces: [p.commandName],
+          quota: getCachedQuota(eff),
+        });
+      }
+
       if (opts.json) {
-        process.stdout.write(JSON.stringify({ accounts }, null, 2) + '\n');
+        // Enrich vault accounts with mountedWorkspaces + liveStatus for
+        // machine consumers (parity with SweechBar's JSON shape).
+        const enrichedAccounts = accounts.map((a: any) => ({
+          ...a,
+          mountedWorkspaces: (wsByActive.get(a.id) ?? []).map(ws => ws.commandName),
+          liveStatus: liveStatusOverride(a.id),
+        }));
+        process.stdout.write(JSON.stringify({ accounts: enrichedAccounts, providers: providerTiles }, null, 2) + '\n');
         return;
       }
-      if (accounts.length === 0) {
+
+      if (accounts.length === 0 && providerTiles.length === 0) {
         console.log(chalk.dim('\n  No accounts in vault. Run: sweech accounts import\n'));
         return;
       }
+
+      console.log(chalk.bold('\n  sweech · accounts\n'));
+
       const byKind: Record<string, any[]> = {};
       for (const a of accounts) (byKind[a.kind] ||= []).push(a);
-      console.log(chalk.bold('\n  sweech · vault\n'));
-      for (const kind of Object.keys(byKind).sort()) {
-        const label = kind === 'anthropic' ? 'Anthropic (claude)' : kind === 'openai' ? 'OpenAI (codex)' : kind;
-        console.log(chalk.bold(`  ── ${label} ──`));
-        for (const a of byKind[kind]) {
-          const planStr = a.plan ? chalk.cyan(` [${a.plan}]`) : '';
+      const kindOrder = ['anthropic', 'openai', ...Object.keys(byKind).filter(k => k !== 'anthropic' && k !== 'openai')];
+
+      for (const kind of kindOrder) {
+        const list = byKind[kind];
+        if (!list || list.length === 0) continue;
+        const header = kind === 'anthropic' ? 'Anthropic' : kind === 'openai' ? 'OpenAI' : kind;
+        console.log(chalk.bold.cyan(`  ── ${header} (${list.length}) ──`));
+        for (const a of list.sort((x: any, y: any) => x.email.localeCompare(y.email))) {
+          const liveOverride = liveStatusOverride(a.id);
+          const planStr = liveOverride
+            ? chalk.red(` [${liveOverride}]`)
+            : (a.plan ? chalk.cyan(` [${a.plan}]`) : '');
           const expiryStr = a.expiresAt
             ? (() => {
                 const hrs = (a.expiresAt - Date.now()) / 3600000;
                 if (hrs < 0) return chalk.red(` 🔑 expired`);
-                if (hrs < 24) return chalk.dim(` 🔑 expires in ${Math.round(hrs)}h`);
-                return chalk.dim(` 🔑 expires in ${Math.round(hrs / 24)}d`);
+                if (hrs < 1) return chalk.yellow(` 🔑 ${Math.round(hrs * 60)}m`);
+                if (hrs < 24) return chalk.dim(` 🔑 ${Math.round(hrs)}h`);
+                return chalk.dim(` 🔑 ${Math.round(hrs / 24)}d`);
               })()
             : '';
-          const statusStr = a.status && a.status !== 'ok' ? chalk.red(` (${a.status})`) : '';
-          console.log(`  ${chalk.bold(a.email)}${planStr}${expiryStr}${statusStr}`);
-          console.log(chalk.dim(`    id=${a.id}  added=${a.addedAt.slice(0, 10)}`));
+          const showStatus = a.status && a.status !== 'ok' && a.status !== 'expired' && !liveOverride;
+          const statusStr = showStatus ? chalk.red(` · ${a.status}`) : '';
+          const mountedWs = wsByActive.get(a.id) ?? [];
+          const mountedStr = mountedWs.length > 0
+            ? chalk.dim(`  📦 ${mountedWs.map(w => w.commandName).join(', ')}`)
+            : chalk.dim('  📦 not mounted');
+          console.log(`  ${chalk.bold(a.email)}${planStr}${expiryStr}${statusStr}${mountedStr}`);
+        }
+        console.log();
+      }
+
+      if (providerTiles.length > 0) {
+        console.log(chalk.bold.cyan(`  ── Providers (${providerTiles.length}) ──`));
+        for (const tile of providerTiles.sort((a, b) => a.label.localeCompare(b.label))) {
+          const q = tile.quota;
+          let quotaStr = chalk.dim('  no quota probed');
+          if (q) {
+            if (typeof q.balanceUsd === 'number') quotaStr = chalk.green(`  💰 $${q.balanceUsd.toFixed(2)} left`);
+            else if (q.rateLimit?.used !== undefined && q.rateLimit?.limit) {
+              const pct = Math.round((q.rateLimit.used / q.rateLimit.limit) * 100);
+              quotaStr = chalk.cyan(`  📊 ${pct}% used (${q.rateLimit.used}/${q.rateLimit.limit} ${q.rateLimit.units ?? ''})`);
+            } else if (q.note) quotaStr = chalk.dim(`  ℹ️  ${q.note}`);
+            else if (q.error) quotaStr = chalk.red(`  ✗ ${q.error}`);
+          }
+          const wsStr = chalk.dim(`  📦 ${tile.workspaces.join(', ')}`);
+          console.log(`  ${chalk.bold(tile.label)}${chalk.dim(' (API key)')}${quotaStr}${wsStr}`);
         }
         console.log();
       }
