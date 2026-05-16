@@ -3578,6 +3578,167 @@ program
     }
   });
 
+// ── sweech accounts ────────────────────────────────────────────────────────
+// Central identity vault: anthropic + openai accounts, decoupled from
+// workspace directories. See src/vault.ts.
+
+program
+  .command('accounts [action]')
+  .description('Manage credential vault (list, import, remove)')
+  .option('--kind <kind>', 'Filter by account kind: anthropic, openai')
+  .option('--email <email>', 'Target a specific account by email')
+  .option('--json', 'Machine-readable output')
+  .action(async (action: string | undefined, opts: { kind?: string; email?: string; json?: boolean }) => {
+    const { listAccounts, findAccountByEmail, removeAccount, getAccount, AccountKind } = require('./vault');
+    const { importWorkspaces, discoverWorkspaces } = require('./vaultImport');
+    const act = action || 'list';
+
+    if (act === 'list') {
+      const filterKind = opts.kind as 'anthropic' | 'openai' | undefined;
+      const accounts = listAccounts(filterKind);
+      if (opts.json) {
+        process.stdout.write(JSON.stringify({ accounts }, null, 2) + '\n');
+        return;
+      }
+      if (accounts.length === 0) {
+        console.log(chalk.dim('\n  No accounts in vault. Run: sweech accounts import\n'));
+        return;
+      }
+      const byKind: Record<string, any[]> = {};
+      for (const a of accounts) (byKind[a.kind] ||= []).push(a);
+      console.log(chalk.bold('\n  sweech · vault\n'));
+      for (const kind of Object.keys(byKind).sort()) {
+        const label = kind === 'anthropic' ? 'Anthropic (claude)' : kind === 'openai' ? 'OpenAI (codex)' : kind;
+        console.log(chalk.bold(`  ── ${label} ──`));
+        for (const a of byKind[kind]) {
+          const planStr = a.plan ? chalk.cyan(` [${a.plan}]`) : '';
+          const expiryStr = a.expiresAt
+            ? (() => {
+                const hrs = (a.expiresAt - Date.now()) / 3600000;
+                if (hrs < 0) return chalk.red(` 🔑 expired`);
+                if (hrs < 24) return chalk.dim(` 🔑 expires in ${Math.round(hrs)}h`);
+                return chalk.dim(` 🔑 expires in ${Math.round(hrs / 24)}d`);
+              })()
+            : '';
+          const statusStr = a.status && a.status !== 'ok' ? chalk.red(` (${a.status})`) : '';
+          console.log(`  ${chalk.bold(a.email)}${planStr}${expiryStr}${statusStr}`);
+          console.log(chalk.dim(`    id=${a.id}  added=${a.addedAt.slice(0, 10)}`));
+        }
+        console.log();
+      }
+      return;
+    }
+
+    if (act === 'import') {
+      const workspaces = discoverWorkspaces();
+      if (workspaces.length === 0) {
+        console.log(chalk.dim('\n  No ~/.claude* or ~/.codex* workspaces found.\n'));
+        return;
+      }
+      console.log(chalk.bold(`\n  Importing credentials from ${workspaces.length} workspaces…\n`));
+      const results = await importWorkspaces(workspaces);
+      if (opts.json) {
+        process.stdout.write(JSON.stringify({ results }, null, 2) + '\n');
+        return;
+      }
+      for (const r of results) {
+        const ws = r.workspace.commandName.padEnd(20);
+        if (r.outcome === 'imported') console.log(`  ${chalk.green('+')} ${ws} ${chalk.bold(r.email!)}  ${chalk.dim('imported')}`);
+        else if (r.outcome === 'updated') console.log(`  ${chalk.cyan('↻')} ${ws} ${chalk.bold(r.email!)}  ${chalk.dim('updated')}`);
+        else if (r.outcome === 'already-mounted') console.log(`  ${chalk.dim('=')} ${ws} ${chalk.bold(r.email!)}  ${chalk.dim('already mounted')}`);
+        else if (r.outcome === 'no-credentials') console.log(`  ${chalk.dim('·')} ${ws} ${chalk.dim('no credentials found')}`);
+        else console.log(`  ${chalk.red('✗')} ${ws} ${chalk.red(r.error || 'error')}`);
+      }
+      console.log();
+      return;
+    }
+
+    if (act === 'remove') {
+      if (!opts.email) {
+        console.error(chalk.red('--email <email> required'));
+        process.exit(1);
+      }
+      const kind = (opts.kind as 'anthropic' | 'openai' | undefined);
+      const account = kind
+        ? findAccountByEmail(kind, opts.email)
+        : (findAccountByEmail('anthropic', opts.email) || findAccountByEmail('openai', opts.email));
+      if (!account) {
+        console.error(chalk.red(`Account not found: ${opts.email}`));
+        process.exit(1);
+      }
+      const ok = await removeAccount(account.id);
+      console.log(ok ? chalk.green(`\n  ✓ Removed ${account.email} from vault\n`) : chalk.red('Remove failed'));
+      return;
+    }
+
+    console.error(chalk.red(`Unknown action: ${act}. Use: list, import, remove`));
+    process.exit(1);
+  });
+
+// ── sweech assign ──────────────────────────────────────────────────────────
+program
+  .command('assign <workspace> [email]')
+  .description('Mount a vault account into a workspace (anthropic→claude, openai→codex)')
+  .option('--json', 'Machine-readable output')
+  .action(async (workspaceName: string, email: string | undefined, opts: { json?: boolean }) => {
+    const { listAccounts, findAccountByEmail, kindForCliType } = require('./vault');
+    const { assignAccountToWorkspace } = require('./vaultAssign');
+    const { discoverWorkspaces } = require('./vaultImport');
+
+    const all = discoverWorkspaces();
+    const ws = all.find((w: any) => w.commandName === workspaceName);
+    if (!ws) {
+      console.error(chalk.red(`Workspace not found: ${workspaceName}`));
+      console.error(chalk.dim(`  available: ${all.map((w: any) => w.commandName).join(', ')}`));
+      process.exit(1);
+    }
+    const requiredKind = kindForCliType(ws.cliType);
+    if (!requiredKind) {
+      console.error(chalk.red(`Unsupported cliType: ${ws.cliType}`));
+      process.exit(1);
+    }
+
+    let accountId: string | undefined;
+    if (email) {
+      const acct = findAccountByEmail(requiredKind, email);
+      if (!acct) {
+        console.error(chalk.red(`No ${requiredKind} account in vault for ${email}`));
+        console.error(chalk.dim(`  run: sweech accounts import   (or)   sweech accounts add --kind ${requiredKind}`));
+        process.exit(1);
+      }
+      accountId = acct.id;
+    } else {
+      // Interactive picker
+      const candidates = listAccounts(requiredKind);
+      if (candidates.length === 0) {
+        console.error(chalk.red(`No ${requiredKind} accounts in vault.`));
+        process.exit(1);
+      }
+      const inquirer = (await import('inquirer')).default;
+      const answer = await inquirer.prompt([{
+        type: 'list',
+        name: 'id',
+        message: `Pick account for workspace ${chalk.bold(workspaceName)} (${ws.cliType})`,
+        choices: candidates.map((a: any) => ({
+          name: `${a.email}${a.plan ? chalk.dim(` · ${a.plan}`) : ''}`,
+          value: a.id,
+        })),
+      }]);
+      accountId = answer.id as string;
+    }
+
+    const result = await assignAccountToWorkspace(ws, accountId!);
+    if (opts.json) {
+      process.stdout.write(JSON.stringify(result, null, 2) + '\n');
+      process.exit(result.ok ? 0 : 1);
+    }
+    if (!result.ok) {
+      console.error(chalk.red(`✗ ${result.reason}`));
+      process.exit(1);
+    }
+    console.log(chalk.green(`\n  ✓ Mounted ${chalk.bold(result.email)} → ${chalk.bold(workspaceName)} (${ws.cliType})\n`));
+  });
+
 // Default action: interactive launcher when no command given
 if (process.argv.length <= 2) {
   // First run: no profiles configured → run onboarding instead of empty launcher
