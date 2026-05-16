@@ -833,9 +833,13 @@ private struct WorkspaceTile: View {
                 if busy {
                     ProgressView().controlSize(.small)
                 } else if ws.isExternal {
+                    // Tint the footer label with the provider's own
+                    // colour so the bottom of the tile echoes the badge
+                    // at the top — at a glance the whole card reads as
+                    // belonging to that vendor.
                     Text(ws.providerLabel)
                         .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(Sweech.Color.warm)
+                        .foregroundStyle(tint)
                 } else {
                     accountMenu
                 }
