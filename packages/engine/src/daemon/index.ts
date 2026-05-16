@@ -13,8 +13,9 @@ import { registerTool } from '@vykeai/fed';
 import { loadOrCreateSecret } from './auth.js';
 import { startConfigWatcher, stopConfigWatcher } from '../middleware/profiles.js';
 import { LogRotator, getDaemonLogPath } from './log.js';
+import { DEFAULT_DAEMON_PORT } from '../constants.js';
 
-let PORT = 7801;
+let PORT = DEFAULT_DAEMON_PORT;
 const PID_DIR = join(homedir(), '.sweech');
 const PID_FILE = join(PID_DIR, 'daemon.pid');
 const FED_CONFIG_FILE = join(homedir(), '.fed', 'config.json');

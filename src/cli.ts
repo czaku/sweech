@@ -10,6 +10,7 @@ process.title = 'sweech'
 
 import { Command } from 'commander';
 import chalk from 'chalk';
+import { DEFAULT_DAEMON_PORT, envOrDefaultDaemonPort } from './constants';
 import { ConfigManager, resolveApiKey } from './config';
 import { getProvider, getProviderList, PROVIDERS, displayGroup, isExternalProvider } from './providers';
 import { interactiveAddProvider, confirmRemoveProvider } from './interactive';
@@ -1286,7 +1287,7 @@ program
 
     // Pre-launch reachability check (unless --force)
     if (!opts.force && profile) {
-      const daemonPort = parseInt(process.env.SWEECH_PORT ?? '') || 7801;
+      const daemonPort = envOrDefaultDaemonPort();
       try {
         const checkPath = `/check?profile=${encodeURIComponent(profile.commandName)}`;
         const headers = await buildAuthedHeaders('GET', checkPath, '');
@@ -1397,7 +1398,7 @@ program
   .option('--all', 'Check all profiles')
   .option('--json', 'Output as JSON')
   .action(async (profileName: string | undefined, opts: { all?: boolean; json?: boolean }) => {
-    const daemonPort = parseInt(process.env.SWEECH_PORT ?? '') || 7801;
+    const daemonPort = envOrDefaultDaemonPort();
     const baseUrl = `http://127.0.0.1:${daemonPort}`;
 
     if (opts.all || !profileName) {
@@ -3597,7 +3598,6 @@ program
 
 // ── sweech daemon start/stop/status ────────────────────────────────────────────
 const PID_FILE = path.join(os.homedir(), '.sweech', 'daemon.pid');
-const DEFAULT_DAEMON_PORT = 7801;
 
 async function resolveDaemonPort(): Promise<number> {
   const envPort = parseInt(process.env.SWEECH_PORT ?? '');

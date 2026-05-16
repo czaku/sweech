@@ -8,6 +8,7 @@ import {
 } from './stream-contract.js';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { DEFAULT_DAEMON_PORT } from './constants.js';
 import { homedir } from 'node:os';
 import { signRequest, getDefaultSecretPath } from './daemon/auth.js';
 
@@ -50,7 +51,7 @@ function parseDaemonEventFrame(raw: string): AgentEvent | null {
 }
 
 const FED_CONFIG_FILE = join(homedir(), '.fed', 'config.json');
-const DEFAULT_PORT = 7801;
+const DEFAULT_PORT = DEFAULT_DAEMON_PORT;
 
 async function resolvePort(): Promise<number> {
   const envPort = parseInt(process.env.SWEECH_PORT ?? '', 10);

@@ -17,6 +17,7 @@ import { getProvider, ModelInfo } from './providers';
 import { detectInstalledCLIs } from './cliDetection';
 import { renameManagedProfile } from './profileManagement';
 import { getAccountInfo, getKnownAccounts } from './subscriptions';
+import { DEFAULT_DAEMON_PORT } from './constants';
 
 const execFileAsync = promisify(execFile);
 
@@ -126,7 +127,7 @@ export function withTimeout<T>(p: Promise<T>, ms: number, label = 'operation'): 
 /**
  * T-053: resolve the daemon HTTP port the same way other CLI commands do.
  * Order: SWEECH_PORT env var → ~/.fed/config.json (`tools.sweech-engine.dash`)
- * → 7801. Centralisation across the CLI is tracked by T-056.
+ * → DEFAULT_DAEMON_PORT.
  */
 function resolveDaemonPortForDoctor(): number {
   const envPort = parseInt(process.env.SWEECH_PORT ?? '', 10);
@@ -134,9 +135,9 @@ function resolveDaemonPortForDoctor(): number {
   try {
     const raw = fs.readFileSync(path.join(os.homedir(), '.fed', 'config.json'), 'utf-8');
     const cfg = JSON.parse(raw) as { tools?: Record<string, { dash?: number }> };
-    return cfg?.tools?.['sweech-engine']?.dash ?? 7801;
+    return cfg?.tools?.['sweech-engine']?.dash ?? DEFAULT_DAEMON_PORT;
   } catch {
-    return 7801;
+    return DEFAULT_DAEMON_PORT;
   }
 }
 
