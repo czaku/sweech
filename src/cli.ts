@@ -4250,7 +4250,8 @@ program
   .command('assign <workspace> [email]')
   .description('Mount a vault account into a workspace (anthropic→claude, openai→codex)')
   .option('--json', 'Machine-readable output')
-  .action(async (workspaceName: string, email: string | undefined, opts: { json?: boolean }) => {
+  .option('--force', 'Bypass the CLI-binary-on-PATH preflight (mount even if `claude`/`codex` is not installed)')
+  .action(async (workspaceName: string, email: string | undefined, opts: { json?: boolean; force?: boolean }) => {
     const { listAccounts, findAccountByEmail, kindForCliType } = require('./vault');
     const { assignAccountToWorkspace } = require('./vaultAssign');
     const { discoverWorkspaces } = require('./vaultImport');
@@ -4297,14 +4298,22 @@ program
       accountId = answer.id as string;
     }
 
-    const result = await assignAccountToWorkspace(ws, accountId!);
+    const result = await assignAccountToWorkspace(ws, accountId!, { force: opts.force });
     if (opts.json) {
       process.stdout.write(JSON.stringify(result, null, 2) + '\n');
       process.exit(result.ok ? 0 : 1);
     }
     if (!result.ok) {
       console.error(chalk.red(`✗ ${result.reason}`));
+      if (!opts.force && /not found on PATH/i.test(result.reason)) {
+        console.error(chalk.dim(`  re-run with --force to mount anyway (launch will fail until installed)`));
+      }
       process.exit(1);
+    }
+    // Surface the force-mount warning so the user knows credentials are wired
+    // but launches will fail until the binary is installed.
+    if (result.binaryOnPath === false) {
+      console.error(chalk.yellow(`WARN: ${result.binary} not on PATH — assign succeeded but launch will fail until installed`));
     }
     console.log(chalk.green(`\n  ✓ Mounted ${chalk.bold(result.email)} → ${chalk.bold(workspaceName)} (${ws.cliType})\n`));
   });
