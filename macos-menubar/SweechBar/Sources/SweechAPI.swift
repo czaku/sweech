@@ -50,6 +50,9 @@ struct SweechAccount: Codable, Identifiable {
     let tokenRefreshedAt: Double?
     let tokenExpiresAt: Double?
 
+    /// Vault account currently mounted in this workspace.
+    let activeAccount: ActiveAccount?
+
     // Precomputed by CLI — single source of truth for sorting/ranking
     let precomputedSmartScore: Double?
     let tier: String?          // "use_first", "use_next", "normal"
@@ -61,8 +64,16 @@ struct SweechAccount: Codable, Identifiable {
         case name, commandName, cliType, isDefault, sharedWith, provider, meta, messages5h, messages7d, totalMessages
         case minutesUntilFirstCapacity, hoursUntilWeeklyReset, oldest5hMessageAt
         case lastActive, needsReauth, live, tokenStatus, tokenRefreshedAt, tokenExpiresAt
+        case activeAccount
         case precomputedSmartScore = "smartScore"
         case tier, tierUrgent, sortRank, precomputedDisplayGroup = "displayGroup"
+    }
+
+    struct ActiveAccount: Codable {
+        let id: String
+        let kind: String  // "anthropic" | "openai"
+        let email: String
+        let plan: String?
     }
 
     struct AccountMeta: Codable {
@@ -205,6 +216,73 @@ struct UsageResponse: Codable {
     let accounts: [SweechAccount]
 }
 
+/// A row in the central credential vault (~/.sweech/accounts.json).
+struct VaultAccount: Codable, Identifiable, Hashable {
+    var id: String { accountId }
+    let accountId: String      // 12-char vault id
+    let kind: String           // "anthropic" | "openai"
+    let email: String
+    let displayName: String?
+    let plan: String?
+    let rateLimitTier: String?
+    let addedAt: String
+    let lastRefreshedAt: String?
+    let expiresAt: Double?     // ms epoch
+    let status: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case accountId = "id"
+        case kind, email, displayName, plan, rateLimitTier, addedAt, lastRefreshedAt, expiresAt, status
+    }
+
+    /// Hides the synthetic <name>@unknown.local placeholders used during import.
+    var displayEmail: String {
+        email.hasSuffix("@unknown.local") ? "(no email)" : email
+    }
+
+    /// Compatibility check: anthropic→claude only, openai→codex only.
+    func isCompatible(with cliType: String) -> Bool {
+        switch (kind, cliType) {
+        case ("anthropic", "claude"): return true
+        case ("openai", "codex"): return true
+        default: return false
+        }
+    }
+
+    var expiryLabel: String? {
+        guard let expiresAt else { return nil }
+        let secs = expiresAt / 1000.0 - Date().timeIntervalSince1970
+        if secs < 0 { return "expired" }
+        let hours = secs / 3600
+        if hours < 24 { return String(format: "%.0fh", hours) }
+        return String(format: "%.0fd", hours / 24)
+    }
+}
+
+struct VaultListResponse: Codable {
+    let accounts: [VaultAccount]
+}
+
+struct AssignResponse: Codable {
+    let ok: Bool
+    let workspaceCommandName: String?
+    let accountId: String?
+    let email: String?
+    let reason: String?
+}
+
+struct RefreshResult: Codable {
+    let email: String
+    let kind: String
+    let outcome: String   // refreshed | still-valid | no-refresh-token | failed | remounted
+    let error: String?
+    let expiresAt: Double?
+}
+
+struct RefreshResponse: Codable {
+    let results: [RefreshResult]
+}
+
 struct ManageableProvider: Codable, Identifiable {
     var id: String { "\(cliType)-\(name)" }
     let name: String
@@ -257,6 +335,14 @@ class SweechService: ObservableObject {
     @Published var manageableProviders: [ManageableProvider] = []
     @Published var isMutatingProfiles = false
     @Published var profileMutationError: String?
+
+    // Vault state
+    @Published var vaultAccounts: [VaultAccount] = []
+    @Published var isVaultFetching = false
+    @Published var lastVaultFetched: Date?
+    @Published var vaultError: String?
+    @Published var lastAssignError: String?
+    @Published var lastRefreshSummary: String?
 
     private var previousStatuses: [String: String] = [:]  // commandName → liveStatus
     private var previousUtilizations: [String: Double] = [:]  // commandName → utilization7d
@@ -472,6 +558,85 @@ class SweechService: ObservableObject {
                         }
                     }
                 }
+            }
+        }
+    }
+
+    // MARK: - Vault
+
+    func fetchVault() {
+        DispatchQueue.main.async { [weak self] in self?.isVaultFetching = true }
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            let result = Self.runSweech(["accounts", "list", "--json"])
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.isVaultFetching = false
+                switch result {
+                case .success(let data):
+                    do {
+                        let resp = try JSONDecoder().decode(VaultListResponse.self, from: data)
+                        self.vaultAccounts = resp.accounts
+                        self.lastVaultFetched = Date()
+                        self.vaultError = nil
+                    } catch {
+                        self.vaultError = "Vault parse error: \(error.localizedDescription)"
+                    }
+                case .failure(let error):
+                    self.vaultError = "Vault fetch error: \(error.localizedDescription)"
+                }
+            }
+        }
+    }
+
+    func assignAccount(workspaceCommandName: String, email: String, completion: ((Bool) -> Void)? = nil) {
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let result = Self.runSweech(["assign", workspaceCommandName, email, "--json"])
+            DispatchQueue.main.async {
+                guard let self else { return }
+                switch result {
+                case .success(let data):
+                    do {
+                        let resp = try JSONDecoder().decode(AssignResponse.self, from: data)
+                        if resp.ok {
+                            self.lastAssignError = nil
+                            self.fetch()        // refresh workspace usage view
+                            completion?(true)
+                        } else {
+                            self.lastAssignError = resp.reason ?? "Unknown assign error"
+                            completion?(false)
+                        }
+                    } catch {
+                        self.lastAssignError = "Assign parse error: \(error.localizedDescription)"
+                        completion?(false)
+                    }
+                case .failure(let error):
+                    self.lastAssignError = error.localizedDescription
+                    completion?(false)
+                }
+            }
+        }
+    }
+
+    /// Refresh any expiring tokens in the vault. Used by the 10-min timer.
+    func refreshVaultTokens(completion: (() -> Void)? = nil) {
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            let result = Self.runSweech(["accounts", "refresh", "--json"])
+            DispatchQueue.main.async {
+                guard let self else { return }
+                switch result {
+                case .success(let data):
+                    if let resp = try? JSONDecoder().decode(RefreshResponse.self, from: data) {
+                        let refreshed = resp.results.filter { $0.outcome == "refreshed" }.count
+                        let failed = resp.results.filter { $0.outcome == "failed" }.count
+                        if refreshed > 0 || failed > 0 {
+                            self.lastRefreshSummary = "Vault: \(refreshed) refreshed, \(failed) failed"
+                        }
+                        self.fetchVault()
+                    }
+                case .failure(let error):
+                    NSLog("SweechBar vault refresh failed: %@", error.localizedDescription)
+                }
+                completion?()
             }
         }
     }

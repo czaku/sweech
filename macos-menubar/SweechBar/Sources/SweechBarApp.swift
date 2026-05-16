@@ -49,6 +49,11 @@ class SweechBarController: OnlyBarController {
 
     @AppStorage("sweechBarLabelMode") private var labelMode: String = "capacity"
 
+    /// Fires `sweech accounts refresh` on a 10-minute cadence so vault tokens
+    /// never expire while SweechBar is running. Detached process — does not
+    /// block the menu bar.
+    private var vaultRefreshTimer: Timer?
+
     init() {
         // Use NSStatusItem.variableLength for dynamic text labels
         super.init(
@@ -58,6 +63,17 @@ class SweechBarController: OnlyBarController {
             statusItemLength: NSStatusItem.variableLength
         )
         setupObserver()
+        startVaultRefreshTimer()
+    }
+
+    private func startVaultRefreshTimer() {
+        // Kick once on launch (after a 5s grace so the menubar appears first).
+        DispatchQueue.main.asyncAfter(deadline: .now() + 5) { [weak self] in
+            self?.service.refreshVaultTokens()
+        }
+        vaultRefreshTimer = Timer.scheduledTimer(withTimeInterval: 600, repeats: true) { [weak self] _ in
+            self?.service.refreshVaultTokens()
+        }
     }
 
     required init?(coder: NSCoder) {
@@ -164,7 +180,35 @@ class SweechBarController: OnlyBarController {
 
     override func makeBody() -> AnyView {
         AnyView(
-            AccountsView(service: service)
+            SweechRootView(service: service)
         )
+    }
+}
+
+// MARK: - Root view (Tabs: Accounts / Vault)
+
+struct SweechRootView: View {
+    @ObservedObject var service: SweechService
+    @AppStorage("sweechBarRootTab") private var tab: String = "accounts"
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Picker("", selection: $tab) {
+                Text("Accounts").tag("accounts")
+                Text("Vault").tag("vault")
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .padding(.horizontal, 8)
+            .padding(.top, 6)
+            .padding(.bottom, 4)
+
+            switch tab {
+            case "vault":
+                VaultView(service: service)
+            default:
+                AccountsView(service: service)
+            }
+        }
     }
 }
