@@ -189,13 +189,16 @@ class SweechBarController: OnlyBarController {
 
 struct SweechRootView: View {
     @ObservedObject var service: SweechService
-    @AppStorage("sweechBarRootTab") private var tab: String = "accounts"
+    // Default to the new vault view (accounts + workspaces). The old
+    // per-provider usage cards live behind the "Detail" tab for users
+    // who want the bar-by-bar breakdown.
+    @AppStorage("sweechBarRootTab") private var tab: String = "vault"
 
     var body: some View {
         VStack(spacing: 0) {
             Picker("", selection: $tab) {
-                Text("Accounts").tag("accounts")
-                Text("Vault").tag("vault")
+                Text("Home").tag("vault")
+                Text("Detail").tag("accounts")
             }
             .pickerStyle(.segmented)
             .labelsHidden()
@@ -204,10 +207,10 @@ struct SweechRootView: View {
             .padding(.bottom, 4)
 
             switch tab {
-            case "vault":
-                VaultView(service: service)
-            default:
+            case "accounts":
                 AccountsView(service: service)
+            default:
+                VaultView(service: service)
             }
         }
     }

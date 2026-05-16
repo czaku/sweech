@@ -46,7 +46,7 @@ struct VaultView: View {
 
     private var header: some View {
         HStack {
-            Text("Vault")
+            Text("sweech")
                 .font(.system(size: 12, weight: .bold))
             Spacer()
             Button(action: { service.fetchVault(); service.fetch() }) {
@@ -208,15 +208,35 @@ struct VaultView: View {
         }
         let bg: Color = canAssign && hasSelection ? Color.accentColor.opacity(0.05) : Color.clear
         let opacity: Double = hasSelection && !canAssign ? 0.45 : 1.0
+        let plan: String? = ws.planType
+        let u5h = Int(ws.utilization5h * 100)
+        let u7d = Int(ws.utilization7d * 100)
+        let hasUsage = ws.live != nil && (u5h > 0 || u7d > 0)
 
         return HStack(spacing: 6) {
             Image(systemName: iconName).font(.system(size: 11)).foregroundStyle(iconColor)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(ws.commandName).font(.system(size: 11, weight: .medium)).lineLimit(1)
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 4) {
+                    Text(ws.commandName).font(.system(size: 11, weight: .medium)).lineLimit(1)
+                    if let plan {
+                        Text(plan)
+                            .font(.system(size: 9, weight: .semibold))
+                            .padding(.horizontal, 4).padding(.vertical, 1)
+                            .background(Color.accentColor.opacity(0.15))
+                            .clipShape(Capsule())
+                    }
+                }
                 if let email = activeEmail {
                     Text(email).font(.system(size: 9)).foregroundStyle(.secondary).lineLimit(1)
                 } else {
                     Text("no account mounted").font(.system(size: 9)).foregroundStyle(.tertiary)
+                }
+                if hasUsage {
+                    HStack(spacing: 6) {
+                        Text("5h \(u5h)%").font(.system(size: 9)).foregroundStyle(utilColor(u5h))
+                        Text("·").font(.system(size: 9)).foregroundStyle(.tertiary)
+                        Text("7d \(u7d)%").font(.system(size: 9)).foregroundStyle(utilColor(u7d))
+                    }
                 }
             }
             Spacer(minLength: 0)
@@ -227,6 +247,12 @@ struct VaultView: View {
         .background(bg)
         .cornerRadius(4)
         .opacity(opacity)
+    }
+
+    private func utilColor(_ pct: Int) -> Color {
+        if pct >= 90 { return .red }
+        if pct >= 70 { return .orange }
+        return .secondary
     }
 
     @ViewBuilder

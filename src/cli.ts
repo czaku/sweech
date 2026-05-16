@@ -1924,6 +1924,46 @@ const usageCmd = program
 
     console.log(chalk.bold('\n  sweech · usage\n'));
 
+    // ── ACCOUNTS section ────────────────────────────────────────────────
+    // Top-level view of every identity in the vault, decoupled from any
+    // specific workspace. Workspaces below show which account each is
+    // currently mounting.
+    try {
+      const { listAccounts } = require('./vault');
+      const vaultAccounts = listAccounts();
+      if (vaultAccounts.length > 0) {
+        console.log(chalk.bold.cyan('  ── ACCOUNTS (vault) ──\n'));
+        const byKind: Record<string, any[]> = {};
+        for (const a of vaultAccounts) (byKind[a.kind] ||= []).push(a);
+        for (const kind of ['anthropic', 'openai']) {
+          const list = byKind[kind];
+          if (!list || list.length === 0) continue;
+          console.log(chalk.dim(`  ${kind === 'anthropic' ? 'Anthropic' : 'OpenAI'}`));
+          for (const a of list.sort((x: any, y: any) => x.email.localeCompare(y.email))) {
+            const email = a.email.endsWith('@unknown.local') ? chalk.dim('(no email)') : chalk.bold(a.email);
+            const planStr = a.plan ? chalk.cyan(` [${a.plan}]`) : '';
+            let expiryStr = '';
+            if (a.expiresAt) {
+              const hrs = (a.expiresAt - Date.now()) / 3600000;
+              if (hrs < 0) expiryStr = chalk.red(` 🔑 expired`);
+              else if (hrs < 1) expiryStr = chalk.yellow(` 🔑 ${Math.round(hrs * 60)}m`);
+              else if (hrs < 24) expiryStr = chalk.dim(` 🔑 ${Math.round(hrs)}h`);
+              else expiryStr = chalk.dim(` 🔑 ${Math.round(hrs / 24)}d`);
+            }
+            // Avoid showing the redundant "· expired" when the 🔑 badge
+            // already says expired. Only surface non-ok status that the
+            // expiry alone wouldn't have communicated.
+            const showStatus = a.status && a.status !== 'ok' && a.status !== 'expired'
+            const statusStr = showStatus ? chalk.red(` · ${a.status}`) : '';
+            console.log(`    ● ${email}${planStr}${expiryStr}${statusStr}`);
+          }
+        }
+        console.log();
+      }
+    } catch {}
+
+    console.log(chalk.bold.cyan('  ── WORKSPACES ──\n'));
+
     // Scoring — shared with launcher and SweechBar (via JSON precomputed fields)
     const { computeSmartScore: smartScore } = require('./liveUsage');
 
@@ -1959,8 +1999,14 @@ const usageCmd = program
     const sortLabel = opts.sort === 'status' ? ' · by status' : opts.sort === 'manual' ? ' · manual' : ' · smart';
     console.log(chalk.dim(`  sort${sortLabel}${opts.group !== false ? '' : ' · ungrouped'}\n`));
 
+    const groupTitle = (raw: string): string => {
+      if (raw === 'claude') return 'Claude';
+      if (raw === 'codex') return 'Codex';
+      if (raw === 'kimi') return 'Kimi';
+      return raw;
+    };
     for (const { name, items: sorted } of groups) {
-      if (name) console.log(chalk.bold.dim(`  ── ${name} ──`));
+      if (name) console.log(chalk.dim(`  ${groupTitle(name)}`));
       for (let i = 0; i < sorted.length; i++) {
         const a = sorted[i];
         const planStr = a.meta.plan ? chalk.cyan(` [${a.meta.plan}]`) : '';
