@@ -101,6 +101,10 @@ struct VaultView: View {
                     }
                 }
             )
+            // Hit-test the entire padded rect, not just the text+icon
+            // glyphs. Without this, clicks in the gap between the icon
+            // and the count capsule fall through to the background.
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
     }
@@ -342,7 +346,9 @@ private struct AccountTile: View {
 
             if isExternal {
                 quotaFooter
+                if !mountedWorkspaces.isEmpty { workspacesRow }
             } else {
+                workspacesRow
                 actionRow
             }
         }
@@ -407,16 +413,45 @@ private struct AccountTile: View {
                     .foregroundStyle(Sweech.Color.danger)
             }
             Spacer(minLength: 0)
-            if workspaceCount > 0 {
-                HStack(spacing: 2) {
-                    Image(systemName: "rectangle.stack.fill").font(.system(size: 8))
-                    Text("\(workspaceCount)")
-                        .font(.system(size: 9, weight: .medium, design: .monospaced))
-                }
-                .foregroundStyle(Sweech.Color.textMuted)
-                .help("Mounted in \(workspaceCount) workspace(s)")
+        }
+    }
+
+    /// Comma-separated workspace names this account is mounted in.
+    /// Empty when the account isn't assigned anywhere — the action row
+    /// will say "Assign to workspace…" in that case.
+    @ViewBuilder
+    private var workspacesRow: some View {
+        if workspaceCount > 0 {
+            HStack(alignment: .top, spacing: 4) {
+                Image(systemName: "rectangle.stack.fill")
+                    .font(.system(size: 9))
+                    .foregroundStyle(tint)
+                    .padding(.top, 1)
+                Text(workspacesLabel)
+                    .font(.system(size: 9, weight: .medium, design: .monospaced))
+                    .foregroundStyle(Sweech.Color.textPrimary.opacity(0.9))
+                    .lineLimit(2)
+                    .truncationMode(.tail)
+                    .help(mountedWorkspaces.map { $0.commandName }.joined(separator: ", "))
+                Spacer(minLength: 0)
+            }
+        } else {
+            HStack(spacing: 4) {
+                Image(systemName: "rectangle.stack")
+                    .font(.system(size: 9))
+                    .foregroundStyle(Sweech.Color.textMuted.opacity(0.6))
+                Text("not assigned")
+                    .font(.system(size: 9))
+                    .foregroundStyle(Sweech.Color.textMuted.opacity(0.7))
+                Spacer(minLength: 0)
             }
         }
+    }
+
+    private var workspacesLabel: String {
+        let names = mountedWorkspaces.map { $0.commandName }.sorted()
+        if names.count <= 2 { return names.joined(separator: ", ") }
+        return names.prefix(2).joined(separator: ", ") + " +\(names.count - 2)"
     }
 
     /// Adaptive action row:
