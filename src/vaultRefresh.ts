@@ -65,7 +65,11 @@ export async function refreshExpiringAccounts(opts: { force?: boolean } = {}): P
         const ws = workspaces.find(w => w.commandName === cn)
         if (!ws) continue
         try {
-          const r = await assignAccountToWorkspace(ws, meta.id)
+          // Force-bypass the binary-on-PATH preflight: refresh is a daemon
+          // remount of an already-mounted account, not a user-initiated mount,
+          // so a temporarily-missing CLI shouldn't block the fresh token from
+          // landing on disk.
+          const r = await assignAccountToWorkspace(ws, meta.id, { force: true })
           if (r.ok) {
             results.push({ email: meta.email, kind: meta.kind, outcome: 'remounted' })
           }

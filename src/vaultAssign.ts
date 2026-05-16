@@ -26,6 +26,7 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 import { execFileSync } from 'node:child_process'
 import { atomicWriteFileSync } from './atomicWrite'
+import { getCLI } from './clis'
 import { computeKeychainServiceName, getCredentialStore } from './credentialStore'
 import { isMacOS } from './platform'
 import {
@@ -49,6 +50,10 @@ export interface AssignSuccess {
   workspaceCommandName: string
   accountId: string
   email: string
+  /** True when the preflight `which` check succeeded; false when bypassed via `force`. */
+  binaryOnPath: boolean
+  /** Resolved underlying CLI binary name (e.g. 'claude', 'codex'). */
+  binary: string
 }
 
 export type AssignResult = AssignSuccess | AssignError
@@ -59,11 +64,21 @@ export interface Workspace {
   configDir: string    // ~/.<commandName>
 }
 
+export interface AssignOptions {
+  /**
+   * Skip the preflight `which <binary>` check. The mount still writes
+   * credentials, but the caller is responsible for warning the user that
+   * launches will fail until the binary is installed.
+   */
+  force?: boolean
+}
+
 // ── Public API ───────────────────────────────────────────────────────────────
 
 export async function assignAccountToWorkspace(
   ws: Workspace,
   accountId: string,
+  opts: AssignOptions = {},
 ): Promise<AssignResult> {
   const meta = getAccount(accountId)
   if (!meta) return { ok: false, reason: `Account ${accountId} not found in vault` }
@@ -76,6 +91,18 @@ export async function assignAccountToWorkspace(
     return {
       ok: false,
       reason: `Incompatible: account ${meta.email} is ${meta.kind} but workspace ${ws.commandName} expects ${expectedKind}`,
+    }
+  }
+
+  // Pre-flight: does the underlying CLI binary resolve on PATH? Skip on
+  // --force so power users can mount-then-install without re-running. The
+  // caller (cli.ts) prints the warning when force is used.
+  const binary = binaryForCliType(ws.cliType)
+  const binaryFound = isBinaryOnPath(binary)
+  if (!binaryFound && !opts.force) {
+    return {
+      ok: false,
+      reason: `CLI binary "${binary}" not found on PATH. Install: ${installHint(ws.cliType)}`,
     }
   }
 
@@ -93,7 +120,62 @@ export async function assignAccountToWorkspace(
   }
 
   setActiveAccountId(ws.commandName, accountId)
-  return { ok: true, workspaceCommandName: ws.commandName, accountId, email: meta.email }
+  return {
+    ok: true,
+    workspaceCommandName: ws.commandName,
+    accountId,
+    email: meta.email,
+    binaryOnPath: binaryFound,
+    binary,
+  }
+}
+
+// ── Pre-flight helpers ───────────────────────────────────────────────────────
+
+/**
+ * Resolve the on-PATH binary name for a workspace cliType.
+ *
+ * Falls back to the cliType string when the CLI registry has no entry — the
+ * preflight will fail safely if such a binary isn't installed.
+ */
+function binaryForCliType(cliType: CliType): string {
+  return getCLI(cliType)?.command ?? cliType
+}
+
+/**
+ * Synchronous PATH check using `which` (or `where` on Windows).
+ *
+ * On darwin/linux: `/usr/bin/which <binary>` exits non-zero when the binary
+ * is missing — `execFileSync` throws and we return false.
+ * On win32: `where.exe` is the Windows equivalent and shipped with the OS;
+ * untested in this codebase but follows the same exit-code contract.
+ */
+function isBinaryOnPath(binary: string): boolean {
+  const lookup = process.platform === 'win32' ? 'where' : 'which'
+  try {
+    execFileSync(lookup, [binary], { stdio: ['ignore', 'pipe', 'ignore'] })
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Human-friendly install hint per cliType.
+ *
+ * Grounded in sweech's existing docs (README "Requirements" section) and the
+ * `installUrl` field of `clis.ts`. We deliberately quote the README's
+ * recommended commands rather than inventing brew taps that may not exist.
+ */
+function installHint(cliType: CliType): string {
+  switch (cliType) {
+    case 'claude':
+      return 'npm install -g @anthropic/claude-code  (or visit https://code.claude.com/)'
+    case 'codex':
+      return 'See https://github.com/openai/codex for installation instructions'
+    default:
+      return `install ${cliType} and ensure it is on PATH`
+  }
 }
 
 // ── Claude: keychain + .claude.json ─────────────────────────────────────────
