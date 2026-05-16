@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 /// SweechBar root view — two tabs (Accounts / Workspaces) with provider
 /// grouping and a guided assign sheet for moving an account onto a
@@ -471,17 +472,20 @@ private struct AccountTile: View {
                 )
                 if isMounted {
                     tileButton(
-                        icon: "arrow.left.arrow.right.circle.fill",
-                        title: "Change",
+                        icon: "plus.circle.fill",
+                        title: "Add",
                         color: tint,
                         action: onAssign
                     )
                 }
             }
         } else if isMounted {
+            // Mounting is additive — one account can sit on N workspaces.
+            // "Add to workspace…" reflects that the existing mount(s)
+            // aren't touched; the sheet picks an additional target.
             tileButton(
-                icon: "arrow.left.arrow.right.circle.fill",
-                title: "Change assignment",
+                icon: "plus.circle.fill",
+                title: "Add to workspace…",
                 color: tint,
                 action: onAssign
             )
@@ -495,27 +499,26 @@ private struct AccountTile: View {
         }
     }
 
-    /// Quota footer for external API-key tiles. Shows balance, rate-limit
-    /// %, dashboard hint, or an error message — whatever the probe found.
+    /// Quota footer for external API-key tiles. When the probe returned
+    /// a dashboard URL hint (e.g. "check usage at z.ai/manage/usage"),
+    /// the whole row becomes a button that opens the URL in the browser.
     @ViewBuilder
     private var quotaFooter: some View {
         if let q = providerQuota {
             if let summary = q.summary {
-                HStack(spacing: 4) {
-                    Image(systemName: q.balanceUsd != nil ? "dollarsign.circle.fill"
-                                       : (q.rateLimit != nil ? "gauge.with.dots.needle.50percent" : "info.circle"))
-                        .font(.system(size: 9))
-                        .foregroundStyle(tint)
-                    Text(summary)
-                        .font(.system(size: 9))
-                        .foregroundStyle(Sweech.Color.textPrimary.opacity(0.9))
-                        .lineLimit(1)
-                    Spacer(minLength: 0)
-                    if let reset = q.resetIn {
-                        Text("⏱ \(reset)")
-                            .font(.system(size: 8))
-                            .foregroundStyle(Sweech.Color.textMuted)
+                let dashboardUrl = extractDashboardUrl(from: summary)
+                if let url = dashboardUrl {
+                    Button(action: { NSWorkspace.shared.open(url) }) {
+                        footerRow(icon: q.balanceUsd != nil ? "dollarsign.circle.fill"
+                                  : (q.rateLimit != nil ? "gauge.with.dots.needle.50percent" : "arrow.up.forward.app.fill"),
+                                 summary: summary, reset: q.resetIn, underline: true)
                     }
+                    .buttonStyle(.plain)
+                    .help("Open \(url.absoluteString)")
+                } else {
+                    footerRow(icon: q.balanceUsd != nil ? "dollarsign.circle.fill"
+                              : (q.rateLimit != nil ? "gauge.with.dots.needle.50percent" : "info.circle"),
+                             summary: summary, reset: q.resetIn, underline: false)
                 }
             }
             if let err = q.error {
@@ -529,6 +532,40 @@ private struct AccountTile: View {
                 .font(.system(size: 9))
                 .foregroundStyle(Sweech.Color.textMuted)
         }
+    }
+
+    private func footerRow(icon: String, summary: String, reset: String?, underline: Bool) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: icon)
+                .font(.system(size: 9))
+                .foregroundStyle(tint)
+            Text(summary)
+                .font(.system(size: 9))
+                .foregroundStyle(underline ? tint : Sweech.Color.textPrimary.opacity(0.9))
+                .underline(underline, color: tint.opacity(0.5))
+                .lineLimit(1)
+            Spacer(minLength: 0)
+            if let reset {
+                Text("⏱ \(reset)")
+                    .font(.system(size: 8))
+                    .foregroundStyle(Sweech.Color.textMuted)
+            }
+        }
+        // Whole row is the hit target, not just the text glyphs.
+        .contentShape(Rectangle())
+    }
+
+    /// Promote bare hostnames embedded in dashboard hints (e.g.
+    /// "check usage at z.ai/manage/usage") to a tappable URL. Returns
+    /// nil for non-URL summaries (rate-limit %, balance $, …).
+    private func extractDashboardUrl(from summary: String) -> URL? {
+        // Hints follow the pattern: "<verb> at <host[/path]>".
+        guard let atRange = summary.range(of: " at ") else { return nil }
+        let tail = summary[atRange.upperBound...].trimmingCharacters(in: .whitespaces)
+        if tail.isEmpty { return nil }
+        // Anything starting with http(s)?: passes through; otherwise prepend https://.
+        let full = tail.lowercased().hasPrefix("http") ? tail : "https://\(tail)"
+        return URL(string: full)
     }
 
     private func tileButton(icon: String, title: String, color: Color, action: @escaping () -> Void) -> some View {
