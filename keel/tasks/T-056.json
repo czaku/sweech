@@ -3,7 +3,7 @@
   "title": "Centralise DEFAULT_DAEMON_PORT constant",
   "wave": "wave-5",
   "space": "space-cli",
-  "status": "ready",
+  "status": "done",
   "priority": "medium",
   "platform": null,
   "assignee": null,
