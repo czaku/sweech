@@ -747,10 +747,51 @@ program
   });
 
 // Compare command — side-by-side profile comparison
+//
+// JSON payload shape (stable contract — downstream tools parse this):
+type ComparePerModelTier = {
+  /** Bucket label from the live API, e.g. "All models", "Sonnet only", "gpt-5-codex" */
+  label: string;
+  /** 5h rolling window utilization (0..1), if reported */
+  session?: { utilization: number; resetsAt?: number };
+  /** 7d rolling window utilization (0..1), if reported */
+  weekly?: { utilization: number; resetsAt?: number };
+};
+type CompareProfilePayload = {
+  name: string;
+  commandName: string;
+  cliType?: string;
+  plan: string | null;
+  status: string;
+  needsReauth: boolean;
+  score: number;
+  utilization5h: number | null;
+  utilization7d: number | null;
+  reset5hAt: number | null;
+  reset7dAt: number | null;
+  tokenExpiresAt: number | null;
+  tokenStatus: string | null;
+  lastActive: string | null;
+  totalMessages: number;
+  email: string | null;
+  /** User-configured cost/limit hints from meta — null if unset */
+  limits: { window5h?: number; window7d?: number } | null;
+  /** Per-model rate-limit tiers (from live.buckets). Always present in JSON
+   *  so consumers don't need to special-case --per-model. */
+  perModel: ComparePerModelTier[];
+};
+type ComparePayload = {
+  a: CompareProfilePayload;
+  b: CompareProfilePayload;
+  capturedAt: string;
+};
+
 program
   .command('compare <a> <b>')
   .description('Compare two profiles side-by-side (usage, plan, score)')
-  .action(async (a: string, b: string) => {
+  .option('--json', 'Output as JSON (structured comparison payload)')
+  .option('--per-model', 'Render per-model rate-limit tiers side-by-side')
+  .action(async (a: string, b: string, opts: { json?: boolean; perModel?: boolean }) => {
     try {
       const config = new ConfigManager();
       const profiles = config.getProfiles();
@@ -766,11 +807,19 @@ program
       const refB = accountList.find(p => p.commandName === nameB || p.name === nameB);
 
       if (!refA) {
+        if (opts.json) {
+          process.stdout.write(JSON.stringify({ error: `Profile '${a}' not found`, available: accountList.map(p => p.name) }) + '\n');
+          process.exit(1);
+        }
         console.error(chalk.red(`Profile '${a}' not found`));
         console.log(chalk.dim('Available: ' + accountList.map(p => p.name).join(', ')));
         process.exit(1);
       }
       if (!refB) {
+        if (opts.json) {
+          process.stdout.write(JSON.stringify({ error: `Profile '${b}' not found`, available: accountList.map(p => p.name) }) + '\n');
+          process.exit(1);
+        }
         console.error(chalk.red(`Profile '${b}' not found`));
         console.log(chalk.dim('Available: ' + accountList.map(p => p.name).join(', ')));
         process.exit(1);
@@ -809,13 +858,66 @@ program
         return `${days}d ago`;
       };
 
-      // Status string
+      // Plain status (no color) for JSON payload
+      const plainStatus = (acct: typeof infoA): string => {
+        if (acct.needsReauth) return 'reauth_needed';
+        if (acct.live?.status) return acct.live.status;
+        return 'ok';
+      };
+
+      // Status string (colored) for text rendering
       const statusStr = (acct: typeof infoA): string => {
         if (acct.needsReauth) return chalk.red('reauth needed');
         if (acct.live?.status === 'limit_reached') return chalk.red('limit reached');
         if (acct.live?.status === 'warning') return chalk.yellow('warning');
         return chalk.green('ok');
       };
+
+      // Extract per-model breakdown from live.buckets
+      const perModel = (acct: typeof infoA): ComparePerModelTier[] => {
+        const buckets = acct.live?.buckets;
+        if (!buckets || buckets.length === 0) return [];
+        return buckets.map(b => ({
+          label: b.label,
+          session: b.session ? { utilization: b.session.utilization, resetsAt: b.session.resetsAt } : undefined,
+          weekly: b.weekly ? { utilization: b.weekly.utilization, resetsAt: b.weekly.resetsAt } : undefined,
+        }));
+      };
+
+      // Build a stable JSON-shaped profile snapshot
+      const toPayload = (info: typeof infoA, refName: string): CompareProfilePayload => ({
+        name: refName,
+        commandName: info.commandName,
+        cliType: info.cliType,
+        plan: info.meta.plan ?? null,
+        status: plainStatus(info),
+        needsReauth: !!info.needsReauth,
+        score: smartScore(info),
+        utilization5h: info.live?.utilization5h ?? null,
+        utilization7d: info.live?.utilization7d ?? null,
+        reset5hAt: info.live?.reset5hAt ?? null,
+        reset7dAt: info.live?.reset7dAt ?? null,
+        tokenExpiresAt: info.live?.tokenExpiresAt ?? info.tokenExpiresAt ?? null,
+        tokenStatus: info.live?.tokenStatus ?? info.tokenStatus ?? null,
+        lastActive: info.lastActive ?? null,
+        totalMessages: info.totalMessages,
+        email: info.emailAddress ?? info.activeAccount?.email ?? null,
+        limits: info.meta.limits ?? null,
+        perModel: perModel(info),
+      });
+
+      // JSON path: emit structured payload, suppress text output. JSON
+      // always includes perModel — downstream tools shouldn't need to flip
+      // --per-model on/off to get a complete machine-readable snapshot.
+      if (opts.json) {
+        const payload: ComparePayload = {
+          a: toPayload(infoA, nameA),
+          b: toPayload(infoB, nameB),
+          capturedAt: new Date().toISOString(),
+        };
+        process.stdout.write(JSON.stringify(payload, null, 2) + '\n');
+        return;
+      }
 
       // Column widths
       const colW = 24;
@@ -863,6 +965,35 @@ program
       const msgsA = String(infoA.totalMessages);
       const msgsB = String(infoB.totalMessages);
       console.log(`  ${'Messages:'.padEnd(16)}${padVal(msgsA)}${msgsB}`);
+
+      // Per-model breakdown (opt-in). Renders one row per bucket label that
+      // exists in EITHER profile; missing entries on the other side show as '—'.
+      if (opts.perModel) {
+        const tiersA = perModel(infoA);
+        const tiersB = perModel(infoB);
+        if (tiersA.length === 0 && tiersB.length === 0) {
+          console.log();
+          console.log(chalk.dim('  Per-model: no live bucket data for either profile.'));
+        } else {
+          const labels = Array.from(new Set([...tiersA.map(t => t.label), ...tiersB.map(t => t.label)]));
+          const fmtTier = (tier: ComparePerModelTier | undefined): string => {
+            if (!tier) return '—';
+            const parts: string[] = [];
+            if (tier.session) parts.push(`5h:${Math.round(tier.session.utilization * 100)}%`);
+            if (tier.weekly)  parts.push(`7d:${Math.round(tier.weekly.utilization * 100)}%`);
+            return parts.length ? parts.join(' ') : '—';
+          };
+          console.log();
+          console.log(chalk.bold('  Per-model rate limits:'));
+          console.log(`  ${''.padEnd(16)}${chalk.bold(padVal(nameA))}${chalk.bold(nameB)}`);
+          for (const label of labels) {
+            const tierA = tiersA.find(t => t.label === label);
+            const tierB = tiersB.find(t => t.label === label);
+            const labelTrunc = label.length > 14 ? label.slice(0, 13) + '…' : label;
+            console.log(`  ${(labelTrunc + ':').padEnd(16)}${padVal(fmtTier(tierA))}${fmtTier(tierB)}`);
+          }
+        }
+      }
 
       console.log();
     } catch (error: unknown) {
