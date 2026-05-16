@@ -419,6 +419,16 @@ program
       if (installedDefaults.length === 0 && profiles.length === 0) {
         console.log(chalk.gray('  No workspaces configured. Run'), chalk.bold('sweech add'), chalk.gray('to create one.'));
         lines++;
+      } else {
+        // Point users at the companion view — same content split the
+        // SweechBar menubar uses (Workspaces / Accounts tabs).
+        const vaultCount = (() => {
+          try { return require('./vault').listAccounts().length; } catch { return 0; }
+        })();
+        if (vaultCount > 0) {
+          console.log(chalk.dim(`  · ${vaultCount} OAuth identities in vault — `) + chalk.bold('sweech accounts list'));
+          lines++;
+        }
       }
       return lines;
     };

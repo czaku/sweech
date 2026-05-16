@@ -6,7 +6,11 @@ import AppKit
 /// workspace.
 struct VaultView: View {
     @ObservedObject var service: SweechService
-    @AppStorage("sweechBarTab") private var tab: String = "accounts"
+    // Default to "workspaces" because the primary action in SweechBar
+    // is launching a workspace; accounts are the supporting view. The
+    // AppStorage key is versioned so users who opened the app under
+    // the old account-first default get the new default once.
+    @AppStorage("sweechBarTab_v2") private var tab: String = "workspaces"
 
     /// When non-nil, the assignment sheet is showing for this account.
     @State private var assigningAccount: VaultAccount?
@@ -51,17 +55,18 @@ struct VaultView: View {
 
     private var tabBar: some View {
         HStack(spacing: 0) {
-            tabButton(
-                id: "accounts",
-                icon: "person.crop.circle.fill",
-                title: "Accounts",
-                count: service.vaultAccounts.count
-            )
+            // Workspaces leads — what users are most often here to do.
             tabButton(
                 id: "workspaces",
                 icon: "rectangle.stack.fill",
                 title: "Workspaces",
                 count: service.accounts.count
+            )
+            tabButton(
+                id: "accounts",
+                icon: "person.crop.circle.fill",
+                title: "Accounts",
+                count: service.vaultAccounts.count
             )
         }
         .padding(3)
