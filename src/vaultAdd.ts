@@ -136,7 +136,7 @@ export async function addAnthropicAccount(): Promise<AddAccountResult | AddAccou
   return { ok: true, account: meta, alreadyExisted: !!existing }
 }
 
-interface AnthropicProfile {
+export interface AnthropicProfile {
   email?: string
   displayName?: string
   accountUuid?: string
@@ -145,7 +145,7 @@ interface AnthropicProfile {
   subscriptionType?: string
 }
 
-async function fetchAnthropicProfile(accessToken: string): Promise<AnthropicProfile | null> {
+export async function fetchAnthropicProfile(accessToken: string): Promise<AnthropicProfile | null> {
   const res = await fetch(ANTHROPIC_PROFILE_URL, {
     headers: {
       Authorization: `Bearer ${accessToken}`,

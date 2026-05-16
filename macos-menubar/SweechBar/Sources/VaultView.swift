@@ -165,37 +165,45 @@ private struct AccountsTab: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            ForEach(grouped(), id: \.0) { providerKey, accounts in
-                providerSection(key: providerKey, accounts: accounts)
+            // OAuth identity sections — one grid per kind.
+            ForEach(oauthGroups(), id: \.0) { kind, accounts in
+                providerSection(key: kind, accounts: accounts)
+            }
+            // All external API-key providers in a single flowing grid so
+            // single-tile providers sit side-by-side instead of each
+            // taking a full row.
+            let external = externalTiles()
+            if !external.isEmpty {
+                providerSection(key: "__providers__", accounts: external, header: "Providers")
             }
         }
     }
 
-    /// Returns ordered (providerKey, displayedAccounts) pairs.
-    /// Anthropic + OpenAI vault accounts first; then synthetic "API key"
-    /// tiles for each external provider that has at least one workspace.
-    private func grouped() -> [(String, [VaultAccount])] {
+    private func oauthGroups() -> [(String, [VaultAccount])] {
         var groups: [(String, [VaultAccount])] = []
-
         let anthropic = service.vaultAccounts.filter { $0.kind == "anthropic" }
             .sorted { $0.email < $1.email }
         if !anthropic.isEmpty { groups.append(("anthropic", anthropic)) }
-
         let openai = service.vaultAccounts.filter { $0.kind == "openai" }
             .sorted { $0.email < $1.email }
         if !openai.isEmpty { groups.append(("openai", openai)) }
+        return groups
+    }
 
-        // External providers — synthetic VaultAccounts so we can render
-        // them with the same tile component. id is `ext:<provider>`, status
-        // and expiry are nil (API-key based, no OAuth expiry).
+    /// One synthetic tile per unique external vendor in use, deduped
+    /// across endpoint variants (kimi vs kimi-coding both → "kimi").
+    private func externalTiles() -> [VaultAccount] {
         var seen = Set<String>()
+        var tiles: [VaultAccount] = []
         for ws in service.accounts where ws.isExternal {
-            guard let p = ws.provider, !seen.contains(p) else { continue }
-            seen.insert(p)
-            let synthetic = VaultAccount(
-                accountId: "ext:\(p)",
-                kind: p,
-                email: ws.providerLabel,
+            guard let p = ws.provider else { continue }
+            let canonical = canonicalProviderKey(p)
+            if seen.contains(canonical) { continue }
+            seen.insert(canonical)
+            tiles.append(VaultAccount(
+                accountId: "ext:\(canonical)",
+                kind: canonical,
+                email: TileStyle.label(kind: canonical),
                 displayName: nil,
                 plan: nil,
                 rateLimitTier: nil,
@@ -203,20 +211,31 @@ private struct AccountsTab: View {
                 lastRefreshedAt: nil,
                 expiresAt: nil,
                 status: nil
-            )
-            groups.append((p, [synthetic]))
+            ))
         }
-        return groups
+        return tiles.sorted { $0.email < $1.email }
+    }
+
+    /// Collapse vendor variants so e.g. kimi + kimi-coding both surface
+    /// as one "kimi" tile (same Moonshot key, different API endpoints).
+    private func canonicalProviderKey(_ p: String) -> String {
+        switch p {
+        case "kimi-coding": return "kimi"
+        case "ollama-cloud": return "ollama"
+        default: return p
+        }
     }
 
     @ViewBuilder
-    private func providerSection(key: String, accounts: [VaultAccount]) -> some View {
+    private func providerSection(key: String, accounts: [VaultAccount], header: String? = nil) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
-                Image(systemName: TileStyle.glyph(kind: key))
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(TileStyle.tint(kind: key))
-                Text(TileStyle.label(kind: key))
+                if header == nil {
+                    Image(systemName: TileStyle.glyph(kind: key))
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(TileStyle.tint(kind: key))
+                }
+                Text(header ?? TileStyle.label(kind: key))
                     .font(.system(size: 12, weight: .bold))
                     .foregroundStyle(Sweech.Color.textPrimary)
                 Text("(\(accounts.count))")
@@ -461,27 +480,36 @@ private struct WorkspacesTab: View {
         for ws in service.accounts {
             map[ws.displayGroup, default: []].append(ws)
         }
-        // claude, codex first then external providers alphabetically
         var ordered: [(String, [SweechAccount])] = []
+        // Anthropic-class (claude) + OpenAI-class (codex) each get their
+        // own labelled section.
         for key in ["claude", "codex"] {
             if let list = map.removeValue(forKey: key) {
                 ordered.append((key, list))
             }
         }
-        for key in map.keys.sorted() {
-            ordered.append((key, map[key]!))
+        // Every other workspace (kimi, glm, minimax, dashscope, ollama,
+        // openrouter, …) is collapsed into a single "Providers" section
+        // so single-workspace providers don't each take a full row.
+        let externalKeys = map.keys.sorted()
+        if !externalKeys.isEmpty {
+            let merged = externalKeys.flatMap { map[$0]! }
+            ordered.append(("__providers__", merged))
         }
         return ordered
     }
 
     @ViewBuilder
     private func providerSection(key: String, workspaces: [SweechAccount]) -> some View {
+        let isMerged = key == "__providers__"
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
-                Image(systemName: TileStyle.glyph(kind: key))
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(TileStyle.tint(kind: key))
-                Text(TileStyle.label(kind: key))
+                if !isMerged {
+                    Image(systemName: TileStyle.glyph(kind: key))
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(TileStyle.tint(kind: key))
+                }
+                Text(isMerged ? "Providers" : TileStyle.label(kind: key))
                     .font(.system(size: 12, weight: .bold))
                     .foregroundStyle(Sweech.Color.textPrimary)
                 Text("(\(workspaces.count))")

@@ -182,7 +182,12 @@ function extractCodexEmail(auth: CodexAuthFile): { email?: string; expiresAt?: n
 
 async function importCodexWorkspace(ws: ImportedWorkspace): Promise<ImportResult> {
   const auth = readCodexAuth(ws.configDir)
-  if (!auth || (!auth.tokens && !auth.OPENAI_API_KEY)) {
+  if (!auth) return { workspace: ws, outcome: 'no-credentials' }
+  // Vault only stores OAuth identities. API-key-only profiles (codex
+  // pointed at ollama, openrouter, or any custom proxy) are managed via
+  // `sweech profile` and surface as "API key" tiles in SweechBar's
+  // accounts pane — not as vault entries.
+  if (!auth.tokens?.id_token) {
     return { workspace: ws, outcome: 'no-credentials' }
   }
   const { email, expiresAt, plan } = extractCodexEmail(auth)
@@ -222,7 +227,34 @@ export async function importWorkspaces(workspaces?: ImportedWorkspace[]): Promis
       if (ws.cliType === 'claude') {
         const blob = readClaudeKeychain(ws.configDir)
         if (!blob) { results.push({ workspace: ws, outcome: 'no-credentials' }); continue }
-        const ident = readClaudeIdentity(ws.configDir)
+        // Skip credentials that can't be revived: no refresh token AND
+        // already expired. They're dead — re-auth would create a new
+        // identity anyway, so importing them as anonymous vault entries
+        // just clutters the UI.
+        if (!blob.refreshToken && blob.expiresAt && blob.expiresAt < Date.now()) {
+          results.push({ workspace: ws, outcome: 'no-credentials' })
+          continue
+        }
+        let ident = readClaudeIdentity(ws.configDir)
+        // Default `~/.claude` (and any workspace that hasn't surfaced an
+        // oauthAccount block to .claude.json) has no email on disk. Probe
+        // Anthropic's /oauth/profile endpoint with the keychain access
+        // token to backfill email + accountUuid + plan.
+        if (!ident.email && blob.accessToken) {
+          try {
+            const { fetchAnthropicProfile } = require('./vaultAdd')
+            const profile = await fetchAnthropicProfile(blob.accessToken)
+            if (profile?.email) {
+              ident = {
+                email: profile.email,
+                displayName: profile.displayName ?? ident.displayName,
+                accountUuid: profile.accountUuid ?? ident.accountUuid,
+                billingType: profile.subscriptionType ?? ident.billingType,
+                rateLimitTier: profile.rateLimitTier ?? ident.rateLimitTier,
+              }
+            }
+          } catch {}
+        }
         const email = ident.email || `${ws.commandName}@unknown.local`
         const kind: AccountKind = 'anthropic'
         const id = idFor(kind, email)
