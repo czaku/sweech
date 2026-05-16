@@ -228,19 +228,34 @@ private struct AccountsTab: View {
                 ForEach(accounts) { account in
                     AccountTile(
                         account: account,
-                        workspaceCount: workspaceCount(for: account),
-                        onAssign: { onAssign(account) }
+                        mountedWorkspaces: mountedWorkspaces(for: account),
+                        onAssign: { onAssign(account) },
+                        onReauth: { reauth(account) }
                     )
                 }
             }
         }
     }
 
-    private func workspaceCount(for account: VaultAccount) -> Int {
+    private func mountedWorkspaces(for account: VaultAccount) -> [SweechAccount] {
         if account.accountId.hasPrefix("ext:") {
-            return service.accounts.filter { $0.provider == account.kind }.count
+            return service.accounts.filter { $0.provider == account.kind }
         }
-        return service.accounts.filter { $0.activeAccount?.id == account.id }.count
+        return service.accounts.filter { $0.activeAccount?.id == account.id }
+    }
+
+    private func reauth(_ account: VaultAccount) {
+        // Anthropic = re-run the PKCE flow which updates the existing
+        // vault row by email. OpenAI = guide user through codex login +
+        // import (sweech can't reproduce the ChatGPT-desktop OAuth app).
+        switch account.kind {
+        case "anthropic":
+            SweechService.launchInTerminal(commandName: "sweech accounts add --kind anthropic")
+        case "openai":
+            SweechService.launchInTerminal(commandName: "codex login && sweech accounts import")
+        default:
+            break
+        }
     }
 }
 
@@ -248,96 +263,177 @@ private struct AccountsTab: View {
 
 private struct AccountTile: View {
     let account: VaultAccount
-    let workspaceCount: Int
+    let mountedWorkspaces: [SweechAccount]
     let onAssign: () -> Void
+    let onReauth: () -> Void
 
     private var isExternal: Bool { account.accountId.hasPrefix("ext:") }
     private var tint: Color { TileStyle.tint(kind: account.kind) }
     private var glyph: String { TileStyle.glyph(kind: account.kind) }
+    private var workspaceCount: Int { mountedWorkspaces.count }
+    private var isMounted: Bool { workspaceCount > 0 }
+
+    /// "expired" string from the vault, OR any mounted workspace flagged
+    /// needsReauth, OR explicit org_disabled / unauthorized status.
+    private var needsReauth: Bool {
+        if account.expiryLabel == "expired" { return true }
+        if let s = account.status, ["expired", "unauthorized", "org_disabled"].contains(s) { return true }
+        if mountedWorkspaces.contains(where: { $0.needsReauth == true }) { return true }
+        return false
+    }
+
+    /// Reauth itself is only achievable for OAuth-backed accounts.
+    private var canReauth: Bool { !isExternal }
+
+    /// First mounted workspace with live quota data, used to surface bars
+    /// directly on the account tile (the OAuth identity's rate-limits are
+    /// the same regardless of which workspace it's mounted in).
+    private var representativeUsage: SweechAccount? {
+        mountedWorkspaces.first(where: { $0.live != nil })
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            // Row 1: glyph + identity
-            HStack(spacing: 6) {
-                Image(systemName: glyph)
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(tint)
-                Text(isExternal ? account.email : account.displayEmail)
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(Sweech.Color.textPrimary)
-                    .lineLimit(1)
-                Spacer(minLength: 0)
+            identityRow
+            badgesRow
+            metaRow
+
+            if let ws = representativeUsage {
+                UsageBar(label: "5h", pct: ws.utilization5h)
+                UsageBar(label: "7d", pct: ws.utilization7d)
             }
 
-            // Row 2: plan + auth-type badge
-            HStack(spacing: 4) {
-                if let plan = account.plan {
-                    Text(plan)
-                        .font(.system(size: 9, weight: .bold))
-                        .padding(.horizontal, 5).padding(.vertical, 1)
-                        .background(Sweech.Color.core.opacity(0.15))
-                        .clipShape(Capsule())
-                        .foregroundStyle(Sweech.Color.core)
-                }
-                Text(isExternal ? "API key" : "OAuth")
-                    .font(.system(size: 9, weight: .bold))
-                    .padding(.horizontal, 5).padding(.vertical, 1)
-                    .background(tint.opacity(0.15))
-                    .clipShape(Capsule())
-                    .foregroundStyle(tint)
-                Spacer(minLength: 0)
-            }
-
-            // Row 3: expiry + mounted-in count
-            HStack(spacing: 4) {
-                if let exp = account.expiryLabel {
-                    HStack(spacing: 2) {
-                        Image(systemName: "key.fill").font(.system(size: 8))
-                        Text(exp).font(.system(size: 9))
-                    }
-                    .foregroundStyle(exp == "expired" ? Sweech.Color.danger : Sweech.Color.textMuted)
-                }
-                if let status = account.status, status != "ok", status != "expired" {
-                    Text(status)
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(Sweech.Color.danger)
-                }
-                Spacer(minLength: 0)
-                if workspaceCount > 0 {
-                    HStack(spacing: 2) {
-                        Image(systemName: "rectangle.stack.fill").font(.system(size: 8))
-                        Text("\(workspaceCount)")
-                            .font(.system(size: 9, weight: .medium, design: .monospaced))
-                    }
-                    .foregroundStyle(Sweech.Color.textMuted)
-                    .help("Mounted in \(workspaceCount) workspace(s)")
-                }
-            }
-
-            // Action — only for vault-backed (OAuth) accounts. External
-            // entries are read-only (managed via `sweech profile`).
             if !isExternal {
-                Button(action: onAssign) {
-                    HStack(spacing: 4) {
-                        Image(systemName: "arrow.right.circle.fill")
-                            .font(.system(size: 10))
-                        Text("Assign to workspace…")
-                            .font(.system(size: 10, weight: .semibold))
-                    }
-                    .foregroundStyle(tint)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 4)
-                    .background(tint.opacity(0.12))
-                    .clipShape(RoundedRectangle(cornerRadius: 5))
-                }
-                .buttonStyle(.plain)
+                actionRow
             }
         }
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Sweech.Color.surface.opacity(0.85))
-        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(tint.opacity(0.25), lineWidth: 1))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .strokeBorder(
+                    needsReauth ? Sweech.Color.danger.opacity(0.45) : tint.opacity(0.25),
+                    lineWidth: 1
+                )
+        )
         .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+
+    private var identityRow: some View {
+        HStack(spacing: 6) {
+            Image(systemName: glyph)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(tint)
+            Text(isExternal ? account.email : account.displayEmail)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(Sweech.Color.textPrimary)
+                .lineLimit(1)
+            Spacer(minLength: 0)
+        }
+    }
+
+    private var badgesRow: some View {
+        HStack(spacing: 4) {
+            if let plan = account.plan {
+                Text(plan)
+                    .font(.system(size: 9, weight: .bold))
+                    .padding(.horizontal, 5).padding(.vertical, 1)
+                    .background(Sweech.Color.core.opacity(0.15))
+                    .clipShape(Capsule())
+                    .foregroundStyle(Sweech.Color.core)
+            }
+            Text(isExternal ? "API key" : "OAuth")
+                .font(.system(size: 9, weight: .bold))
+                .padding(.horizontal, 5).padding(.vertical, 1)
+                .background(tint.opacity(0.15))
+                .clipShape(Capsule())
+                .foregroundStyle(tint)
+            Spacer(minLength: 0)
+        }
+    }
+
+    private var metaRow: some View {
+        HStack(spacing: 4) {
+            if let exp = account.expiryLabel {
+                HStack(spacing: 2) {
+                    Image(systemName: "key.fill").font(.system(size: 8))
+                    Text(exp).font(.system(size: 9))
+                }
+                .foregroundStyle(exp == "expired" ? Sweech.Color.danger : Sweech.Color.textMuted)
+            }
+            if let status = account.status, status != "ok", status != "expired" {
+                Text(status)
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(Sweech.Color.danger)
+            }
+            Spacer(minLength: 0)
+            if workspaceCount > 0 {
+                HStack(spacing: 2) {
+                    Image(systemName: "rectangle.stack.fill").font(.system(size: 8))
+                    Text("\(workspaceCount)")
+                        .font(.system(size: 9, weight: .medium, design: .monospaced))
+                }
+                .foregroundStyle(Sweech.Color.textMuted)
+                .help("Mounted in \(workspaceCount) workspace(s)")
+            }
+        }
+    }
+
+    /// Adaptive action row:
+    ///   - needsReauth → primary "Re-authenticate" (danger), secondary
+    ///     "Change assignment" (tint) when already mounted.
+    ///   - mounted but ok → "Change assignment"
+    ///   - not mounted → "Assign to workspace…"
+    @ViewBuilder
+    private var actionRow: some View {
+        if needsReauth && canReauth {
+            HStack(spacing: 6) {
+                tileButton(
+                    icon: "arrow.clockwise.circle.fill",
+                    title: "Re-authenticate",
+                    color: Sweech.Color.danger,
+                    action: onReauth
+                )
+                if isMounted {
+                    tileButton(
+                        icon: "arrow.left.arrow.right.circle.fill",
+                        title: "Change",
+                        color: tint,
+                        action: onAssign
+                    )
+                }
+            }
+        } else if isMounted {
+            tileButton(
+                icon: "arrow.left.arrow.right.circle.fill",
+                title: "Change assignment",
+                color: tint,
+                action: onAssign
+            )
+        } else {
+            tileButton(
+                icon: "arrow.right.circle.fill",
+                title: "Assign to workspace…",
+                color: tint,
+                action: onAssign
+            )
+        }
+    }
+
+    private func tileButton(icon: String, title: String, color: Color, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 4) {
+                Image(systemName: icon).font(.system(size: 10))
+                Text(title).font(.system(size: 10, weight: .semibold))
+            }
+            .foregroundStyle(color)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 4)
+            .background(color.opacity(0.12))
+            .clipShape(RoundedRectangle(cornerRadius: 5))
+        }
+        .buttonStyle(.plain)
     }
 }
 
