@@ -40,7 +40,7 @@ import {
   accountIdForApiKey,
   getProviderById,
 } from './providerModel'
-import { listAccountsV2, saveAccountsV2 } from './vault'
+import { listAccountsV2, saveAccountsV2, withVaultLockExternal } from './vault'
 
 /** Keychain service name reused by every API-key entry in the v2 vault. */
 const KEYCHAIN_SERVICE = 'sweech-api-key'
@@ -197,26 +197,29 @@ export async function addApiKeyAccount(
     }
   }
 
-  // Code-review (MUST-FIX): the lock-protected read-merge-write was
-  // attempted but the vault.ts export it needed didn't land in the
-  // same commit. Reverted to original two-read pattern; race fix
-  // tracked as a follow-up — see HANDOFF.
-  const existing = listAccountsV2().find(a => a.kind === 'apikey' && a.id === id)
-  const account: ApiKeyAccount = {
-    kind: 'apikey',
-    provider: opts.provider,
-    id,
-    label: opts.label?.trim() || undefined,
-    addedAt: existing?.addedAt ?? new Date().toISOString(),
-    keyRef: {
-      service: KEYCHAIN_SERVICE,
-      account: id,
-    },
-  }
-  const all = listAccountsV2()
-  const others = all.filter(a => !(a.kind === 'apikey' && a.id === id))
-  const next: Account[] = [...others, account]
-  saveAccountsV2(next)
+  // Code-review + security-review (HIGH): read-modify-write inside the
+  // vault lock so two concurrent `sweech accounts add` invocations can't
+  // race — each would otherwise compute next = [...stale, mine] and the
+  // second write would erase the first's row.
+  const result = withVaultLockExternal(() => {
+    const all = listAccountsV2()
+    const existing = all.find(a => a.kind === 'apikey' && a.id === id)
+    const account: ApiKeyAccount = {
+      kind: 'apikey',
+      provider: opts.provider,
+      id,
+      label: opts.label?.trim() || undefined,
+      addedAt: existing?.addedAt ?? new Date().toISOString(),
+      keyRef: {
+        service: KEYCHAIN_SERVICE,
+        account: id,
+      },
+    }
+    const others = all.filter(a => !(a.kind === 'apikey' && a.id === id))
+    const next: Account[] = [...others, account]
+    saveAccountsV2(next)
+    return { account, alreadyExisted: !!existing }
+  })
 
-  return { ok: true, account, alreadyExisted: !!existing }
+  return { ok: true, account: result.account, alreadyExisted: result.alreadyExisted }
 }

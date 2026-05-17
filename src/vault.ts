@@ -300,9 +300,30 @@ export function migrateV1ToV2(legacy: AccountMeta[]): V2VaultFile {
   const accounts: V2Entry[] = []
 
   // ── 1. OAuth rows ──────────────────────────────────────────────────────────
+  //
+  // Codex (HIGH): the original migration trusted every v1 row, so a
+  // corrupted/partial entry (missing `id`, wrong `kind` like 'unknown',
+  // empty `email`) would produce invalid v2 rows with refs like
+  // `sweech-vault-undefined-undefined`, then crash later callers that
+  // assume non-null. Validate strictly here: require id + valid kind
+  // (anthropic|openai) + non-empty email. Skip bad rows + audit.
   let oauthRetained = 0
+  const oauthSkipped: { reason: string; row: Partial<AccountMeta> }[] = []
   for (const m of legacy) {
-    const accountKind = m.kind
+    const rawKind = (m as Partial<AccountMeta>).kind
+    if (rawKind !== 'anthropic' && rawKind !== 'openai') {
+      oauthSkipped.push({ reason: `unknown kind: ${JSON.stringify(rawKind)}`, row: m })
+      continue
+    }
+    if (typeof m.id !== 'string' || m.id.length === 0) {
+      oauthSkipped.push({ reason: 'missing or empty id', row: m })
+      continue
+    }
+    if (typeof m.email !== 'string' || m.email.length === 0) {
+      oauthSkipped.push({ reason: 'missing or empty email', row: m })
+      continue
+    }
+    const accountKind = rawKind
     const provider: 'anthropic' | 'openai' = accountKind === 'anthropic' ? 'anthropic' : 'openai'
     accounts.push({
       kind: 'oauth',
@@ -315,7 +336,7 @@ export function migrateV1ToV2(legacy: AccountMeta[]): V2VaultFile {
       orgName: m.orgName,
       plan: m.plan,
       rateLimitTier: m.rateLimitTier,
-      addedAt: m.addedAt,
+      addedAt: m.addedAt ?? new Date().toISOString(),
       lastRefreshedAt: m.lastRefreshedAt,
       expiresAt: m.expiresAt,
       status: m.status,
@@ -410,6 +431,8 @@ export function migrateV1ToV2(legacy: AccountMeta[]): V2VaultFile {
         fromVersion: 1,
         toVersion: 2,
         oauthRetained,
+        oauthSkipped: oauthSkipped.length,
+        oauthSkippedReasons: oauthSkipped.map(s => s.reason),
         apikeyAdded,
         noneAdded,
         note: 'wave-6 T-070 — Provider/Account/Workspace unification',
@@ -622,13 +645,27 @@ export function saveAccountsV2(accounts: import('./providerModel').Account[]): v
  * Acquire an advisory file lock on accounts.json so two concurrent
  * sweech invocations can't both read-modify-write the vault and lose
  * one of their rows. Uses an O_EXCL flag file in the same dir; spins
- * with backoff for up to ~2s, then bypasses (better than deadlocking).
+ * with backoff for up to ~2s, then throws.
  *
- * Codex adversarial review (HIGH) flagged the previous lock-free
- * read-modify-write as a real data-loss race.
+ * Codex adversarial review (HIGH x2):
+ * - Previous lock-free read-modify-write was a data-loss race (now fixed).
+ * - Previous timeout fall-through ran fn() without owning the lock AND
+ *   unlinked the lock file on exit — silently stealing it from whoever
+ *   actually held it. Now we throw on timeout; if we didn't acquire,
+ *   we don't unlink.
+ *
+ * Reentrancy: the lock is process-wide via a module-level depth counter.
+ * Nested withVaultLock calls from the same process bypass file I/O,
+ * preventing the self-deadlock that codex flagged when callers like
+ * vaultAddApiKey wrapped a saveAccountsV2 (which itself takes the lock).
  */
 const LOCK_FILE = path.join(SWEECH_DIR, 'accounts.lock')
+let __vaultLockDepth = 0
 function withVaultLock<T>(fn: () => T): T {
+  if (__vaultLockDepth > 0) {
+    __vaultLockDepth++
+    try { return fn() } finally { __vaultLockDepth-- }
+  }
   fs.mkdirSync(SWEECH_DIR, { recursive: true, mode: 0o700 })
   const deadline = Date.now() + 2000
   let fd: number | null = null
@@ -638,7 +675,6 @@ function withVaultLock<T>(fn: () => T): T {
       break
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === 'EEXIST') {
-        // Stale lock detection: if the lock is >10s old, steal it.
         try {
           const st = fs.statSync(LOCK_FILE)
           if (Date.now() - st.mtimeMs > 10_000) {
@@ -646,8 +682,6 @@ function withVaultLock<T>(fn: () => T): T {
             continue
           }
         } catch {}
-        // Brief sleep via Atomics.wait on a SharedArrayBuffer view.
-        // No setTimeout because we're sync — yield by busy-wait.
         const until = Date.now() + 25
         while (Date.now() < until) { /* spin */ }
         continue
@@ -655,14 +689,25 @@ function withVaultLock<T>(fn: () => T): T {
       throw err
     }
   }
+  if (fd === null) {
+    throw new Error(`vault lock timeout: could not acquire ${LOCK_FILE} within 2s`)
+  }
+  __vaultLockDepth = 1
   try {
     return fn()
   } finally {
-    if (fd !== null) {
-      try { fs.closeSync(fd) } catch {}
-    }
+    __vaultLockDepth = 0
+    try { fs.closeSync(fd) } catch {}
     try { fs.unlinkSync(LOCK_FILE) } catch {}
   }
+}
+
+/** Public lock helper for external callers that need to atomically
+ * read-then-write across multiple v2 vault calls (e.g. vaultAddApiKey,
+ * which would otherwise race on listAccountsV2 → ...mutate... → saveAccountsV2).
+ * Internally piggybacks on the same file lock used by saveAccount/save*. */
+export function withVaultLockExternal<T>(fn: () => T): T {
+  return withVaultLock(fn)
 }
 
 // ── Public API ───────────────────────────────────────────────────────────────

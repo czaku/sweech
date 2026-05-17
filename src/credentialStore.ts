@@ -46,20 +46,24 @@ export class MacOSKeychainStore implements CredentialStore {
   }
 
   async set(service: string, account: string, password: string): Promise<void> {
-    // Security review (HIGH): the previous shell-based exec put the
-    // password in argv where any concurrent `ps auxe` / EDR / audit
-    // tool could harvest it. spawnSync with the password on stdin
-    // keeps the secret bytes out of the process listing entirely.
-    // The `-w` flag with no inline argument makes `security` read the
-    // password from stdin (followed by a newline).
+    // Security review + codex (HIGH): never put the password in argv —
+    // `ps auxe` / EDR / audit tools would harvest it. `security
+    // add-generic-password -w` with no inline value opens an interactive
+    // prompt that requires the password TWICE (entry + confirmation),
+    // so we pipe `password\npassword\n` on stdin.
+    //
+    // Verified on macOS: `printf "%s\n%s\n" "$pw" "$pw" | security
+    // add-generic-password -U -s ... -a ... -w` round-trips correctly
+    // via `security find-generic-password -w`.
     const { spawnSync } = require('node:child_process') as typeof import('node:child_process')
     const r = spawnSync(
       'security',
       ['add-generic-password', '-U', '-s', service, '-a', account, '-w'],
-      { input: password + '\n', stdio: ['pipe', 'ignore', 'pipe'] },
+      { input: password + '\n' + password + '\n', stdio: ['pipe', 'ignore', 'pipe'] },
     )
     if (r.status !== 0) {
-      throw new Error(`Failed to write credential for service="${service}" account="${account}" to macOS Keychain`)
+      const stderr = r.stderr ? r.stderr.toString().trim() : ''
+      throw new Error(`Failed to write credential for service="${service}" account="${account}" to macOS Keychain${stderr ? ': ' + stderr : ''}`)
     }
   }
 
