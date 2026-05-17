@@ -134,7 +134,9 @@ describe('System Command Detection', () => {
     });
 
     test('allows safe command names', async () => {
-      const result = await validateCommandName('claude-mini');
+      // Avoid `claude-mini`: devs alias it to a profile wrapper. Use a
+      // name that can't exist on PATH so the assertion is hermetic.
+      const result = await validateCommandName('sweech-test-xyz-7f3a92-allow');
       expect(result.valid).toBe(true);
       expect(result.error).toBeUndefined();
     });
@@ -206,11 +208,14 @@ describe('System Command Detection', () => {
     });
 
     test('returns no warning for safe custom commands', async () => {
+      // These names must NOT exist on any developer's PATH. Don't use
+      // `claude-mini` or `minimax` — devs alias them to their profile
+      // wrappers and the test would fail on their machines.
       const safeCommands = [
-        'claude-mini',
-        'minimax',
-        'qwen-work',
-        'my-custom-ai-123'
+        'sweech-test-xyz-7f3a92-name-a',
+        'sweech-test-xyz-7f3a92-name-b',
+        'my-custom-ai-zzz9988',
+        'definitely-not-on-path-abc-321',
       ];
 
       for (const cmd of safeCommands) {

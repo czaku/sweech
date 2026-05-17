@@ -480,8 +480,11 @@ describe('render output', () => {
     const state = makeState({ grouped: true });
     const result = render(entries, state);
     const bodyStr = stripAnsi(result.body.join('\n'));
-    expect(bodyStr).toContain('Claude (Anthropic)');
-    expect(bodyStr).toContain('Codex (OpenAI)');
+    // launcher.ts:448 uses terse labels (Claude / Codex / Kimi) — the
+    // CLI TUI has limited horizontal space. The menu bar app uses the
+    // fuller "Anthropic" / "OpenAI" form.
+    expect(bodyStr).toContain('Claude');
+    expect(bodyStr).toContain('Codex');
   });
 
   test('ungrouped mode does not show provider section headers', () => {
