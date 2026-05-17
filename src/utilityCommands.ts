@@ -400,6 +400,48 @@ export async function runDoctor(): Promise<void> {
     }
   }
 
+  // Billing section — surface upcoming charges + lapsed subscriptions
+  // so the user can spot "claude-ted is canceled but still mounted"
+  // type problems. Billing data is populated by `sweech billing scan`
+  // (auto-discovered from local mail via mailscan) and/or `sweech
+  // billing set` for manual overrides. Skipped silently if no entries.
+  try {
+    const { readBillingFile, daysUntilNextBill, compareByNextBilling } = require('./billing') as typeof import('./billing');
+    const billing = readBillingFile();
+    const entries = Object.values(billing.entries).sort(compareByNextBilling);
+    if (entries.length > 0) {
+      console.log(chalk.bold('\nBilling:'));
+      for (const entry of entries) {
+        const days = daysUntilNextBill(entry);
+        if (entry.status === 'canceled') {
+          console.log(chalk.red(`  ✗ ${entry.vendor} ${entry.email}: canceled`));
+          severities.push('warn');
+        } else if (entry.status === 'will_not_renew') {
+          console.log(chalk.yellow(`  ⚠ ${entry.vendor} ${entry.email}: will not renew`));
+          severities.push('warn');
+        } else if (days !== null && days < 0) {
+          console.log(chalk.red(`  ✗ ${entry.vendor} ${entry.email}: bill overdue by ${-days}d (next ${entry.nextBillingAt})`));
+          severities.push('warn');
+        } else if (days !== null && days <= 7) {
+          console.log(chalk.yellow(`  ⚠ ${entry.vendor} ${entry.email}: bills in ${days}d (${entry.nextBillingAt})`));
+          severities.push('ok');
+        } else if (entry.nextBillingAt) {
+          console.log(chalk.green(`  ✓ ${entry.vendor} ${entry.email}: bills in ${days}d (${entry.nextBillingAt})`));
+          severities.push('ok');
+        } else {
+          console.log(chalk.dim(`  · ${entry.vendor} ${entry.email}: ${entry.status}`));
+          severities.push('ok');
+        }
+      }
+      if (billing.lastScannedAt) {
+        console.log(chalk.dim(`    last scan: ${billing.lastScannedAt}`));
+      }
+    }
+  } catch (err) {
+    // Billing is best-effort; never fail the doctor on a billing
+    // read error.
+  }
+
   // Check credential freshness (OAuth tokens in Keychain)
   console.log(chalk.bold('\nCredentials:'));
   const reauthNeeded: string[] = [];

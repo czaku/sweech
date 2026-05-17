@@ -156,6 +156,45 @@ export function createSweechFedServer(port: number): http.Server {
       return
     }
 
+    if (pathname === '/fed/billing') {
+      // Per-account billing snapshot for SweechBar's Vault tab. Sourced
+      // from ~/.sweech/billing.json (populated via `sweech billing
+      // scan` or `sweech billing set`). Stable shape matches
+      // src/billing.ts BillingFile contract.
+      try {
+        const { readBillingFile, daysUntilNextBill } = require('./billing') as typeof import('./billing');
+        const file = readBillingFile();
+        const entries = Object.values(file.entries).map(e => ({
+          vendor: e.vendor,
+          email: e.email,
+          status: e.status,
+          plan: e.plan,
+          billingDay: e.billingDay,
+          lastPaidAt: e.lastPaidAt,
+          nextBillingAt: e.nextBillingAt,
+          daysUntilNextBill: daysUntilNextBill(e),
+          source: e.source,
+          updatedAt: e.updatedAt,
+          note: e.note ?? null,
+        }))
+        sendJson(res, 200, {
+          schemaVersion: 'sweech.billing.v1',
+          producer: 'sweech',
+          lastScannedAt: file.lastScannedAt ?? null,
+          entries,
+        })
+      } catch (err) {
+        sendJson(res, 200, {
+          schemaVersion: 'sweech.billing.v1',
+          producer: 'sweech',
+          lastScannedAt: null,
+          entries: [],
+          error: err instanceof Error ? err.message : String(err),
+        })
+      }
+      return
+    }
+
     if (pathname === '/fed/runs') {
       const profiles = getProfiles()
       const accounts = await getAccountInfo(getKnownAccounts(profiles))
