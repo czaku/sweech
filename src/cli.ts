@@ -34,7 +34,8 @@ import { isTmuxAvailable, launchInTmux } from './tmux';
 import { buildLaunchArgs, shouldUseTmux, SWEECH_LAUNCH_FLAGS } from './launchCommand';
 import { getAccountInfo, getKnownAccounts, setMeta } from './subscriptions';
 import { kickBackgroundRefresh } from './backgroundRefresh';
-import { recommendRoute } from './accountSelector';
+import { recommendRoute, suggestBestAccount } from './accountSelector';
+import { buildAutoCommandJson, buildAutoExecEnv, noProfileErrorMessage } from './autoCommand';
 import { appendSnapshot, allAccountSparklines } from './usageHistory';
 import { recordProjectionSamples, getAccountProjection, formatEta } from './quotaProjection';
 import { startSweechFedServerWithShutdown } from './fedServer';
@@ -4143,6 +4144,62 @@ program
       if (info.error) parts.push(chalk.red(`error: ${info.error}`));
       console.log('  ' + head + parts.join(' · '));
     }
+    console.log();
+  });
+
+// ── sweech auto ────────────────────────────────────────────────────────────
+// Pick the highest-scoring account across all CLIs (or filter by --cli) and
+// either print `sweech use X` or spawn the CLI directly with --exec.
+// Replaces the habit of `sweech use <pick-one-manually>` — type `sweech auto`
+// and land on the best-available profile by current rate-limit headroom.
+program
+  .command('auto')
+  .description('Pick the best available profile and launch (or print the launch command)')
+  .option('--cli <type>', 'Restrict to a specific CLI: claude | codex | kimi')
+  .option('--json', 'Machine-readable output (for scripts)')
+  .option('--exec', 'Spawn the CLI directly instead of printing the command')
+  .action(async (opts: { cli?: string; json?: boolean; exec?: boolean }) => {
+    const config = new ConfigManager();
+    const profiles = config.getProfiles();
+    const recommendation = await suggestBestAccount(opts.cli, profiles);
+
+    if (!recommendation) {
+      const message = noProfileErrorMessage(opts.cli);
+      if (opts.json) {
+        process.stdout.write(JSON.stringify({ error: message }) + '\n');
+      } else {
+        console.error(chalk.red(`\n  No available profile${opts.cli ? ` for --cli ${opts.cli}` : ''} (all rate-limited or need re-auth).\n`));
+      }
+      process.exit(1);
+    }
+
+    const pick = recommendation.account;
+    const json = buildAutoCommandJson(recommendation);
+
+    if (opts.json) {
+      process.stdout.write(JSON.stringify(json, null, 2) + '\n');
+      return;
+    }
+
+    if (opts.exec) {
+      const cli = getCLI(pick.cliType);
+      if (!cli) {
+        console.error(chalk.red(`Unknown cliType '${pick.cliType}' — cannot --exec`));
+        process.exit(1);
+      }
+      const { spawn } = require('child_process');
+      const env = buildAutoExecEnv(cli, pick.configDir, process.env);
+      const child = spawn(cli.command, [], { env, stdio: 'inherit' });
+      child.on('exit', (code: number) => process.exit(code ?? 0));
+      return;
+    }
+
+    console.log(chalk.bold('\n  sweech · auto (best pick)\n'));
+    console.log(`  profile  : ${chalk.bold(pick.commandName)}`);
+    console.log(`  cli      : ${pick.cliType}`);
+    console.log(`  reason   : ${chalk.dim(recommendation.reason)}`);
+    console.log(`  launch   : ${chalk.cyan(json.command)}\n`);
+    console.log(chalk.dim('  Tip: sweech auto --exec  → spawn the CLI directly.'));
     console.log();
   });
 
