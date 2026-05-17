@@ -17,6 +17,7 @@ import { execSync, execFileSync } from 'child_process'
 import { isMacOS } from './platform'
 import { readCredential, computeKeychainServiceName } from './credentialStore'
 import { getAnthropicClientId } from './anthropicAuth'
+import { atomicWriteFileSync } from './atomicWrite'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -149,7 +150,9 @@ export function computeTier(account: ScorableAccount, isTopInGroup: boolean): { 
 
 // ── Cache ─────────────────────────────────────────────────────────────────────
 
-const CACHE_FILE = path.join(os.homedir(), '.sweech', 'rate-limit-cache.json')
+const SWEECH_DIR = path.join(os.homedir(), '.sweech')
+const CACHE_FILE = path.join(SWEECH_DIR, 'rate-limit-cache.json')
+const CACHE_LOCK = path.join(SWEECH_DIR, 'rate-limit-cache.lock')
 const CACHE_TTL_MS = 5 * 60 * 1000  // 5 minutes
 
 interface CacheStore {
@@ -165,11 +168,75 @@ function readCache(): CacheStore {
 }
 
 function writeCache(store: CacheStore): void {
-  fs.mkdirSync(path.join(os.homedir(), '.sweech'), { recursive: true, mode: 0o700 })
-  fs.writeFileSync(CACHE_FILE, JSON.stringify(store, null, 2))
+  fs.mkdirSync(SWEECH_DIR, { recursive: true, mode: 0o700 })
+  // atomicWriteFileSync uses a temp file + rename, so readers always see a
+  // complete file (either pre- or post-write), never a partial JSON. Closes
+  // the codex MEDIUM where a kill mid-fs.writeFileSync produced empty cache.
+  atomicWriteFileSync(CACHE_FILE, JSON.stringify(store, null, 2))
+}
+
+/**
+ * O_EXCL flag-file lock for the cache's read-modify-write window. Unlike
+ * the vault lock (which throws on timeout because data loss is unacceptable),
+ * the cache lock degrades gracefully — if we can't get the lock in 2s we
+ * fall through with a stderr warning rather than block. The cache has a
+ * 5-min TTL and regenerates on miss, so worst case the next `usage --refresh`
+ * does the work again. Hangs in the menu bar would be much worse.
+ *
+ * Codex (MEDIUM): without this, two concurrent `usage --refresh` invocations
+ * (e.g. the menu bar's `forceRefresh()` racing with `sweech usage` from a
+ * shell) interleave read→modify→write and the slower writer silently
+ * overwrites the faster one's entry.
+ */
+let __cacheLockDepth = 0
+function withCacheLock<T>(fn: () => T): T {
+  if (__cacheLockDepth > 0) {
+    __cacheLockDepth++
+    try { return fn() } finally { __cacheLockDepth-- }
+  }
+  fs.mkdirSync(SWEECH_DIR, { recursive: true, mode: 0o700 })
+  const deadline = Date.now() + 2000
+  let fd: number | null = null
+  while (Date.now() < deadline) {
+    try {
+      fd = fs.openSync(CACHE_LOCK, 'wx', 0o600)
+      break
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'EEXIST') {
+        try {
+          const st = fs.statSync(CACHE_LOCK)
+          if (Date.now() - st.mtimeMs > 10_000) {
+            // Stale lock from a crashed process — reclaim.
+            fs.unlinkSync(CACHE_LOCK)
+            continue
+          }
+        } catch { /* lock disappeared mid-stat, retry */ }
+        const until = Date.now() + 25
+        while (Date.now() < until) { /* short spin */ }
+        continue
+      }
+      throw err
+    }
+  }
+  if (fd === null) {
+    // Cache is non-critical — degrade gracefully rather than hang the bar.
+    process.stderr.write('[sweech] WARN: rate-limit-cache lock timeout after 2s — proceeding unlocked\n')
+    return fn()
+  }
+  __cacheLockDepth = 1
+  try {
+    return fn()
+  } finally {
+    __cacheLockDepth = 0
+    try { fs.closeSync(fd) } catch {}
+    try { fs.unlinkSync(CACHE_LOCK) } catch {}
+  }
 }
 
 export function getCached(configDir: string): LiveRateLimitData | null {
+  // Readers don't need the lock: atomicWriteFileSync guarantees the file
+  // is either pre- or post-write, never partial — so JSON.parse can't
+  // observe a half-written state. The 5-min TTL bounds staleness.
   const store = readCache()
   const entry = store[configDir]
   if (!entry) return null
@@ -185,9 +252,11 @@ export function getStaleCache(configDir: string): LiveRateLimitData | null {
 }
 
 function setCached(configDir: string, data: LiveRateLimitData): void {
-  const store = readCache()
-  store[configDir] = data
-  writeCache(store)
+  withCacheLock(() => {
+    const store = readCache()
+    store[configDir] = data
+    writeCache(store)
+  })
 }
 
 // ── Keychain ──────────────────────────────────────────────────────────────────
