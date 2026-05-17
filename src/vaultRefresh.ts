@@ -85,6 +85,12 @@ async function refreshAccount(meta: AccountMeta): Promise<RefreshResult> {
   if (!secret) {
     return { email: meta.email, kind: meta.kind, outcome: 'failed', error: 'No stored secret' }
   }
+  // Code-review (SHOULD-FIX): meta.kind reads the LEGACY `AccountMeta` shape
+  // exposed by readMeta() — which v2 reconstructs as 'anthropic'|'openai'
+  // for backwards-compat. If a future caller switches to listAccountsV2()
+  // and passes those rows here, kind would be 'oauth' and this branch
+  // would silently take the OpenAI refresh path. Always go through readMeta
+  // for refresh callers, or migrate this fn to use accountKind explicitly.
   if (meta.kind === 'anthropic') {
     return refreshAnthropic(meta, secret as AnthropicSecret)
   }

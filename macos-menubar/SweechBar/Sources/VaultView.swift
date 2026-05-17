@@ -15,6 +15,24 @@ struct VaultView: View {
     /// When non-nil, the assignment sheet is showing for this account.
     @State private var assigningAccount: VaultAccount?
 
+    /// Count of distinct providers across the workspace list. Matches what
+    /// the Providers tab actually renders: 2 OAuth-class buckets (anthropic
+    /// + openai) when any account exists for each, plus one per unique
+    /// canonical external provider.
+    private var distinctProviderCount: Int {
+        var seen = Set<String>()
+        for ws in service.accounts {
+            // Workspaces routing through the claude/codex CLI to a third-party
+            // upstream count toward that upstream — not toward anthropic/openai.
+            if ws.isExternal {
+                seen.insert("ext:\(ws.realProvider)")
+            } else {
+                seen.insert(ws.cliType == "claude" ? "anthropic" : "openai")
+            }
+        }
+        return seen.count
+    }
+
     /// When both lists are empty, a brand-new user has nothing to look at —
     /// two empty grids with no guidance. Surface an onboarding view that
     /// points them at `sweech init` / `sweech accounts import` instead.
@@ -80,17 +98,22 @@ struct VaultView: View {
     private var tabBar: some View {
         HStack(spacing: 0) {
             // Workspaces leads — what users are most often here to do.
+            // Count = total workspaces across all sections (Anthropic + OpenAI
+            // + external providers).
             tabButton(
                 id: "workspaces",
                 icon: "rectangle.stack.fill",
                 title: "Workspaces",
                 count: service.accounts.count
             )
+            // Providers count = distinct provider groups across workspaces
+            // (anthropic, openai, alibaba, glm, kimi, ...) — NOT the count
+            // of vault OAuth identities, which was misleading.
             tabButton(
                 id: "accounts",
                 icon: "person.crop.circle.fill",
                 title: "Providers",
-                count: service.vaultAccounts.count
+                count: distinctProviderCount
             )
         }
         .padding(3)
@@ -862,7 +885,16 @@ private struct WorkspacesTab: View {
     }
 
     private func compatibleAccounts(for ws: SweechAccount) -> [VaultAccount] {
-        let kind = ws.cliType == "claude" ? "anthropic" : "openai"
+        // Code-review (SHOULD-FIX): the previous `?: "openai"` fallback
+        // would surface OpenAI accounts as compatible for any non-claude
+        // CLI — including `kimi`, where no OAuth-vault account applies.
+        // Now we map explicitly and return empty for unknown CLIs.
+        let kind: String
+        switch ws.cliType {
+        case "claude": kind = "anthropic"
+        case "codex":  kind = "openai"
+        default:       return []
+        }
         return service.vaultAccounts
             .filter { $0.effectiveKind == kind }
             .sorted { $0.email < $1.email }

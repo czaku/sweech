@@ -278,7 +278,16 @@ function parseAccountsFile(): ParsedAccounts {
 function persistV2File(file: V2VaultFile): void {
   fs.mkdirSync(SWEECH_DIR, { recursive: true, mode: 0o700 })
   atomicWriteFileSync(ACCOUNTS_FILE, JSON.stringify(file, null, 2))
-  try { fs.chmodSync(ACCOUNTS_FILE, 0o600) } catch {}
+  // Code-review (SHOULD-FIX): previously this swallowed the chmod error
+  // silently — on weird filesystems (network home dirs, RO mounts post-write)
+  // the vault could end up world-readable without any signal. Now we log
+  // to stderr so a user / CI can see it happened.
+  try {
+    fs.chmodSync(ACCOUNTS_FILE, 0o600)
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    process.stderr.write(`[sweech] WARN: chmod 0600 on ${ACCOUNTS_FILE} failed: ${msg}\n`)
+  }
 }
 
 /**
