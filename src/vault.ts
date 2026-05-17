@@ -116,18 +116,43 @@ export type AccountSecret = AnthropicSecret | OpenAISecret
 
 // ── Paths ────────────────────────────────────────────────────────────────────
 
+/**
+ * Resolve the effective home directory for vault paths.
+ *
+ * Order of resolution:
+ *   1. `SWEECH_HOME` env var (escape hatch for tests + unusual deploys)
+ *   2. `os.homedir()` (the real path on this machine)
+ *
+ * History: a prior incident had jest tests silently writing to the
+ * developer's REAL ~/.sweech/accounts.json and clearing real workspace
+ * markers under ~/.claude-X/.sweech-account. `SWEECH_HOME` lets tests
+ * override the vault root without depending on module mocks, which is
+ * the belt-and-braces fix.
+ *
+ * In production `SWEECH_HOME` is unset and we fall through to `os.homedir()`.
+ */
+export function vaultHome(): string {
+  return process.env.SWEECH_HOME || os.homedir()
+}
+
 // Paths resolved lazily so jest.mock('node:os') tests that set a mocked
 // homedir AFTER vault.ts loads (the usual pattern) hit the mocked dir
-// instead of the real ~/.sweech/. A prior version captured these at
-// module-load time and silently wrote test data to the developer's
-// real vault. Functions instead of constants — the cost is negligible
-// (one path.join per call) and the safety is meaningful.
-function sweechDir(): string { return path.join(os.homedir(), '.sweech') }
+// instead of the real ~/.sweech/. See vaultHome() above for the
+// belt-and-braces story.
+function sweechDir(): string { return path.join(vaultHome(), '.sweech') }
 function accountsFile(): string { return path.join(sweechDir(), 'accounts.json') }
 
-/** Marker file inside a workspace pointing at the active account id. */
+/**
+ * Marker file inside a workspace pointing at the active account id.
+ *
+ * Honours `SWEECH_HOME` via `vaultHome()` so a test that sets the env
+ * var cannot accidentally write to a real `~/.<workspace>/.sweech-account`
+ * file on the developer's machine. The May 2026 incident where claude-pole,
+ * claude-ted, claude-ali, and codex-ollama markers got cleared by a test
+ * suite is exactly what this guards against.
+ */
 export function workspaceMarkerPath(workspaceCommandName: string): string {
-  return path.join(os.homedir(), `.${workspaceCommandName}`, '.sweech-account')
+  return path.join(vaultHome(), `.${workspaceCommandName}`, '.sweech-account')
 }
 
 // ── Id derivation ────────────────────────────────────────────────────────────

@@ -71,7 +71,14 @@ import {
 
 function isolateHome(): string {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'sweech-acct-test-'));
+  // Set BOTH the homedir mock AND the SWEECH_HOME env var. Either alone
+  // would close the most common failure mode, but the May 2026 incident
+  // taught us not to trust any single mechanism — a missing mock on a
+  // new module specifier, or a const captured at module load, was enough
+  // to redirect writes to the real ~/.sweech/. The env var is the
+  // belt; the mock is the braces.
   setHomedir(home);
+  process.env.SWEECH_HOME = home;
   fs.mkdirSync(path.join(home, '.sweech'), { recursive: true, mode: 0o700 });
   return home;
 }
@@ -93,7 +100,7 @@ async function seedAnthropic(email: string, orgId?: string): Promise<AccountMeta
 describe('resolveAccount', () => {
   let home: string;
   beforeEach(() => { home = isolateHome(); credStore.clear(); });
-  afterEach(() => { fs.rmSync(home, { recursive: true, force: true }); setHomedir(null); });
+  afterEach(() => { fs.rmSync(home, { recursive: true, force: true }); setHomedir(null); delete process.env.SWEECH_HOME; });
 
   test('by 12-char id', async () => {
     const a = await seedAnthropic('a@b.c');
@@ -130,7 +137,7 @@ describe('resolveAccount', () => {
 describe('setAccountHidden', () => {
   let home: string;
   beforeEach(() => { home = isolateHome(); credStore.clear(); });
-  afterEach(() => { fs.rmSync(home, { recursive: true, force: true }); setHomedir(null); });
+  afterEach(() => { fs.rmSync(home, { recursive: true, force: true }); setHomedir(null); delete process.env.SWEECH_HOME; });
 
   test('hide → persists hidden=true', async () => {
     const a = await seedAnthropic('a@b.c');
@@ -166,7 +173,7 @@ describe('setAccountHidden', () => {
 describe('logoutAccount — decoupling contract', () => {
   let home: string;
   beforeEach(() => { home = isolateHome(); credStore.clear(); });
-  afterEach(() => { fs.rmSync(home, { recursive: true, force: true }); setHomedir(null); });
+  afterEach(() => { fs.rmSync(home, { recursive: true, force: true }); setHomedir(null); delete process.env.SWEECH_HOME; });
 
   test('drops keychain secret + clears markers + sets status=unauthorized', async () => {
     const a = await seedAnthropic('a@b.c');
@@ -205,7 +212,7 @@ describe('logoutAccount — decoupling contract', () => {
 describe('deleteAccount — decoupling contract', () => {
   let home: string;
   beforeEach(() => { home = isolateHome(); credStore.clear(); });
-  afterEach(() => { fs.rmSync(home, { recursive: true, force: true }); setHomedir(null); });
+  afterEach(() => { fs.rmSync(home, { recursive: true, force: true }); setHomedir(null); delete process.env.SWEECH_HOME; });
 
   test('removes account row + secret; clears markers; LEAVES workspace dir intact', async () => {
     const a = await seedAnthropic('ted@anthropic.test');
@@ -268,7 +275,7 @@ describe('deleteAccount — decoupling contract', () => {
 describe('editAccount', () => {
   let home: string;
   beforeEach(() => { home = isolateHome(); credStore.clear(); });
-  afterEach(() => { fs.rmSync(home, { recursive: true, force: true }); setHomedir(null); });
+  afterEach(() => { fs.rmSync(home, { recursive: true, force: true }); setHomedir(null); delete process.env.SWEECH_HOME; });
 
   test('updates displayName + plan; leaves id/kind/email untouched', async () => {
     const a = await seedAnthropic('a@b.c');
@@ -284,7 +291,7 @@ describe('editAccount', () => {
 describe('vault → listAccountsV2 propagates hidden (codex P2.1 regression)', () => {
   let home: string;
   beforeEach(() => { home = isolateHome(); credStore.clear(); });
-  afterEach(() => { fs.rmSync(home, { recursive: true, force: true }); setHomedir(null); });
+  afterEach(() => { fs.rmSync(home, { recursive: true, force: true }); setHomedir(null); delete process.env.SWEECH_HOME; });
 
   test('hidden flag round-trips through listAccountsV2 into the JSON surface', async () => {
     const a = await seedAnthropic('a@b.c');

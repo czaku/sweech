@@ -56,7 +56,9 @@ import {
 
 function isolateHome(): string {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'sweech-crud-test-'));
+  // Belt + braces: see the matching note in tests/accountCrud.test.ts.
   setHomedir(home);
+  process.env.SWEECH_HOME = home;
   return home;
 }
 
@@ -133,6 +135,7 @@ describe('setWorkspaceFlag', () => {
   afterEach(() => {
     fs.rmSync(home, { recursive: true, force: true });
     setHomedir(null);
+    delete process.env.SWEECH_HOME;
   });
 
   test('disable → persists disabled=true, no hidden change', () => {
@@ -194,6 +197,7 @@ describe('deleteWorkspace — decoupling contract', () => {
   afterEach(() => {
     fs.rmSync(home, { recursive: true, force: true });
     setHomedir(null);
+    delete process.env.SWEECH_HOME;
   });
 
   test('default delete removes the profile record AND the data dir', () => {
@@ -317,6 +321,7 @@ describe('editWorkspace', () => {
   afterEach(() => {
     fs.rmSync(home, { recursive: true, force: true });
     setHomedir(null);
+    delete process.env.SWEECH_HOME;
   });
 
   test('updates model + baseUrl; leaves other fields intact', () => {
@@ -406,6 +411,7 @@ describe('listWorkspaces', () => {
   afterEach(() => {
     fs.rmSync(home, { recursive: true, force: true });
     setHomedir(null);
+    delete process.env.SWEECH_HOME;
   });
 
   test('returns rows sorted by status tier and includes disk-existence', () => {
