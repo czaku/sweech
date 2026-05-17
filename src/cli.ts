@@ -2787,7 +2787,13 @@ const usageCmd = program
   .action(async (opts: { json?: boolean; refresh?: boolean; sort: string; group: boolean; models?: boolean; history?: boolean }) => {
     const config = new ConfigManager();
     const profiles = config.getProfiles();
-    const accountList = getKnownAccounts(profiles);
+    // T-LU-010: include inactive (disabled+hidden) workspaces so JSON
+    // consumers (SweechBar) can render them under a Hidden section.
+    // The disabled/hidden flag rides on each AccountRef so refresh
+    // and auto-select still skip them.
+    const accountList = getKnownAccounts(profiles, {
+      includeInactive: Boolean(opts.json),
+    });
 
     if (accountList.length === 0) {
       if (opts.json) {

@@ -32,6 +32,11 @@ export interface AccountInfo {
   configDir: string
   isDefault?: boolean
   sharedWith?: string
+  /** T-LU-010 lifecycle flags — true when the workspace was marked
+   *  disabled or hidden via `sweech workspace disable|hide`. UI surfaces
+   *  use these to sink+dim the row; routers/refreshers ignore them. */
+  disabled?: boolean
+  hidden?: boolean
 
   /** Provider key from sweech config (e.g. 'anthropic', 'dashscope', 'minimax') */
   provider?: string
@@ -97,6 +102,11 @@ export interface AccountRef {
   baseUrl?: string
   isDefault?: boolean
   sharedWith?: string
+  /** T-LU-010 lifecycle flags — only present when getKnownAccounts was
+   *  called with `includeInactive: true`. Routers/refreshers should
+   *  ignore these refs; surface renderers can sink+dim them. */
+  disabled?: boolean
+  hidden?: boolean
 }
 
 // ── Storage ───────────────────────────────────────────────────────────────────
@@ -339,6 +349,7 @@ export function getKnownAccounts(
     disabled?: boolean;
     hidden?: boolean;
   }>,
+  opts: { includeInactive?: boolean } = {},
 ): AccountRef[] {
   const seen = new Set<string>()
   const accounts: AccountRef[] = []
@@ -358,10 +369,17 @@ export function getKnownAccounts(
   for (const profile of profiles) {
     if (seen.has(profile.commandName)) continue
     // T-LU-010: disabled / hidden workspaces drop out of candidate
-    // enumeration entirely. This is what suppresses the recurring
+    // enumeration by default. This is what suppresses the recurring
     // [sweech] token refresh failed for .claude-ted noise on
     // cancelled subscriptions.
-    if (profile.disabled || profile.hidden) continue
+    //
+    // Pass `includeInactive: true` from surfaces that still need to
+    // SHOW the workspace (e.g. `sweech usage --json` → SweechBar's
+    // Hidden section) — the inactive flag rides along on the
+    // AccountRef so renderers can dim + sink the row without
+    // accidentally selecting it for auto/failover/refresh.
+    const inactive = Boolean(profile.disabled || profile.hidden)
+    if (inactive && !opts.includeInactive) continue
     seen.add(profile.commandName)
     accounts.push({
       name: profile.name,
@@ -371,6 +389,8 @@ export function getKnownAccounts(
       baseUrl: profile.baseUrl,
       isDefault: false,
       sharedWith: profile.sharedWith,
+      disabled: profile.disabled,
+      hidden: profile.hidden,
     })
   }
 
@@ -378,7 +398,17 @@ export function getKnownAccounts(
 }
 
 export async function getAccountInfo(
-  profiles: Array<{ name: string; commandName: string; cliType?: string; provider?: string; baseUrl?: string; isDefault?: boolean; sharedWith?: string }>,
+  profiles: Array<{
+    name: string;
+    commandName: string;
+    cliType?: string;
+    provider?: string;
+    baseUrl?: string;
+    isDefault?: boolean;
+    sharedWith?: string;
+    disabled?: boolean;
+    hidden?: boolean;
+  }>,
   options: { refresh?: boolean; timeoutMs?: number; cacheOnly?: boolean } = {},
 ): Promise<AccountInfo[]> {
   const allMeta = readMeta()
@@ -509,6 +539,8 @@ export async function getAccountInfo(
       sharedWith: p.sharedWith,
       provider: p.provider,
       baseUrl: p.baseUrl,
+      disabled: p.disabled,
+      hidden: p.hidden,
       displayName: sub?.displayName,
       // Prefer the vault's known email over whatever oauthAccount happens to
       // hold — vault is the single source of truth once a workspace has been

@@ -87,6 +87,12 @@ struct SweechAccount: Codable, Identifiable {
     /// Burn-rate ETA for the 7d weekly window.
     let projection7d: QuotaProjection?
 
+    /// T-LU-010 CRUD lifecycle flags. Defaults to nil (false) for older
+    /// CLI builds that don't emit them; treat nil as "not disabled / not
+    /// hidden" so the UX degrades gracefully.
+    let disabled: Bool?
+    let hidden: Bool?
+
     private enum CodingKeys: String, CodingKey {
         case name, commandName, cliType, isDefault, sharedWith, provider, baseUrl, effectiveProvider
         case meta, messages5h, messages7d, totalMessages
@@ -96,7 +102,12 @@ struct SweechAccount: Codable, Identifiable {
         case precomputedSmartScore = "smartScore"
         case tier, tierUrgent, sortRank, precomputedDisplayGroup = "displayGroup"
         case projection5h, projection7d
+        case disabled, hidden
     }
+
+    /// Convenience — `true` if either flag is set; the UX treats both as
+    /// "sink to the Hidden section + dim".
+    var isInactive: Bool { (disabled ?? false) || (hidden ?? false) }
 
     /// The shortest meaningful burn-rate ETA across the 5h/7d projections,
     /// or nil when neither has a forward-looking number. Picks the 7d window
@@ -374,10 +385,14 @@ struct VaultAccount: Codable, Identifiable, Hashable {
     let expiresAt: Double?     // ms epoch
     let status: String?
     let billing: VaultBilling?  // null when no billing data tracked for this account
+    /// T-LU-010 CRUD lifecycle flag — when true, sinks to the Hidden
+    /// section at the bottom of the accounts list. Defaults to false
+    /// for older CLI builds that don't emit the field.
+    let hidden: Bool?
 
     private enum CodingKeys: String, CodingKey {
         case accountId = "id"
-        case kind, provider, email, displayName, plan, rateLimitTier, addedAt, lastRefreshedAt, expiresAt, status, billing
+        case kind, provider, email, displayName, plan, rateLimitTier, addedAt, lastRefreshedAt, expiresAt, status, billing, hidden
     }
 
     /// Effective auth-flavour tag. v2 entries arrive as `kind: "oauth"` with
@@ -997,6 +1012,104 @@ class SweechService: ObservableObject {
         DispatchQueue.global(qos: .userInitiated).async {
             _ = Self.runSweech(["serve", "--uninstall"])
             _ = Self.runSweech(["serve", "--install"])
+        }
+    }
+
+    // MARK: - Workspace CRUD (T-LU-010)
+
+    enum WorkspaceAction: String {
+        case disable, enable, hide, unhide
+    }
+
+    /// Toggle a workspace lifecycle flag via `sweech workspace <action> <name>`.
+    /// Fires on a background queue; on completion, kicks the existing
+    /// `loadAccounts` + `loadWorkspaceVault` paths so the UI reflects the
+    /// change without the user having to wait for the next poll tick.
+    func setWorkspaceFlag(_ commandName: String, action: WorkspaceAction) {
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let result = Self.runSweech(["workspace", action.rawValue, commandName, "--json"])
+            DispatchQueue.main.async {
+                if case .failure(let err) = result {
+                    self?.lastError = "workspace \(action.rawValue) failed: \(err.localizedDescription)"
+                }
+                self?.fetch()
+                self?.fetchVault()
+            }
+        }
+    }
+
+    /// Delete a workspace. `keepData == true` preserves ~/.<name>/ on disk
+    /// so the user can re-attach later; default removes the directory.
+    func deleteWorkspace(_ commandName: String, keepData: Bool) {
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            var args = ["workspace", "delete", commandName, "--json"]
+            if keepData { args.append("--keep-data") }
+            let result = Self.runSweech(args)
+            DispatchQueue.main.async {
+                if case .failure(let err) = result {
+                    self?.lastError = "workspace delete failed: \(err.localizedDescription)"
+                }
+                self?.fetch()
+                self?.fetchVault()
+            }
+        }
+    }
+
+    // MARK: - Account CRUD (T-LU-010)
+
+    enum AccountFlagAction: String {
+        case hide, unhide
+    }
+
+    func setAccountFlag(emailOrId: String, action: AccountFlagAction) {
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let result = Self.runSweech([
+                "accounts", action.rawValue,
+                "--email", emailOrId,
+                "--json",
+            ])
+            DispatchQueue.main.async {
+                if case .failure(let err) = result {
+                    self?.lastError = "accounts \(action.rawValue) failed: \(err.localizedDescription)"
+                }
+                self?.fetchVault()
+            }
+        }
+    }
+
+    /// Drop the keychain secret for an account; keeps the row visible.
+    func logoutAccount(emailOrId: String) {
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let result = Self.runSweech([
+                "accounts", "logout",
+                "--email", emailOrId,
+                "--json",
+            ])
+            DispatchQueue.main.async {
+                if case .failure(let err) = result {
+                    self?.lastError = "accounts logout failed: \(err.localizedDescription)"
+                }
+                self?.fetch()
+                self?.fetchVault()
+            }
+        }
+    }
+
+    /// Permanent delete. `keepWorkspaceMarkers == true` preserves the
+    /// `.sweech-account` files pointing at this account; default clears
+    /// them. Workspace data directories are NEVER touched here.
+    func deleteAccount(emailOrId: String, keepWorkspaceMarkers: Bool) {
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            var args = ["accounts", "delete", "--email", emailOrId, "--json"]
+            if keepWorkspaceMarkers { args.append("--keep-workspace-markers") }
+            let result = Self.runSweech(args)
+            DispatchQueue.main.async {
+                if case .failure(let err) = result {
+                    self?.lastError = "accounts delete failed: \(err.localizedDescription)"
+                }
+                self?.fetch()
+                self?.fetchVault()
+            }
         }
     }
 

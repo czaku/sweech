@@ -386,7 +386,8 @@ private struct AccountsTab: View {
                 lastRefreshedAt: nil,
                 expiresAt: nil,
                 status: nil,
-                billing: nil
+                billing: nil,
+                hidden: nil
             ))
         }
         return tiles.sorted { $0.email < $1.email }
@@ -428,7 +429,8 @@ private struct AccountsTab: View {
                         mountedWorkspaces: mountedWorkspaces(for: account),
                         providerQuota: quotaFor(account),
                         onAssign: { onAssign(account) },
-                        onReauth: { reauth(account) }
+                        onReauth: { reauth(account) },
+                        service: service
                     )
                 }
             }
@@ -480,6 +482,8 @@ private struct AccountTile: View {
     let providerQuota: ProviderQuota?
     let onAssign: () -> Void
     let onReauth: () -> Void
+    /// Wired in for the right-click CRUD context menu (T-LU-010).
+    @ObservedObject var service: SweechService
 
     private var isExternal: Bool { account.accountId.hasPrefix("ext:") }
     private var tint: Color { TileStyle.tint(kind: account.effectiveKind) }
@@ -555,6 +559,31 @@ private struct AccountTile: View {
                 )
         )
         .clipShape(RoundedRectangle(cornerRadius: 8))
+        // T-LU-010 CRUD: account-level lifecycle actions. External
+        // (API-key) tiles are skipped because their lifecycle is
+        // managed by the workspace dir, not the vault.
+        .opacity((account.hidden ?? false) ? 0.55 : 1.0)
+        .contextMenu {
+            if !isExternal {
+                accountContextMenu
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var accountContextMenu: some View {
+        if account.hidden == true {
+            Button("Unhide") { service.setAccountFlag(emailOrId: account.email, action: .unhide) }
+        } else {
+            Button("Hide") { service.setAccountFlag(emailOrId: account.email, action: .hide) }
+        }
+        Button("Logout (drop credentials)") {
+            service.logoutAccount(emailOrId: account.email)
+        }
+        Divider()
+        Button("Delete account (keep workspace data)") {
+            service.deleteAccount(emailOrId: account.email, keepWorkspaceMarkers: false)
+        }
     }
 
     private var identityRow: some View {
@@ -897,7 +926,8 @@ private struct WorkspacesTab: View {
                                 workspaceCommandName: ws.commandName,
                                 email: email
                             ) { _ in workingWorkspace = nil }
-                        }
+                        },
+                        service: service
                     )
                 }
             }
@@ -928,6 +958,9 @@ private struct WorkspaceTile: View {
     let compatibleAccounts: [VaultAccount]
     let busy: Bool
     let onPick: (String) -> Void
+    /// Pulled in from the parent view so context-menu actions can fire
+    /// CRUD CLI calls and trigger an immediate re-fetch.
+    @ObservedObject var service: SweechService
 
     private var cliType: String { ws.cliType ?? "?" }
     private var kind: String {
@@ -1083,6 +1116,32 @@ private struct WorkspaceTile: View {
                 )
         )
         .clipShape(RoundedRectangle(cornerRadius: 8))
+        // T-LU-010 CRUD: dim disabled / hidden workspaces and surface
+        // the lifecycle actions via right-click. Same pattern on the
+        // AccountTile below so the gesture is consistent.
+        .opacity(ws.isInactive ? 0.55 : 1.0)
+        .contextMenu { workspaceContextMenu }
+    }
+
+    @ViewBuilder
+    private var workspaceContextMenu: some View {
+        if ws.disabled == true {
+            Button("Enable") { service.setWorkspaceFlag(ws.commandName, action: .enable) }
+        } else {
+            Button("Disable") { service.setWorkspaceFlag(ws.commandName, action: .disable) }
+        }
+        if ws.hidden == true {
+            Button("Unhide") { service.setWorkspaceFlag(ws.commandName, action: .unhide) }
+        } else {
+            Button("Hide") { service.setWorkspaceFlag(ws.commandName, action: .hide) }
+        }
+        Divider()
+        Button("Delete (keep data)") {
+            service.deleteWorkspace(ws.commandName, keepData: true)
+        }
+        Button("Delete (remove data dir)", role: .destructive) {
+            service.deleteWorkspace(ws.commandName, keepData: false)
+        }
     }
 
     private var accountMenu: some View {
