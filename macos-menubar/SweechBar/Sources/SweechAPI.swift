@@ -612,11 +612,24 @@ class SweechService: ObservableObject {
         previousStatuses = Dictionary(newAccounts.map { ($0.commandName, $0.liveStatus) }, uniquingKeysWith: { $1 })
     }
 
+    /// Force a fresh API fetch (bypasses the 5-min cache). Use for
+    /// user-triggered actions: refresh button, popover open. Costs one
+    /// rate-limit-header API call per OAuth workspace. The 30s timer
+    /// poll keeps using cache-only `fetch()` to avoid hammering the API.
+    func forceRefresh() {
+        fetchInternal(forceRefresh: true)
+    }
+
     func fetch() {
+        fetchInternal(forceRefresh: false)
+    }
+
+    private func fetchInternal(forceRefresh: Bool) {
         guard !isFetching else { return }
         isFetching = true
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            let result = Self.runSweech(["usage", "--json"])
+            let args = forceRefresh ? ["usage", "--json", "--refresh"] : ["usage", "--json"]
+            let result = Self.runSweech(args)
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.isFetching = false

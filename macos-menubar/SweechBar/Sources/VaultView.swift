@@ -64,7 +64,14 @@ struct VaultView: View {
         }
         .onAppear {
             service.fetchVault()
-            if service.accounts.isEmpty { service.fetch() }
+            // Popover open is a user-intent signal — force a fresh API fetch
+            // so the bar shows real numbers rather than cache that may be up
+            // to 5 minutes stale. The 30s timer poll keeps using the cache.
+            if service.accounts.isEmpty {
+                service.forceRefresh()
+            } else if let last = service.lastFetched, Date().timeIntervalSince(last) > 30 {
+                service.forceRefresh()
+            }
         }
     }
 
@@ -140,13 +147,13 @@ struct VaultView: View {
                 .font(.system(size: 14, weight: .bold))
                 .foregroundStyle(Sweech.Color.textPrimary)
             Spacer()
-            Button(action: { service.fetchVault(); service.fetch() }) {
+            Button(action: { service.fetchVault(); service.forceRefresh() }) {
                 Image(systemName: "arrow.clockwise")
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(Sweech.Color.core)
             }
             .buttonStyle(.plain)
-            .help("Reload")
+            .help("Reload (forces a fresh API fetch — bypasses the 5-min cache)")
 
             Button(action: { service.refreshVaultTokens() }) {
                 Image(systemName: "key.fill")
