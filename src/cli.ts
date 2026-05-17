@@ -1160,45 +1160,8 @@ function autonameArgs(cli: { sessionNameFlag?: string }, args: string[]): string
   return [...args, cli.sessionNameFlag, base];
 }
 
-/**
- * Heuristic guard: return true if `s` looks like a raw API key rather than
- * the name of an environment variable holding one.
- *
- * Used by `sweech accounts add --kind apikey --key ...` to reject calls that
- * would leak secrets to shell history / process-audit logs.
- *
- * Triggers:
- *   - Starts with a known API-key prefix (sk-, sk_, glpat-, ghp_, AIzaSy, AKIA, ...)
- *   - Has a shape no env var ever takes (contains '/', '+', '=', '.', dash, ...)
- *   - Is unreasonably long (env names tend to be < 40 chars; keys are 40+)
- *
- * False positives are SAFE: a user with an env named (say) "MY_KEY_40+chars"
- * would simply be told to pipe via stdin instead. Wrong direction is worse.
- */
-function looksLikeLiteralApiKey(s: string): boolean {
-  const knownPrefixes = [
-    'sk-', 'sk_',           // OpenAI, Anthropic, Mistral, Groq, ...
-    'pk-', 'pk_',           // some public-ish key formats
-    'sess-', 'sess_',       // session tokens
-    'glpat-',               // GitLab personal access tokens
-    'ghp_', 'gho_', 'ghs_', 'github_pat_',  // GitHub
-    'xai-',                 // xAI / Grok
-    'glm-',                 // Zhipu GLM
-    'AIzaSy',               // Google API keys
-    'AKIA', 'ASIA',         // AWS access keys
-    'ya29.',                // Google OAuth access tokens
-    'xoxb-', 'xoxp-', 'xapp-',  // Slack
-  ];
-  for (const p of knownPrefixes) {
-    if (s.startsWith(p)) return true;
-  }
-  // Env-var-name shape: POSIX-portable env names are [A-Za-z_][A-Za-z0-9_]*.
-  // Anything outside that shape is almost certainly NOT an env-var name.
-  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(s)) return true;
-  // Very long bare identifiers are very unlikely to be env vars.
-  if (s.length > 40) return true;
-  return false;
-}
+// Heuristic guard imported from src/keySourceGuard for test isolation.
+import { looksLikeLiteralApiKey } from './keySourceGuard';
 
 // Resume command — env-routed shortcut to the CLI's prior-session picker.
 // claude → `claude --resume`, codex → `codex resume`.
