@@ -1,6 +1,12 @@
 /**
  * Background token refresh for OAuth profiles.
  * Periodically checks for expiring tokens and refreshes them.
+ *
+ * T-LU-006: refresh window widened from 10 minutes to 24 hours so
+ * Anthropic/OpenAI tokens are rotated well before they expire even when
+ * the daemon only wakes every few minutes. Each attempt (success or
+ * failure) is recorded in the audit log so operators can confirm the
+ * daemon is alive without tailing stderr.
  */
 
 import * as fs from 'fs';
@@ -10,8 +16,14 @@ import { ProfileConfig } from './config';
 import { refreshOAuthToken, OAuthToken } from './oauth';
 import { sweechEvents } from './events';
 import { scrubSecrets } from './scrubSecrets';
+import { logAudit } from './auditLog';
 
-const TEN_MINUTES_MS = 10 * 60 * 1000;
+/**
+ * T-LU-006: refresh OAuth tokens 24h before expiry (was 10 minutes).
+ * Wider window survives long sleep/standby periods and gives the daemon
+ * multiple polling intervals to recover from transient refresh failures.
+ */
+export const TWENTY_FOUR_HOURS_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_INTERVAL_MS = 5 * 60 * 1000;
 
 /**
@@ -44,7 +56,7 @@ function writeSettings(settingsPath: string, settings: Record<string, any>): voi
 }
 
 /**
- * Check whether a token expires within the given window (default 10 minutes).
+ * Check whether a token expires within the given window (default 24 hours).
  */
 function expiresWithin(expiresAt: number | undefined, windowMs: number): boolean {
   if (expiresAt == null) return false;
@@ -52,13 +64,79 @@ function expiresWithin(expiresAt: number | undefined, windowMs: number): boolean
 }
 
 /**
- * Iterate profiles and refresh any OAuth tokens expiring within 10 minutes.
+ * Shape returned by getNextRefreshEta — used by the doctor command to render
+ * the per-profile "Token refresh ETA" section.
+ */
+export interface RefreshEta {
+  /** Profile name (display label, not commandName). */
+  profile: string;
+  /** Profile command name (for `sweech auth <cmd>` suggestions). */
+  commandName: string;
+  /** OAuth expiry as an ISO-8601 timestamp, or null if no expiry is known. */
+  expiresAt: string | null;
+  /** Whole hours until the token expires. May be negative if already expired. */
+  hoursUntil: number | null;
+  /** True when the token is within the 24h refresh window (or already expired). */
+  dueNow: boolean;
+}
+
+/**
+ * Compute the next-refresh ETA for a single profile.
+ *
+ * Returns null when the profile has no OAuth token at all — callers should
+ * filter those out before rendering. Profiles without an `expiresAt` (e.g.
+ * non-expiring tokens) get `dueNow: false` and `hoursUntil: null` so they
+ * render as "no expiry" in doctor.
+ */
+export function getNextRefreshEta(profile: ProfileConfig): RefreshEta | null {
+  if (!profile.oauth) return null;
+
+  const expiresAtMs = profile.oauth.expiresAt;
+  if (expiresAtMs == null) {
+    return {
+      profile: profile.name,
+      commandName: profile.commandName,
+      expiresAt: null,
+      hoursUntil: null,
+      dueNow: false,
+    };
+  }
+
+  const hoursUntil = Math.floor((expiresAtMs - Date.now()) / (60 * 60 * 1000));
+  return {
+    profile: profile.name,
+    commandName: profile.commandName,
+    expiresAt: new Date(expiresAtMs).toISOString(),
+    hoursUntil,
+    dueNow: expiresWithin(expiresAtMs, TWENTY_FOUR_HOURS_MS),
+  };
+}
+
+/**
+ * Compute next-refresh ETAs for every OAuth-backed profile.
+ * Non-OAuth profiles are filtered out.
+ */
+export function getAllRefreshEtas(profiles: ProfileConfig[]): RefreshEta[] {
+  const result: RefreshEta[] = [];
+  for (const profile of profiles) {
+    const eta = getNextRefreshEta(profile);
+    if (eta) result.push(eta);
+  }
+  return result;
+}
+
+/**
+ * Iterate profiles and refresh any OAuth tokens expiring within 24 hours.
+ *
+ * Every attempt is logged to ~/.sweech/audit.jsonl — `token_refresh` on
+ * success, `token_refresh_failed` on error. Errors are scrubbed of any
+ * leaked secrets before being written to the audit log or stderr.
  */
 export async function refreshExpiringTokens(profiles: ProfileConfig[]): Promise<void> {
   for (const profile of profiles) {
     if (!profile.oauth) continue;
     if (!profile.oauth.refreshToken) continue;
-    if (!expiresWithin(profile.oauth.expiresAt, TEN_MINUTES_MS)) continue;
+    if (!expiresWithin(profile.oauth.expiresAt, TWENTY_FOUR_HOURS_MS)) continue;
 
     try {
       const newToken = await refreshOAuthToken(profile.oauth);
@@ -92,13 +170,38 @@ export async function refreshExpiringTokens(profiles: ProfileConfig[]): Promise<
       // Update the in-memory profile reference
       profile.oauth = newToken;
 
+      const refreshedAt = new Date().toISOString();
+      const newExpiresAt = newToken.expiresAt
+        ? new Date(newToken.expiresAt).toISOString()
+        : null;
+
+      // T-LU-006: audit success. `details` is intentionally minimal — no
+      // tokens or refresh material so the log is safe to share.
+      logAudit({
+        timestamp: refreshedAt,
+        action: 'token_refresh',
+        account: profile.name,
+        details: { newExpiresAt, refreshedAt },
+      });
+
       sweechEvents.emit('token_refreshed', {
         account: profile.name,
-        expiresAt: newToken.expiresAt ? new Date(newToken.expiresAt).toISOString() : '',
+        expiresAt: newExpiresAt ?? '',
       });
     } catch (err: unknown) {
-      const msg = scrubSecrets(err instanceof Error ? err.message : String(err));
+      const rawMsg = err instanceof Error ? err.message : String(err);
+      const msg = scrubSecrets(rawMsg);
       console.error(`[sweech] token refresh failed for ${profile.name}:`, msg);
+
+      // T-LU-006: audit failure with scrubbed error so operators can see
+      // *why* refresh keeps failing without exposing token material.
+      logAudit({
+        timestamp: new Date().toISOString(),
+        action: 'token_refresh_failed',
+        account: profile.name,
+        details: { error: msg },
+      });
+
       sweechEvents.emit('token_expired', {
         account: profile.name,
       });
