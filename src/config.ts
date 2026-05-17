@@ -622,18 +622,34 @@ export class ConfigManager {
       );
     }
 
-    // Only create .claude.json to skip onboarding for external providers (Claude/Codex)
-    // For official Anthropic/OpenAI with native auth, let the CLI's onboarding flow run
-    // Kimi CLI does its own onboarding via config.toml
-    if (cliType !== 'kimi' && !useNativeAuth) {
+    // Always write a minimal .claude.json so Claude Code skips the per-
+    // profile onboarding/theme picker. This used to be gated on
+    // !useNativeAuth, which left OAuth Anthropic/Codex workspaces
+    // without the file — Claude Code v2.x then shows the theme picker
+    // on every fresh launch because hasCompletedOnboarding is checked
+    // PER CONFIG DIR (not just at the HOME-level ~/.claude.json).
+    //
+    // The picker fires even when OAuth is valid in the keychain. For
+    // native-auth profiles we omit the apiKey sentinel so CC's own
+    // OAuth flow isn't short-circuited.
+    if (cliType !== 'kimi') {
       const claudeJsonPath = path.join(profileDir, '.claude.json');
-      const claudeConfig = {
+      const claudeConfig: Record<string, unknown> = {
         hasCompletedOnboarding: true,
-        loginMethod: 'api_key',
-        apiKey: 'sk-ant-external-provider',
+        // Required by Claude Code v2.x in addition to hasCompletedOnboarding.
+        // Bumping to the user-installed version is fine; CC treats this as
+        // "user has seen the onboarding for this version or newer".
+        lastOnboardingVersion: '1.0.61',
         userID: this.generateUserID(),
-        firstStartTime: new Date().toISOString()
+        firstStartTime: new Date().toISOString(),
       };
+      if (!useNativeAuth) {
+        // External-provider profiles short-circuit CC's API-key flow with
+        // the well-known sentinel. Native OAuth profiles must NOT carry
+        // this — it would block the keychain refresh path.
+        claudeConfig.loginMethod = 'api_key';
+        claudeConfig.apiKey = 'sk-ant-external-provider';
+      }
       fs.writeFileSync(claudeJsonPath, JSON.stringify(claudeConfig, null, 2));
     }
   }
