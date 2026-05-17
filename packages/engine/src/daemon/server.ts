@@ -1643,6 +1643,33 @@ export function createApp(opts?: { estate?: Estate; quotaTracker?: QuotaTracker;
     return response;
   });
 
+  // POST /vision — standalone vision call routed by sweech profile.
+  // Body: { sweechProfile, systemPrompt?, prompt, imagePaths[], maxTokens?, thinkingBudgetTokens?, temperature? }
+  // Returns: { text, provider, model, account, inputTokens?, outputTokens? }
+  app.post('/vision', async (c) => {
+    // estate.yaml is optional — handleVision falls back to ~/.sweech/config.json.
+    if (!cachedEstate) {
+      try {
+        cachedEstate = await loadEstate();
+      } catch { /* estate optional */ }
+    }
+    let body: import('./vision.js').VisionRequest;
+    try {
+      body = (await c.req.json()) as import('./vision.js').VisionRequest;
+    } catch {
+      return c.json({ ok: false, error: 'invalid json' }, 400);
+    }
+    const { handleVision } = await import('./vision.js');
+    try {
+      const result = await handleVision(cachedEstate ?? null, body);
+      return c.json(result);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      const status = /not found|required/i.test(msg) ? 400 : 502;
+      return c.json({ ok: false, error: msg }, status);
+    }
+  });
+
   return app;
 }
 
