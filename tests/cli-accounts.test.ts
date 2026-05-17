@@ -406,7 +406,32 @@ describe('addApiKeyAccount', () => {
     expect(memoryStore.get(`sweech-api-key::${result.account.id}`)).toBe('fallback-prompted-key')
   })
 
-  test('stable id when label is re-used (rotation in place)', async () => {
+  test('re-adding same label without --force is refused (collision guard)', async () => {
+    const { addApiKeyAccount } = loadVaultAddApiKey()
+    const first = await addApiKeyAccount({
+      provider: 'kimi',
+      label: 'kimi-rotate',
+      keySource: { type: 'literal', value: 'key-v1' },
+    })
+    expect(first.ok).toBe(true)
+    if (!first.ok) return
+
+    const second = await addApiKeyAccount({
+      provider: 'kimi',
+      label: 'kimi-rotate',
+      keySource: { type: 'literal', value: 'key-v2' },
+    })
+    expect(second.ok).toBe(false)
+    if (second.ok) return
+    expect(second.reason).toMatch(/already exists/i)
+    expect(second.reason).toMatch(/--force/i)
+
+    // Keychain still holds the original key — refusal must not have
+    // touched it.
+    expect(memoryStore.get(`sweech-api-key::${first.account.id}`)).toBe('key-v1')
+  })
+
+  test('re-adding same label with --force rotates the key and marks rotated:true', async () => {
     const { addApiKeyAccount } = loadVaultAddApiKey()
     const first = await addApiKeyAccount({
       provider: 'kimi',
@@ -417,11 +442,13 @@ describe('addApiKeyAccount', () => {
       provider: 'kimi',
       label: 'kimi-rotate',
       keySource: { type: 'literal', value: 'key-v2' },
+      force: true,
     })
     expect(first.ok && second.ok).toBe(true)
     if (!first.ok || !second.ok) return
     expect(first.account.id).toBe(second.account.id)
     expect(second.alreadyExisted).toBe(true)
+    expect(second.rotated).toBe(true)
     // Keychain holds the rotated secret.
     expect(memoryStore.get(`sweech-api-key::${second.account.id}`)).toBe('key-v2')
 
@@ -431,6 +458,20 @@ describe('addApiKeyAccount', () => {
       a => a.kind === 'apikey' && a.id === first.account.id,
     )
     expect(matchingRows).toHaveLength(1)
+  })
+
+  test('rotated:false for fresh adds (no pre-existing entry)', async () => {
+    const { addApiKeyAccount } = loadVaultAddApiKey()
+    const fresh = await addApiKeyAccount({
+      provider: 'glm',
+      label: 'never-seen',
+      keySource: { type: 'literal', value: 'k' },
+    })
+    expect(fresh.ok).toBe(true)
+    if (!fresh.ok) return
+    // `rotated` is omitted (or explicitly false) for fresh adds.
+    expect(fresh.rotated).toBeFalsy()
+    expect(fresh.alreadyExisted).toBe(false)
   })
 
   test('no label → random uuid seed → distinct ids for each call', async () => {
