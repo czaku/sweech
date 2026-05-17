@@ -18,6 +18,7 @@ import { detectInstalledCLIs } from './cliDetection';
 import { renameManagedProfile } from './profileManagement';
 import { getAccountInfo, getKnownAccounts } from './subscriptions';
 import { DEFAULT_DAEMON_PORT } from './constants';
+import { getAllRefreshEtas } from './tokenRefresh';
 
 const execFileAsync = promisify(execFile);
 
@@ -367,6 +368,30 @@ export async function runDoctor(): Promise<void> {
     } else {
       console.log(chalk.gray('  ✗ Could not check credentials (fetch failed)'));
       severities.push('warn');
+    }
+  }
+
+  // T-LU-006: Token refresh ETA — when will the daemon refresh each OAuth
+  // profile? Surfaces "due now" (within 24h) and "ok" (>24h) so operators
+  // can confirm the background refresh loop has work to do. Profiles
+  // without OAuth (API-key only) are skipped silently.
+  const refreshEtas = getAllRefreshEtas(profiles);
+  if (refreshEtas.length > 0) {
+    console.log(chalk.bold('\nToken refresh ETA:'));
+    for (const eta of refreshEtas) {
+      if (eta.expiresAt == null) {
+        console.log(chalk.gray(`  • ${eta.profile}: no expiry (non-expiring token)`));
+        severities.push('ok');
+      } else if (eta.dueNow) {
+        const label = (eta.hoursUntil ?? 0) <= 0
+          ? `expired (${eta.expiresAt})`
+          : `due now — ${eta.hoursUntil}h until expiry (${eta.expiresAt})`;
+        console.log(chalk.yellow(`  ⚠ ${eta.profile}: ${label}`));
+        severities.push('warn');
+      } else {
+        console.log(chalk.green(`  ✓ ${eta.profile}: ok — ${eta.hoursUntil}h until expiry (${eta.expiresAt})`));
+        severities.push('ok');
+      }
     }
   }
 
