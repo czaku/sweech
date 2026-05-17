@@ -799,28 +799,35 @@ private struct WorkspacesTab: View {
                 ordered.append((key, list))
             }
         }
-        // Every other workspace (kimi, glm, minimax, dashscope, ollama,
-        // openrouter, …) is collapsed into a single "Providers" section
-        // so single-workspace providers don't each take a full row.
-        let externalKeys = map.keys.sorted()
-        if !externalKeys.isEmpty {
-            let merged = externalKeys.flatMap { map[$0]! }
-            ordered.append(("__providers__", merged))
+        // Externals split by count: 2+ workspaces from the same provider
+        // earn their own section; singletons fold into "Other" so 1-off
+        // providers don't each take a row of their own.
+        var singletons: [SweechAccount] = []
+        for key in map.keys.sorted() {
+            let list = map[key]!
+            if list.count >= 2 {
+                ordered.append((key, list))
+            } else {
+                singletons.append(contentsOf: list)
+            }
+        }
+        if !singletons.isEmpty {
+            ordered.append(("__others__", singletons))
         }
         return ordered
     }
 
     @ViewBuilder
     private func providerSection(key: String, workspaces: [SweechAccount]) -> some View {
-        let isMerged = key == "__providers__"
+        let isOthers = key == "__others__"
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
-                if !isMerged {
+                if !isOthers {
                     Image(systemName: TileStyle.glyph(kind: key))
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(TileStyle.tint(kind: key))
                 }
-                Text(isMerged ? "Providers" : TileStyle.label(kind: key))
+                Text(isOthers ? "Other" : TileStyle.label(kind: key))
                     .font(.system(size: 12, weight: .bold))
                     .foregroundStyle(Sweech.Color.textPrimary)
                 Text("(\(workspaces.count))")
@@ -850,7 +857,7 @@ private struct WorkspacesTab: View {
     private func compatibleAccounts(for ws: SweechAccount) -> [VaultAccount] {
         let kind = ws.cliType == "claude" ? "anthropic" : "openai"
         return service.vaultAccounts
-            .filter { $0.kind == kind }
+            .filter { $0.effectiveKind == kind }
             .sorted { $0.email < $1.email }
     }
 }
