@@ -62,6 +62,17 @@ export interface AddApiKeyOptions {
   keySource: ApiKeySource
   /** Hook so callers (tests, interactive prompts) can supply a value. */
   promptForKey?: () => Promise<string>
+  /**
+   * Allow silently overwriting an existing labeled entry. Without this,
+   * a re-run of `add --label X` with an existing (provider, label) tuple
+   * returns an error pointing at `--force` instead of clobbering the
+   * keychain entry that real code is depending on.
+   *
+   * Codex (MEDIUM): deterministic IDs from provider+label previously
+   * rotated the live key on every re-add, without consent. A typo'd
+   * label that happens to collide silently destroyed the colliding key.
+   */
+  force?: boolean
 }
 
 export interface AddApiKeyResult {
@@ -69,6 +80,9 @@ export interface AddApiKeyResult {
   account: ApiKeyAccount
   /** True when the same (provider, label) tuple already had a row. */
   alreadyExisted: boolean
+  /** True when an existing labeled entry was deliberately rotated under
+   * `--force`. Surface a clear notice in the CLI. */
+  rotated?: boolean
 }
 
 export interface AddApiKeyError {
@@ -182,11 +196,35 @@ export async function addApiKeyAccount(
   // Derive the stable id. Labelled accounts get sha8(provider:label);
   // un-labelled accounts get a fresh random seed so two un-labelled
   // adds for the same provider don't collide.
-  const idSeed = opts.label?.trim() || randomUUID()
+  const labelTrim = opts.label?.trim() || undefined
+  const idSeed = labelTrim || randomUUID()
   const id = accountIdForApiKey(opts.provider, idSeed)
 
-  // Persist the secret first — if keychain write fails we don't want
-  // the vault row left dangling without a key.
+  // Codex (MEDIUM): pre-check for an existing (provider, label) collision
+  // BEFORE writing the keychain. Without this, re-running
+  //   sweech accounts add --provider glm --label prod --key NEW_KEY
+  // would silently overwrite the keychain entry that the (still-working)
+  // OLD key is mapped to. With this guard, the user has to pass --force
+  // to confirm rotation. Unlabeled adds always pass (random id seed).
+  let preExisting: ApiKeyAccount | undefined
+  if (labelTrim) {
+    preExisting = withVaultLockExternal(() => {
+      return listAccountsV2().find(a => a.kind === 'apikey' && a.id === id) as ApiKeyAccount | undefined
+    })
+    if (preExisting && !opts.force) {
+      return {
+        ok: false,
+        reason: `An api key for provider="${opts.provider}" label="${labelTrim}" already exists (id=${id}). Pass --force to rotate the keychain entry, or omit --label to create a new independent entry.`,
+      }
+    }
+  }
+
+  // Persist the secret. The keychain `set` is sync-impl underneath
+  // (spawnSync / execFileSync / fs.writeFileSync) but typed async — we
+  // can't hold the vault file-lock across the await, so the write happens
+  // here and the vault row is committed in the lock block below. The
+  // pre-check above closes the silent-rotation window; the lock block
+  // closes the concurrent-add race that the wave-6 review already fixed.
   const store = getCredentialStore()
   try {
     await store.set(KEYCHAIN_SERVICE, id, key)
@@ -208,7 +246,7 @@ export async function addApiKeyAccount(
       kind: 'apikey',
       provider: opts.provider,
       id,
-      label: opts.label?.trim() || undefined,
+      label: labelTrim,
       addedAt: existing?.addedAt ?? new Date().toISOString(),
       keyRef: {
         service: KEYCHAIN_SERVICE,
@@ -221,5 +259,10 @@ export async function addApiKeyAccount(
     return { account, alreadyExisted: !!existing }
   })
 
-  return { ok: true, account: result.account, alreadyExisted: result.alreadyExisted }
+  return {
+    ok: true,
+    account: result.account,
+    alreadyExisted: result.alreadyExisted,
+    rotated: !!preExisting && !!opts.force,
+  }
 }

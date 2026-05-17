@@ -4223,8 +4223,9 @@ program
   .option('--email <email>', 'Target a specific account by email (remove)')
   .option('--key <source>', 'API key source for `add --kind apikey`: an env-var name (e.g. KIMI_API_KEY), `-` to read stdin, or omit for an interactive prompt')
   .option('--label <label>', 'Human label for the new apikey account (optional)')
+  .option('--force', 'For `add --kind apikey --label X`: rotate an existing (provider, label) entry instead of refusing.')
   .option('--json', 'Machine-readable output')
-  .action(async (action: string | undefined, opts: { kind?: string; provider?: string; email?: string; key?: string; label?: string; json?: boolean }) => {
+  .action(async (action: string | undefined, opts: { kind?: string; provider?: string; email?: string; key?: string; label?: string; force?: boolean; json?: boolean }) => {
     const { listAccounts, findAccountByEmail, removeAccount, listAccountsV2 } = require('./vault') as typeof import('./vault');
     const { importWorkspaces, discoverWorkspaces } = require('./vaultImport');
     const act = action || 'list';
@@ -4578,6 +4579,7 @@ program
           label: opts.label,
           keySource,
           promptForKey,
+          force: opts.force,
         });
 
         if (opts.json) {
@@ -4588,9 +4590,12 @@ program
           console.error(chalk.red(`\n  ✗ ${result.reason}\n`));
           process.exit(1);
         }
-        const verb = result.alreadyExisted ? 'updated' : 'added';
+        const verb = result.rotated ? 'rotated' : (result.alreadyExisted ? 'updated' : 'added');
         const labelStr = result.account.label ? ` "${result.account.label}"` : '';
         console.log(chalk.green(`\n  ✓ ${verb} ${chalk.bold(result.account.provider)}${labelStr} (api key)\n`));
+        if (result.rotated) {
+          console.log(chalk.yellow(`    ⚠ rotated existing keychain entry — old key is gone\n`));
+        }
         console.log(chalk.dim(`    id=${result.account.id}\n`));
         console.log(chalk.dim(`    Mount it into a workspace:\n      sweech assign <workspace> --account-id ${result.account.id}\n`));
         // Print the id on its own line so callers can capture it.
