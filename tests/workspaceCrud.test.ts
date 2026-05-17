@@ -59,6 +59,18 @@ function isolateHome(): string {
   // Belt + braces: see the matching note in tests/accountCrud.test.ts.
   setHomedir(home);
   process.env.SWEECH_HOME = home;
+  // Hard safety check: the May-2026 incident damaged ~/.claude-pole and
+  // ~/.claude-ted because the mock didn't apply to vault's prefixed
+  // node:os import, so tests writing 'test-ted' as a workspace name
+  // hit the real /Users/luke/.claude-ted. Verify NOW that homedir()
+  // returns a tmpdir-rooted path. If anything regresses, the test fails
+  // here with a clear message INSTEAD of corrupting real workspace data.
+  if (!os.homedir().startsWith(os.tmpdir()) || !os.homedir().includes('sweech-crud-test-')) {
+    throw new Error(
+      `isolateHome safety check failed: os.homedir()=${os.homedir()} is not under ${os.tmpdir()}. ` +
+      `Refusing to run — tests would corrupt the real home directory.`
+    );
+  }
   return home;
 }
 
@@ -130,7 +142,7 @@ describe('setWorkspaceFlag', () => {
   beforeEach(() => {
     home = isolateHome();
     config = freshConfig();
-    writeProfiles(config, [seedProfile({ commandName: 'claude-pole' })]);
+    writeProfiles(config, [seedProfile({ commandName: 'test-pole' })]);
   });
   afterEach(() => {
     fs.rmSync(home, { recursive: true, force: true });
@@ -139,40 +151,40 @@ describe('setWorkspaceFlag', () => {
   });
 
   test('disable → persists disabled=true, no hidden change', () => {
-    const result = setWorkspaceFlag('claude-pole', 'disable', config);
+    const result = setWorkspaceFlag('test-pole', 'disable', config);
     expect(result.noop).toBe(false);
     expect(result.before).toEqual({ disabled: false, hidden: false });
     expect(result.after).toEqual({ disabled: true, hidden: false });
 
-    const profile = config.getProfiles().find(p => p.commandName === 'claude-pole')!;
+    const profile = config.getProfiles().find(p => p.commandName === 'test-pole')!;
     expect(profile.disabled).toBe(true);
     expect(profile.hidden).toBeUndefined();
   });
 
   test('enable a disabled workspace clears the flag entirely', () => {
-    setWorkspaceFlag('claude-pole', 'disable', config);
-    const result = setWorkspaceFlag('claude-pole', 'enable', config);
+    setWorkspaceFlag('test-pole', 'disable', config);
+    const result = setWorkspaceFlag('test-pole', 'enable', config);
     expect(result.noop).toBe(false);
     expect(result.after.disabled).toBe(false);
 
-    const profile = config.getProfiles().find(p => p.commandName === 'claude-pole')!;
+    const profile = config.getProfiles().find(p => p.commandName === 'test-pole')!;
     // Toggled-false flags are dropped from config.json — verify the on-disk
     // shape contains no `disabled` key.
     expect(Object.prototype.hasOwnProperty.call(profile, 'disabled')).toBe(false);
   });
 
   test('disable on already-disabled is a noop with same before/after', () => {
-    setWorkspaceFlag('claude-pole', 'disable', config);
-    const result = setWorkspaceFlag('claude-pole', 'disable', config);
+    setWorkspaceFlag('test-pole', 'disable', config);
+    const result = setWorkspaceFlag('test-pole', 'disable', config);
     expect(result.noop).toBe(true);
     expect(result.before).toEqual(result.after);
   });
 
   test('hide and disable compose — both flags can be set simultaneously', () => {
-    setWorkspaceFlag('claude-pole', 'disable', config);
-    setWorkspaceFlag('claude-pole', 'hide', config);
+    setWorkspaceFlag('test-pole', 'disable', config);
+    setWorkspaceFlag('test-pole', 'hide', config);
 
-    const profile = config.getProfiles().find(p => p.commandName === 'claude-pole')!;
+    const profile = config.getProfiles().find(p => p.commandName === 'test-pole')!;
     expect(profile.disabled).toBe(true);
     expect(profile.hidden).toBe(true);
   });
@@ -190,8 +202,8 @@ describe('deleteWorkspace — decoupling contract', () => {
     home = isolateHome();
     config = freshConfig();
     writeProfiles(config, [
-      seedProfile({ commandName: 'claude-ted' }),
-      seedProfile({ commandName: 'claude-pole' }),
+      seedProfile({ commandName: 'test-ted' }),
+      seedProfile({ commandName: 'test-pole' }),
     ]);
   });
   afterEach(() => {
@@ -201,23 +213,23 @@ describe('deleteWorkspace — decoupling contract', () => {
   });
 
   test('default delete removes the profile record AND the data dir', () => {
-    const dir = config.getProfileDir('claude-ted');
+    const dir = config.getProfileDir('test-ted');
     expect(fs.existsSync(dir)).toBe(true);
 
-    const result = deleteWorkspace('claude-ted', {}, config);
-    expect(result.commandName).toBe('claude-ted');
+    const result = deleteWorkspace('test-ted', {}, config);
+    expect(result.commandName).toBe('test-ted');
     expect(result.keptData).toBe(false);
     expect(result.profileDirRemoved).toBe(true);
 
     expect(fs.existsSync(dir)).toBe(false);
-    expect(config.getProfiles().map(p => p.commandName)).toEqual(['claude-pole']);
+    expect(config.getProfiles().map(p => p.commandName)).toEqual(['test-pole']);
   });
 
   test('--keep-data preserves the data dir but still drops the profile record', () => {
-    const dir = config.getProfileDir('claude-ted');
+    const dir = config.getProfileDir('test-ted');
     fs.writeFileSync(path.join(dir, 'history.jsonl'), '{"session":1}\n');
 
-    const result = deleteWorkspace('claude-ted', { keepData: true }, config);
+    const result = deleteWorkspace('test-ted', { keepData: true }, config);
     expect(result.keptData).toBe(true);
     expect(result.profileDirRemoved).toBe(false);
 
@@ -225,14 +237,14 @@ describe('deleteWorkspace — decoupling contract', () => {
     // semantic the user asked for.
     expect(fs.existsSync(dir)).toBe(true);
     expect(fs.existsSync(path.join(dir, 'history.jsonl'))).toBe(true);
-    expect(config.getProfiles().map(p => p.commandName)).toEqual(['claude-pole']);
+    expect(config.getProfiles().map(p => p.commandName)).toEqual(['test-pole']);
   });
 
   test('--keep-data scrubs credentials from settings.json (security M1 regression)', () => {
     // Review-round security finding: --keep-data preserved settings.json
     // which holds plaintext ANTHROPIC_AUTH_TOKEN / OPENAI_API_KEY. The
     // deleted workspace should not leak credentials to disk.
-    const dir = config.getProfileDir('claude-ted');
+    const dir = config.getProfileDir('test-ted');
     fs.writeFileSync(path.join(dir, 'settings.json'), JSON.stringify({
       env: {
         ANTHROPIC_AUTH_TOKEN: 'sk-ant-secret',
@@ -243,7 +255,7 @@ describe('deleteWorkspace — decoupling contract', () => {
       hooks: { ConfigChange: [{ matcher: '', hooks: [] }] },
     }, null, 2));
 
-    deleteWorkspace('claude-ted', { keepData: true }, config);
+    deleteWorkspace('test-ted', { keepData: true }, config);
 
     const scrubbed = JSON.parse(fs.readFileSync(path.join(dir, 'settings.json'), 'utf-8'));
     expect(scrubbed.env).toBeUndefined();
@@ -260,27 +272,27 @@ describe('deleteWorkspace — decoupling contract', () => {
     // config.json, the data dir is preserved (with creds scrubbed),
     // and the dependent profile record remains intact.
     writeProfiles(config, [
-      seedProfile({ commandName: 'claude-pole' }),
-      seedProfile({ commandName: 'claude-rai', sharedWith: 'claude-pole' }),
+      seedProfile({ commandName: 'test-pole' }),
+      seedProfile({ commandName: 'test-rai', sharedWith: 'test-pole' }),
     ]);
-    const masterDir = config.getProfileDir('claude-pole');
+    const masterDir = config.getProfileDir('test-pole');
     fs.writeFileSync(path.join(masterDir, 'history.jsonl'), '{"shared":"history"}\n');
     fs.writeFileSync(path.join(masterDir, 'settings.json'), JSON.stringify({
       env: { ANTHROPIC_AUTH_TOKEN: 'sk-ant-master' },
     }));
 
     const result = deleteWorkspace(
-      'claude-pole',
+      'test-pole',
       { keepData: true, forceDependents: true },
       config,
     );
     expect(result.keptData).toBe(true);
-    expect(result.removedDependents).toEqual(['claude-rai']);
+    expect(result.removedDependents).toEqual(['test-rai']);
 
     // Master record gone from config.json — but dir + dependent record intact.
     const remaining = config.getProfiles().map(p => p.commandName);
-    expect(remaining).not.toContain('claude-pole');
-    expect(remaining).toContain('claude-rai');
+    expect(remaining).not.toContain('test-pole');
+    expect(remaining).toContain('test-rai');
     expect(fs.existsSync(masterDir)).toBe(true);
     expect(fs.existsSync(path.join(masterDir, 'history.jsonl'))).toBe(true);
     // Credentials scrubbed even when keeping for the sibling's benefit.
@@ -290,15 +302,15 @@ describe('deleteWorkspace — decoupling contract', () => {
 
   test('refuses to delete a workspace shared by another profile (without --force-dependents)', () => {
     writeProfiles(config, [
-      seedProfile({ commandName: 'claude-pole' }),
-      seedProfile({ commandName: 'claude-rai', sharedWith: 'claude-pole' }),
+      seedProfile({ commandName: 'test-pole' }),
+      seedProfile({ commandName: 'test-rai', sharedWith: 'test-pole' }),
     ]);
-    expect(() => deleteWorkspace('claude-pole', {}, config))
-      .toThrow(/shared by: claude-rai/);
+    expect(() => deleteWorkspace('test-pole', {}, config))
+      .toThrow(/shared by: test-rai/);
 
     // Force flag overrides.
-    const result = deleteWorkspace('claude-pole', { forceDependents: true }, config);
-    expect(result.removedDependents).toEqual(['claude-rai']);
+    const result = deleteWorkspace('test-pole', { forceDependents: true }, config);
+    expect(result.removedDependents).toEqual(['test-rai']);
   });
 
   test('throws on unknown workspace', () => {
@@ -313,7 +325,7 @@ describe('editWorkspace', () => {
     home = isolateHome();
     config = freshConfig();
     writeProfiles(config, [seedProfile({
-      commandName: 'claude-pole',
+      commandName: 'test-pole',
       model: 'old-model',
       baseUrl: 'https://old.example.com',
     })]);
@@ -325,7 +337,7 @@ describe('editWorkspace', () => {
   });
 
   test('updates model + baseUrl; leaves other fields intact', () => {
-    const merged = editWorkspace('claude-pole', {
+    const merged = editWorkspace('test-pole', {
       model: 'new-model',
       baseUrl: 'https://new.example.com',
     }, config);
@@ -337,13 +349,13 @@ describe('editWorkspace', () => {
   });
 
   test('empty-string clears the field', () => {
-    const merged = editWorkspace('claude-pole', { model: '' }, config);
+    const merged = editWorkspace('test-pole', { model: '' }, config);
     expect(Object.prototype.hasOwnProperty.call(merged, 'model')).toBe(false);
   });
 
   test('envOverrides merge rather than replace', () => {
-    config.editProfile('claude-pole', { envOverrides: { FOO: 'a', BAR: 'b' } });
-    const merged = editWorkspace('claude-pole', {
+    config.editProfile('test-pole', { envOverrides: { FOO: 'a', BAR: 'b' } });
+    const merged = editWorkspace('test-pole', {
       envOverrides: { BAR: 'b2', BAZ: 'c' },
     }, config);
     expect(merged.envOverrides).toEqual({ FOO: 'a', BAR: 'b2', BAZ: 'c' });

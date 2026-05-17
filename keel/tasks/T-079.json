@@ -1,0 +1,38 @@
+{
+  "id": "T-079",
+  "title": "Audit + correct cliType=codex misconfig on claude-* profiles",
+  "wave": "wave-5",
+  "space": "space-cli",
+  "status": "todo",
+  "priority": "medium",
+  "platform": null,
+  "assignee": null,
+  "description": "Two profiles in ~/.sweech/config.json have inconsistent cliType: `claude-or-pole` and `claude-mm-pro` both have `cliType: codex` despite the `claude-` name prefix. The on-disk dirs `~/.claude-or-pole/` and `~/.claude-mm-pro/` look like Claude profile dirs (218 commands each, including vy-*) — not Codex ones.\n\nThe wrong cliType means `setupSharedDirs` would pick `CODEX_SHAREABLE_DIRS` instead of `SHAREABLE_DIRS` — which is why these profiles never got the standard Claude shared layout but instead accumulated their own copies.\n\nFix:\n1. Add a `sweech validate-config` check that flags name-prefix vs cliType mismatches\n2. Offer `--fix-cli-type` to correct config entries based on the name prefix when on-disk evidence agrees (e.g. dir has claude-shaped contents)\n3. After correction, T-076's doctor should pick them up and convert their bespoke commands/agents into proper shared symlinks (or warn that the divergent content needs manual review first)",
+  "createdAt": "2026-05-17T22:00:00Z",
+  "updatedAt": "2026-05-17T22:00:00Z",
+  "product": null,
+  "lane": null,
+  "stage": null,
+  "stageHistory": [],
+  "recurring": null,
+  "attachments": [],
+  "validationOverrides": null,
+  "executionMode": null,
+  "statusHistory": [],
+  "dependsOn": [],
+  "runStatus": null,
+  "size": "XS",
+  "context": [
+    {
+      "at": "2026-05-17T22:00:00Z",
+      "by": "luke",
+      "text": "Surfaced while investigating /vy-go Unknown command in claude-pole. Side-effect of the same investigation: noticed claude-or-pole + claude-mm-pro have cliType=codex sharedWith=None, contradicting the name and the dir contents."
+    }
+  ],
+  "acceptanceCriteria": [
+    "`sweech validate-config` reports name/cliType mismatches with line numbers",
+    "`sweech validate-config --fix-cli-type` corrects them after dry-run confirmation",
+    "Heuristic: a profile named `claude-*` is checked against ~/.<name>/projects to confirm Claude shape",
+    "Profiles where on-disk content disagrees with both prefix AND config: print loud warning, exit non-zero, do not auto-correct"
+  ]
+}

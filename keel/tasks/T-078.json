@@ -1,0 +1,40 @@
+{
+  "id": "T-078",
+  "title": "Postinstall migration: resync all sharedWith profiles on sweech upgrade",
+  "wave": "wave-5",
+  "space": "space-cli",
+  "status": "todo",
+  "priority": "high",
+  "platform": null,
+  "assignee": null,
+  "description": "When users `npm i -g sweech@latest` (or brew upgrade), the postinstall script should detect profile-config schema drift and proactively resync all profiles with `sharedWith` set. Right now upgrades leave existing profiles in whatever symlink state they were in at creation time, even if SHAREABLE_DIRS has grown.\n\nFix: add a `scripts/postinstall.js` that:\n1. Reads ~/.sweech/config.json (skip if missing — fresh install)\n2. Compares `lastResyncedSweechVersion` field (new) against current package.json version\n3. If different (or absent), runs `sweech doctor --fix --quiet` and writes the new version back\n4. Prints a single line: 'sweech: resynced N profiles after upgrade to vX.Y.Z' (don't block, don't prompt)\n\nThis is the install-time companion to T-076 (manual heal) and T-077 (invocation-time heal). Together they form a 3-layer recovery: postinstall (eager) → invocation (lazy) → doctor (manual).",
+  "createdAt": "2026-05-17T22:00:00Z",
+  "updatedAt": "2026-05-17T22:00:00Z",
+  "product": null,
+  "lane": null,
+  "stage": null,
+  "stageHistory": [],
+  "recurring": null,
+  "attachments": [],
+  "validationOverrides": null,
+  "executionMode": null,
+  "statusHistory": [],
+  "dependsOn": ["T-076"],
+  "runStatus": null,
+  "size": "S",
+  "context": [
+    {
+      "at": "2026-05-17T22:00:00Z",
+      "by": "luke",
+      "text": "The user discovered this when /vy-* skills were Unknown in a claude-pole session. Root cause traced to sweech profile dirs missing the commands/ + agents/ symlinks. The user has 16 sweech profiles — manually re-running doctor on each is a pit."
+    }
+  ],
+  "acceptanceCriteria": [
+    "postinstall script ships with the npm package",
+    "Detects version drift via .lastResyncedSweechVersion in config.json",
+    "Runs quietly unless there are repairs (then prints a one-liner)",
+    "Failures (e.g. permission denied) are logged to audit.log but never block the install",
+    "Brew formula calls the same script as a post_install hook",
+    "Test: bump SHAREABLE_DIRS, run postinstall, confirm broken profile is healed"
+  ]
+}
