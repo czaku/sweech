@@ -403,9 +403,13 @@ export async function getAccountInfo(
         : await usagePromise) ?? undefined)
     }
 
-    // Check for usage threshold crossings and emit events
+    // Check for usage threshold crossings and emit events. Pass
+    // commandName (the unique routing key) — NOT display name — so the
+    // failover listener (src/failover.ts) records the cooldown under the
+    // same key pickFailoverTarget filters against. Display name is a
+    // human label; commandName is the contract.
     if (live) {
-      checkUsageThresholds(p.name, live)
+      checkUsageThresholds(p.commandName, live)
     }
 
     // Only flag reauth if the Keychain token is actually expired (not just a transient fetch failure).

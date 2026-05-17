@@ -6,10 +6,14 @@
  * src/autoCommand.ts and are exercised here.
  */
 
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 import {
   buildAutoCommandJson,
   buildAutoExecEnv,
   noProfileErrorMessage,
+  readSettingsEnv,
 } from '../src/autoCommand';
 import type { AccountRecommendation } from '../src/accountSelector';
 import type { CLIConfig } from '../src/clis';
@@ -183,6 +187,104 @@ describe('buildAutoExecEnv', () => {
     expect(env.CODEX_HOME).toBe('/picked-codex');
     // CLAUDE_CONFIG_DIR was stripped (not the picked CLI's var)
     expect(env.CLAUDE_CONFIG_DIR).toBeUndefined();
+  });
+});
+
+describe('readSettingsEnv', () => {
+  let tmp: string;
+
+  beforeEach(() => {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'sweech-readsettings-'));
+  });
+
+  afterEach(() => {
+    try { fs.rmSync(tmp, { recursive: true, force: true }); } catch {}
+  });
+
+  test('returns the env block when settings.json has one', () => {
+    fs.writeFileSync(path.join(tmp, 'settings.json'), JSON.stringify({
+      env: { KIMI_API_KEY: 'sk-kimi', OPENAI_BASE_URL: 'https://api.moonshot.ai/v1' },
+    }));
+    expect(readSettingsEnv(tmp)).toEqual({
+      KIMI_API_KEY: 'sk-kimi',
+      OPENAI_BASE_URL: 'https://api.moonshot.ai/v1',
+    });
+  });
+
+  test('coerces number + boolean values to strings (real settings.json uses both)', () => {
+    fs.writeFileSync(path.join(tmp, 'settings.json'), JSON.stringify({
+      env: { API_TIMEOUT_MS: 3000000, ENABLE_PROMPT_CACHING_1H: true, KEY: 'literal' },
+    }));
+    expect(readSettingsEnv(tmp)).toEqual({
+      API_TIMEOUT_MS: '3000000',
+      ENABLE_PROMPT_CACHING_1H: 'true',
+      KEY: 'literal',
+    });
+  });
+
+  test('returns empty object when settings.json is missing', () => {
+    expect(readSettingsEnv(tmp)).toEqual({});
+  });
+
+  test('returns empty object when settings.json has no env block', () => {
+    fs.writeFileSync(path.join(tmp, 'settings.json'), JSON.stringify({ oauth: { } }));
+    expect(readSettingsEnv(tmp)).toEqual({});
+  });
+
+  test('returns empty object on malformed JSON (does not throw)', () => {
+    fs.writeFileSync(path.join(tmp, 'settings.json'), '{not valid');
+    expect(readSettingsEnv(tmp)).toEqual({});
+  });
+
+  test('skips non-stringifiable env entries (arrays, objects)', () => {
+    fs.writeFileSync(path.join(tmp, 'settings.json'), JSON.stringify({
+      env: { GOOD: 'value', NESTED: { wat: 1 }, ARR: ['a'] },
+    }));
+    expect(readSettingsEnv(tmp)).toEqual({ GOOD: 'value' });
+  });
+});
+
+describe('buildAutoExecEnv with settingsEnv hoist (codex P1 fix)', () => {
+  test('hoists settings.env values into the spawned env so codex resolves env_key', () => {
+    const settingsEnv = { KIMI_API_KEY: 'sk-from-settings', OPENAI_BASE_URL: 'https://kimi/v1' };
+    const env = buildAutoExecEnv(codexCli, '/profile-dir', { PATH: '/usr/bin' }, settingsEnv);
+    expect(env.KIMI_API_KEY).toBe('sk-from-settings');
+    expect(env.OPENAI_BASE_URL).toBe('https://kimi/v1');
+    expect(env.CODEX_HOME).toBe('/profile-dir');
+  });
+
+  test('hoisted settings.env overwrites a stripped parent env entry', () => {
+    // Parent had a stale KIMI_API_KEY exported; strip removes it; then
+    // the picked profile's settings.env hoist re-sets it to the right
+    // value. The net effect must be the SETTINGS value, not the parent.
+    const env = buildAutoExecEnv(
+      codexCli,
+      '/picked',
+      { KIMI_API_KEY: 'stale-parent', PATH: '/usr/bin' },
+      { KIMI_API_KEY: 'fresh-from-picked-profile' },
+    );
+    expect(env.KIMI_API_KEY).toBe('fresh-from-picked-profile');
+  });
+
+  test('configDirEnvVar set AFTER hoist — hoist cannot accidentally clobber it', () => {
+    // Defence: if a profile's settings.env mistakenly contains
+    // CODEX_HOME (pointing to a different profile dir), the final set
+    // of cli.configDirEnvVar must still win.
+    const env = buildAutoExecEnv(
+      codexCli,
+      '/correct-codex',
+      { PATH: '/usr/bin' },
+      { CODEX_HOME: '/wrong-codex', OTHER_VAR: 'preserved' },
+    );
+    expect(env.CODEX_HOME).toBe('/correct-codex');
+    expect(env.OTHER_VAR).toBe('preserved');
+  });
+
+  test('settingsEnv defaults to {} — backwards compatible call signature', () => {
+    // The original 3-arg call (no settingsEnv) must still work.
+    const env = buildAutoExecEnv(claudeCli, '/x', { PATH: '/usr/bin' });
+    expect(env.CLAUDE_CONFIG_DIR).toBe('/x');
+    expect(env.PATH).toBe('/usr/bin');
   });
 });
 

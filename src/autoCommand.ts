@@ -7,6 +7,8 @@
  * contract and the spawn environment.
  */
 
+import * as fs from 'fs';
+import * as path from 'path';
 import type { AccountRecommendation } from './accountSelector';
 import type { CLIConfig } from './clis';
 
@@ -71,24 +73,68 @@ const STRIPPED_ENV_VARS = [
 ] as const;
 
 /**
+ * Read a profile's settings.json env block. Returns an empty object when
+ * the file is missing or malformed — callers treat "no env to hoist" the
+ * same as "this profile uses default auth", which is the safe fallback.
+ *
+ * Pure: takes a configDir in, returns a plain dict out.
+ */
+export function readSettingsEnv(configDir: string): Record<string, string> {
+  try {
+    const settingsPath = path.join(configDir, 'settings.json');
+    const raw = fs.readFileSync(settingsPath, 'utf-8');
+    const settings = JSON.parse(raw) as { env?: Record<string, unknown> };
+    const env = settings?.env;
+    if (!env || typeof env !== 'object') return {};
+    const out: Record<string, string> = {};
+    for (const [k, v] of Object.entries(env)) {
+      if (typeof v === 'string') out[k] = v;
+      else if (typeof v === 'number' || typeof v === 'boolean') out[k] = String(v);
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+/**
  * Build the spawn environment for `sweech auto --exec`. Sets the picked
  * profile's config-dir env var and strips Claude Code nesting vars +
- * shadowing API keys so the wrapper script's hoisted settings.env is the
- * sole source of truth for credentials in the child.
+ * shadowing API keys, then hoists the picked profile's settings.env
+ * (codex specifically reads env vars at runtime via env_key entries in
+ * config.toml, so the API key MUST be in the spawned process env).
  *
- * Pure: takes a base env in, returns a new env out — does not read process.env.
+ * Order matters:
+ *   1. spread baseEnv
+ *   2. strip nesting + shadowing keys (so they can't override the hoist)
+ *   3. hoist settingsEnv (the picked profile's auth + base URL + model)
+ *   4. set configDirEnvVar (so it isn't accidentally clobbered by hoist)
+ *
+ * Pure: takes a base env + settings env in, returns a new env out.
+ * Caller (cli.ts) reads settings.json via readSettingsEnv and passes the
+ * result here — keeps this function trivially testable.
  */
 export function buildAutoExecEnv(
   cli: CLIConfig,
   configDir: string,
   baseEnv: NodeJS.ProcessEnv,
+  settingsEnv: Record<string, string> = {},
 ): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...baseEnv };
   for (const key of STRIPPED_ENV_VARS) {
     delete env[key];
   }
-  // Re-set the picked profile's config-dir AFTER stripping, so it isn't
-  // shadowed by whatever was inherited from the parent.
+  // Hoist the picked profile's settings.env so codex (and any other CLI
+  // that reads env at runtime) sees the right API key, base URL, model.
+  // Without this, --exec would bypass the wrapper's hoist and the codex
+  // CLI would fall through to ChatGPT login because its config.toml
+  // env_key resolves to undefined.
+  for (const [k, v] of Object.entries(settingsEnv)) {
+    env[k] = v;
+  }
+  // Re-set the picked profile's config-dir AFTER hoist + strip, so it
+  // isn't shadowed by either the inherited parent env OR a stale
+  // settings.env entry pointing at a different profile dir.
   env[cli.configDirEnvVar] = configDir;
   return env;
 }

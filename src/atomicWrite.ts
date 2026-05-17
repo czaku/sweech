@@ -31,10 +31,21 @@ export function atomicWriteFileSync(
   opts: AtomicWriteOptions = {},
 ): void {
   const tmpPath = `${filePath}.tmp.${process.pid}.${Date.now()}`;
+  // Build writeFileSync options so mode is applied at the open() syscall
+  // — NOT chmodded afterwards. writeFileSync's underlying open(O_CREAT)
+  // honours the mode arg modulo umask, so a co-tenant racing the
+  // temp-file creation lands on the restrictive permissions from the
+  // very first byte. A post-write chmodSync would still expose a window
+  // between create and chmod during which the temp file is world-readable.
+  const writeOpts: { encoding?: BufferEncoding; mode?: number } = {};
+  if (typeof data === 'string') writeOpts.encoding = 'utf-8';
+  if (opts.mode !== undefined) writeOpts.mode = opts.mode;
   try {
-    fs.writeFileSync(tmpPath, data, typeof data === 'string' ? 'utf-8' : undefined);
+    fs.writeFileSync(tmpPath, data, writeOpts);
+    // Belt-and-braces: if the umask masked our mode bits off (e.g. user
+    // explicitly umasked 077), chmodSync resets them. Cheap and safe.
     if (opts.mode !== undefined) {
-      try { fs.chmodSync(tmpPath, opts.mode); } catch { /* best-effort — Windows etc. */ }
+      try { fs.chmodSync(tmpPath, opts.mode); } catch { /* best-effort */ }
     }
     fs.renameSync(tmpPath, filePath);
   } catch (err) {

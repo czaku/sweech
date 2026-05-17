@@ -112,11 +112,15 @@ describe('AliasManager', () => {
 
       manager.addAlias('work', 'claude-mini');
 
-      // atomicWriteFileSync writes to a temp file first, then renames
+      // atomicWriteFileSync writes to a temp file first, then renames.
+      // Accept either the legacy positional encoding ('utf-8' as 3rd arg)
+      // OR the new options-object form ({ encoding: 'utf-8' }) — they
+      // mean the same thing to writeFileSync. The options form is needed
+      // so the mode option can ride along on the same syscall.
       expect(mockFs.writeFileSync).toHaveBeenCalledWith(
         expect.stringContaining('.tmp.'),
-        expect.stringContaining('\n'), // Pretty-printed JSON
-        'utf-8'
+        expect.stringContaining('\n'),
+        expect.objectContaining({ encoding: 'utf-8' }),
       );
     });
   });

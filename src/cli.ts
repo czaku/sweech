@@ -35,7 +35,7 @@ import { buildLaunchArgs, shouldUseTmux, SWEECH_LAUNCH_FLAGS } from './launchCom
 import { getAccountInfo, getKnownAccounts, setMeta } from './subscriptions';
 import { kickBackgroundRefresh } from './backgroundRefresh';
 import { recommendRoute, suggestBestAccount } from './accountSelector';
-import { buildAutoCommandJson, buildAutoExecEnv, noProfileErrorMessage } from './autoCommand';
+import { buildAutoCommandJson, buildAutoExecEnv, noProfileErrorMessage, readSettingsEnv } from './autoCommand';
 import {
   clearAllCooldowns,
   clearCooldown,
@@ -4195,7 +4195,11 @@ program
         process.exit(1);
       }
       const { spawn } = require('child_process');
-      const env = buildAutoExecEnv(cli, pick.configDir, process.env);
+      // Hoist the picked profile's settings.env so codex sees its API key
+      // at runtime — direct spawn bypasses the wrapper script which would
+      // otherwise do the hoist via its python3 + while-read loop.
+      const settingsEnv = readSettingsEnv(pick.configDir);
+      const env = buildAutoExecEnv(cli, pick.configDir, process.env, settingsEnv);
       const child = spawn(cli.command, [], { env, stdio: 'inherit' });
       child.on('exit', (code: number) => process.exit(code ?? 0));
       return;
@@ -4313,7 +4317,11 @@ program
       // history reflects real switches not just dry-run lookups.
       recordFailover(from ?? '(unspecified)', pick.commandName, target.reason);
       const { spawn } = require('child_process');
-      const env = buildAutoExecEnv(cli, pick.configDir, process.env);
+      // Hoist the picked profile's settings.env so codex sees its API key
+      // at runtime — direct spawn bypasses the wrapper script which would
+      // otherwise do the hoist via its python3 + while-read loop.
+      const settingsEnv = readSettingsEnv(pick.configDir);
+      const env = buildAutoExecEnv(cli, pick.configDir, process.env, settingsEnv);
       const child = spawn(cli.command, [], { env, stdio: 'inherit' });
       child.on('exit', (code: number) => process.exit(code ?? 0));
       return;
