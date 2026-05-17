@@ -250,6 +250,33 @@ describe('editAccount', () => {
   });
 });
 
+describe('vault → listAccountsV2 propagates hidden (codex P2.1 regression)', () => {
+  let home: string;
+  beforeEach(() => { home = isolateHome(); credStore.clear(); });
+  afterEach(() => { fs.rmSync(home, { recursive: true, force: true }); setHomedir(null); });
+
+  test('hidden flag round-trips through listAccountsV2 into the JSON surface', async () => {
+    const a = await seedAnthropic('a@b.c');
+    setAccountHidden('a@b.c', 'hide');
+
+    // The hidden flag has to survive the legacy AccountMeta read AND
+    // the V2 projection — both consumers (terminal renderer + SweechBar
+    // via `sweech accounts list --json`) depend on this.
+    const { listAccountsV2 } = require('../src/vault');
+    const v2 = listAccountsV2();
+    const oauth = v2.find((e: any) => e.kind === 'oauth' && e.id === a.id);
+    expect(oauth).toBeDefined();
+    expect(oauth.hidden).toBe(true);
+
+    // Round-trip after unhide — the flag is dropped entirely so
+    // older callers don't see a `hidden: false` ghost in the JSON.
+    setAccountHidden('a@b.c', 'unhide');
+    const v2After = listAccountsV2();
+    const oauthAfter = v2After.find((e: any) => e.kind === 'oauth' && e.id === a.id);
+    expect(oauthAfter.hidden).toBeUndefined();
+  });
+});
+
 describe('partitionByHidden', () => {
   test('splits accounts into visible and hidden arrays', () => {
     const accts: AccountMeta[] = [

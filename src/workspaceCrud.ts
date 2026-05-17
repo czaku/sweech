@@ -187,6 +187,33 @@ export function deleteWorkspace(
   }
 
   const profileDirExisted = fs.existsSync(profileDir);
+
+  // T-LU-010 security: --keep-data preserves the data dir but credentials
+  // in settings.json (ANTHROPIC_AUTH_TOKEN, OPENAI_API_KEY, KIMI_API_KEY,
+  // bearer tokens) would survive on disk — a usable secret outliving the
+  // profile record. Strip the env block before handing off so the dir is
+  // safe to leave behind. Other settings.json fields (hooks, model
+  // overrides) are preserved so the user can re-attach later. Best-effort:
+  // a malformed JSON file is left alone — the dir was already in a broken
+  // state and an in-place rewrite could make it worse.
+  if (opts.keepData && profileDirExisted) {
+    const settingsPath = path.join(profileDir, 'settings.json');
+    try {
+      if (fs.existsSync(settingsPath)) {
+        const raw = fs.readFileSync(settingsPath, 'utf-8');
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === 'object') {
+          delete parsed.env;
+          delete parsed.oauth;
+          fs.writeFileSync(settingsPath, JSON.stringify(parsed, null, 2), { mode: 0o600 });
+        }
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      process.stderr.write(`[sweech] --keep-data: could not scrub credentials from ${settingsPath}: ${msg}\n`);
+    }
+  }
+
   config.removeProfile(commandName, { keepData: opts.keepData });
 
   return {

@@ -572,17 +572,23 @@ private struct AccountTile: View {
 
     @ViewBuilder
     private var accountContextMenu: some View {
+        // Pass the 12-char vault id, not the email — emails can be
+        // ambiguous across orgs (same email under multiple Anthropic
+        // workspaces). The CLI's resolveAccount() prefers id lookup
+        // when the argument matches /^[0-9a-f]{12}$/, so duplicate-
+        // email accounts can still be uniquely targeted from the UI.
+        let target = account.accountId
         if account.hidden == true {
-            Button("Unhide") { service.setAccountFlag(emailOrId: account.email, action: .unhide) }
+            Button("Unhide") { service.setAccountFlag(emailOrId: target, action: .unhide) }
         } else {
-            Button("Hide") { service.setAccountFlag(emailOrId: account.email, action: .hide) }
+            Button("Hide") { service.setAccountFlag(emailOrId: target, action: .hide) }
         }
         Button("Logout (drop credentials)") {
-            service.logoutAccount(emailOrId: account.email)
+            service.logoutAccount(emailOrId: target)
         }
         Divider()
         Button("Delete account (keep workspace data)") {
-            service.deleteAccount(emailOrId: account.email, keepWorkspaceMarkers: false)
+            service.deleteAccount(emailOrId: target, keepWorkspaceMarkers: false)
         }
     }
 

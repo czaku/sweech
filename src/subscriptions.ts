@@ -429,8 +429,16 @@ export async function getAccountInfo(
       ? computeWeeklyReset(sub.subscriptionCreatedAt)
       : undefined
 
+    // T-LU-010 codex P2.2: inactive workspaces (disabled/hidden) must
+    // NOT trigger live network/keychain fetches even when `refresh: true`
+    // is in flight. They appear in the list because SweechBar wants to
+    // render them in the Hidden section, but the user explicitly told us
+    // not to touch them. Fall back to cache (fresh or stale) so the UI
+    // gets whatever snapshot was last captured before the workspace was
+    // marked inactive.
+    const isInactive = Boolean(p.disabled || p.hidden)
     let live: LiveRateLimitData | undefined
-    if (options.cacheOnly) {
+    if (options.cacheOnly || isInactive) {
       // Never touch the network — return whatever's in cache (fresh or stale).
       live = (getCached(configDir) ?? getStaleCache(configDir)) ?? undefined
     } else {

@@ -275,6 +275,52 @@ describe('editWorkspace', () => {
   });
 });
 
+describe('getAccountInfo skips live refresh for inactive workspaces (codex P2.2 regression)', () => {
+  let home: string;
+  beforeEach(() => { home = isolateHome(); });
+  afterEach(() => { fs.rmSync(home, { recursive: true, force: true }); setHomedir(null); });
+
+  test('disabled workspace returns cached live data; no network call attempted', async () => {
+    // Smoke-test the contract: getAccountInfo on a disabled profile
+    // must not invoke refreshLiveUsage/getLiveUsage. We exercise this
+    // via a mock — if the live-fetch function is called for an
+    // inactive profile, the test fails.
+    const { getAccountInfo } = require('../src/subscriptions');
+    const liveModule = require('../src/liveUsage');
+
+    const getSpy = jest.spyOn(liveModule, 'getLiveUsage').mockResolvedValue(null);
+    const refreshSpy = jest.spyOn(liveModule, 'refreshLiveUsage').mockResolvedValue(null);
+
+    try {
+      await getAccountInfo(
+        [{ name: 'x', commandName: 'claude-x', cliType: 'claude', provider: 'anthropic', disabled: true }],
+        { refresh: true, timeoutMs: 1000 },
+      );
+      expect(getSpy).not.toHaveBeenCalled();
+      expect(refreshSpy).not.toHaveBeenCalled();
+    } finally {
+      getSpy.mockRestore();
+      refreshSpy.mockRestore();
+    }
+  });
+
+  test('hidden workspace also skips live refresh', async () => {
+    const { getAccountInfo } = require('../src/subscriptions');
+    const liveModule = require('../src/liveUsage');
+    const refreshSpy = jest.spyOn(liveModule, 'refreshLiveUsage').mockResolvedValue(null);
+
+    try {
+      await getAccountInfo(
+        [{ name: 'y', commandName: 'claude-y', cliType: 'claude', provider: 'anthropic', hidden: true }],
+        { refresh: true, timeoutMs: 1000 },
+      );
+      expect(refreshSpy).not.toHaveBeenCalled();
+    } finally {
+      refreshSpy.mockRestore();
+    }
+  });
+});
+
 describe('listWorkspaces', () => {
   let config: ConfigManager;
   let home: string;

@@ -3097,7 +3097,9 @@ usageCmd
   .description('Set the plan label for an account (e.g. "Max 5x", "Max 20x", "Pro")')
   .action((account: string, plan: string) => {
     const config = new ConfigManager();
-    const known = getKnownAccounts(config.getProfiles());
+    // T-LU-010: hidden / disabled workspaces can still have their plan
+    // label edited — the user may want to fix metadata before re-enabling.
+    const known = getKnownAccounts(config.getProfiles(), { includeInactive: true });
     const profile = known.find(p => p.name === account || p.commandName === account);
     if (!profile) {
       console.error(chalk.red(`Account '${account}' not found`));
@@ -3113,7 +3115,9 @@ usageCmd
   .description('Set known message limits for progress bars (e.g. "Max 5x" = 225 5h, 2000 7d)')
   .action((account: string, limit5h: string, limit7d: string) => {
     const config = new ConfigManager();
-    const known = getKnownAccounts(config.getProfiles());
+    // T-LU-010: see set-plan above — metadata edits permitted on inactive
+    // workspaces so the user can adjust before re-enabling.
+    const known = getKnownAccounts(config.getProfiles(), { includeInactive: true });
     const profile = known.find(p => p.name === account || p.commandName === account);
     if (!profile) {
       console.error(chalk.red(`Account '${account}' not found`));

@@ -28,7 +28,19 @@ export type AuditAction =
   | 'token_refreshed'
   | 'session_started'
   | 'backup_created'
-  | 'config_changed';
+  | 'config_changed'
+  // T-LU-010 CRUD wave — workspace + account lifecycle actions. Kept in
+  // the canonical union so `audit.jsonl` consumers (fed/audit endpoints,
+  // SweechBar) get IDE autocomplete + grep discoverability. The legacy
+  // `profile_removed` continues to fire from the deprecated CLI paths;
+  // `workspace_deleted` is the new canonical name for the same concept.
+  | 'workspace_flag_changed'
+  | 'workspace_deleted'
+  | 'workspace_edited'
+  | 'account_flag_changed'
+  | 'account_logged_out'
+  | 'account_deleted'
+  | 'account_edited';
 
 export interface ReadAuditOptions {
   /** ISO-8601 timestamp — only return entries at or after this time. */

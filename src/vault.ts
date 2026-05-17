@@ -575,6 +575,9 @@ export function listAccountsV2(): import('./providerModel').Account[] {
         lastRefreshedAt: entry.lastRefreshedAt,
         expiresAt: entry.expiresAt,
         status: entry.status,
+        // T-LU-010: propagate hidden so `accounts list --json`
+        // (and downstream SweechBar) can dim + sink the row.
+        ...(entry.hidden ? { hidden: true } : {}),
         refreshTokenRef: entry.refreshTokenRef,
       }
     }

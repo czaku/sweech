@@ -98,6 +98,8 @@ export interface OAuthAccount {
   /** Access token expiry (ms epoch). */
   expiresAt?: number
   status?: 'ok' | 'expired' | 'org_disabled' | 'unauthorized' | 'unknown'
+  /** T-LU-010 lifecycle flag — see AccountMeta.hidden in vault.ts. */
+  hidden?: boolean
   /** Reference to the refresh-token secret in keychain. */
   refreshTokenRef: KeychainRef
 }

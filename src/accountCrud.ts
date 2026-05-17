@@ -184,7 +184,16 @@ export async function logoutAccount(
   }
 
   if (hadSecret) {
-    try { await store.delete(service, 'sweech-vault'); } catch {}
+    try {
+      await store.delete(service, 'sweech-vault');
+    } catch (err) {
+      // Surface partial-logout to stderr so users can re-run / inspect
+      // the keychain manually. We don't throw here — clearing markers
+      // and flipping status are independently useful even if the
+      // keychain delete failed (e.g. user cancelled the prompt).
+      const msg = err instanceof Error ? err.message : String(err);
+      process.stderr.write(`[sweech] keychain delete failed for ${account.email}: ${msg}\n`);
+    }
   }
 
   // Clear any workspace marker pointing at this account so the daemon
@@ -239,14 +248,19 @@ export async function deleteAccount(
     hadSecret = Boolean(existing);
   } catch {}
 
+  // Security MEDIUM (T-LU-010): remove the row + keychain secret FIRST,
+  // then clear workspace markers. The prior order cleared markers before
+  // the meta write — a writeMeta failure left workspaces orphaned (no
+  // marker) while the account row + secret remained, an inconsistent
+  // state that needed manual recovery. Reverse order means a partial
+  // failure leaves both halves intact and the user can retry safely.
   const mounted = findWorkspacesUsingAccount(account.id, workspaces);
+  await removeAccount(account.id);
   if (!opts.keepWorkspaceMarkers) {
     for (const cmd of mounted) {
       setActiveAccountId(cmd, null);
     }
   }
-
-  await removeAccount(account.id);
 
   return {
     id: account.id,
