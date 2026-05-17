@@ -185,8 +185,14 @@ export function isCmdkeyAvailable(): boolean {
 
 // ── File-based fallback ──────────────────────────────────────────────────────
 
-const TOKENS_DIR = path.join(os.homedir(), '.sweech')
-const TOKENS_FILE = path.join(TOKENS_DIR, 'tokens.json')
+// Paths resolved lazily so jest tests mocking homedir AFTER this module
+// loads (the usual pattern) hit the mocked dir instead of the real
+// ~/.sweech/. See the matching note in src/vault.ts. Without this,
+// FileTokenStore (the keychain fallback path on Linux/Windows AND any
+// test path that exercises the migration) would silently write to the
+// developer's real ~/.sweech/tokens.json on every test run.
+function tokensDir(): string { return path.join(os.homedir(), '.sweech') }
+function tokensFile(): string { return path.join(tokensDir(), 'tokens.json') }
 
 export class FileTokenStore implements CredentialStore {
   async get(service: string, account: string): Promise<string | null> {
@@ -209,18 +215,18 @@ export class FileTokenStore implements CredentialStore {
 
 function readTokenFile(): Record<string, string> {
   try {
-    return JSON.parse(fs.readFileSync(TOKENS_FILE, 'utf-8'))
+    return JSON.parse(fs.readFileSync(tokensFile(), 'utf-8'))
   } catch {
     return {}
   }
 }
 
 function writeTokenFile(store: Record<string, string>): void {
-  fs.mkdirSync(TOKENS_DIR, { recursive: true, mode: 0o700 })
-  atomicWriteFileSync(TOKENS_FILE, JSON.stringify(store, null, 2))
+  fs.mkdirSync(tokensDir(), { recursive: true, mode: 0o700 })
+  atomicWriteFileSync(tokensFile(), JSON.stringify(store, null, 2))
   // Ensure permissions are correct even if the file already existed.
   try {
-    fs.chmodSync(TOKENS_FILE, 0o600)
+    fs.chmodSync(tokensFile(), 0o600)
   } catch {
     // chmod may fail on Windows — file store still works.
   }

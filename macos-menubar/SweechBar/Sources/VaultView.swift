@@ -550,12 +550,16 @@ private struct AccountTile: View {
         }
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        // T-LU-010 accessibility (review-round-1 follow-up): hidden tiles
-        // dim by lowering background opacity + desaturating, NOT by
-        // wrapping the whole tile in `.opacity(0.55)`. The prior approach
-        // crushed 9pt badge text below the 4.5:1 WCAG contrast threshold
-        // in Light mode. Text + glyphs retain full opacity here so the
-        // tile reads as muted but stays legible.
+        // T-LU-010 accessibility (review-round-1 + codex follow-up): hidden
+        // tiles dim by lowering background opacity + desaturating the
+        // *content*, NOT by wrapping the whole tile in `.opacity(0.55)`
+        // (which crushes 9pt badge text below WCAG 4.5:1) nor by
+        // saturating AFTER `.overlay(...)` (which would also mute the
+        // danger-coloured border on a tile needing re-auth). Saturation
+        // is applied to the content layer BEFORE the overlay so the
+        // semantic border colour for re-auth/problem states retains
+        // full chroma even on inactive tiles.
+        .saturation((account.hidden ?? false) ? 0.4 : 1.0)
         .background(
             Sweech.Color.surface.opacity((account.hidden ?? false) ? 0.45 : 0.85)
         )
@@ -567,7 +571,6 @@ private struct AccountTile: View {
                 )
         )
         .clipShape(RoundedRectangle(cornerRadius: 8))
-        .saturation((account.hidden ?? false) ? 0.4 : 1.0)
         .contextMenu {
             // External (API-key) tiles are skipped because their lifecycle
             // is managed by the workspace dir, not the vault.
@@ -1120,10 +1123,11 @@ private struct WorkspaceTile: View {
         }
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        // T-LU-010 accessibility (review-round-1 follow-up): see the
-        // matching note on AccountTile. We dim the background +
-        // desaturate hue instead of `.opacity()` on the whole tile so
-        // 9pt badge text retains full contrast against the surface.
+        // T-LU-010 accessibility (review-round-1 + codex follow-up): see
+        // the matching note on AccountTile. Saturation BEFORE overlay so
+        // the danger-coloured border on a tile with a problemBadge keeps
+        // its semantic chroma even when the workspace is disabled/hidden.
+        .saturation(ws.isInactive ? 0.4 : 1.0)
         .background(
             Sweech.Color.surface.opacity(ws.isInactive ? 0.45 : 0.85)
         )
@@ -1135,7 +1139,6 @@ private struct WorkspaceTile: View {
                 )
         )
         .clipShape(RoundedRectangle(cornerRadius: 8))
-        .saturation(ws.isInactive ? 0.4 : 1.0)
         .contextMenu { workspaceContextMenu }
     }
 
