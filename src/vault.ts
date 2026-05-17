@@ -32,6 +32,13 @@ import { getCredentialStore } from './credentialStore'
 export type AccountKind = 'anthropic' | 'openai'
 export type CliType = 'claude' | 'codex'
 
+/**
+ * Current accounts.json schema version. Bumped to 2 in wave-6 (T-070)
+ * when the file gained discriminated entries for API-key and local
+ * (no-auth) accounts alongside the original OAuth identities.
+ */
+export const CURRENT_SCHEMA_VERSION = 2
+
 /** CLI types compatible with a given account kind. */
 export function compatibleCliTypes(kind: AccountKind): CliType[] {
   return kind === 'anthropic' ? ['claude'] : ['codex']
@@ -131,21 +138,469 @@ function keychainService(kind: AccountKind, id: string): string {
 
 const KEYCHAIN_ACCOUNT = 'sweech-vault'
 
-// ── Metadata I/O ─────────────────────────────────────────────────────────────
+// ── V2 schema (T-070) ───────────────────────────────────────────────────────
+//
+// Wave-6 introduces a discriminated `Account` union so the vault can
+// store API-key and local (no-auth) accounts alongside OAuth identities.
+// On disk the new shape is:
+//
+//   { "schemaVersion": 2,
+//     "accounts": [
+//       { "kind": "oauth", "provider": "anthropic", ... },
+//       { "kind": "apikey", "provider": "kimi", "keyRef": {...}, ... },
+//       { "kind": "none", "provider": "ollama", ... }
+//     ]
+//   }
+//
+// The legacy callers in this file (`listAccounts`, `getAccount`,
+// `saveAccount`, ...) keep operating on the OAuth-only `AccountMeta`
+// shape — they read/write only the `kind:'oauth'` rows and never see
+// the API-key / local rows. New callers (T-071+) use the v2 surface
+// via `loadAccountsV2()` / `saveAccountsV2()`.
+//
 
-function readMeta(): AccountMeta[] {
-  try {
-    const data = JSON.parse(fs.readFileSync(ACCOUNTS_FILE, 'utf-8'))
-    return Array.isArray(data) ? data : []
-  } catch {
-    return []
-  }
+interface V2KeychainRef {
+  service: string
+  account: string
 }
 
-function writeMeta(accounts: AccountMeta[]): void {
+interface V2OAuthEntry {
+  kind: 'oauth'
+  /** Upstream provider ('anthropic' or 'openai'). */
+  provider: 'anthropic' | 'openai'
+  /** Stable id derived from kind + email (+ optional orgId). */
+  id: string
+  email: string
+  displayName?: string
+  externalId?: string
+  orgId?: string
+  orgName?: string
+  plan?: string
+  rateLimitTier?: string
+  addedAt: string
+  lastRefreshedAt?: string
+  expiresAt?: number
+  status?: 'ok' | 'expired' | 'org_disabled' | 'unauthorized' | 'unknown'
+  /**
+   * Reference to the OAuth refresh-token secret in keychain. The
+   * sweech-vault-<accountKind>-<id> entry is the source of truth for
+   * the live secret; this ref makes lookup non-magical for new code.
+   */
+  refreshTokenRef: V2KeychainRef
+  /**
+   * Legacy `kind: 'anthropic' | 'openai'`. The new v2 shape uses
+   * `kind: 'oauth'` + a separate `accountKind` to disambiguate from
+   * apikey/none entries. Existing code that reads `AccountMeta.kind`
+   * sees this field unchanged via the legacy projection in `readMeta()`.
+   */
+  accountKind: AccountKind
+}
+
+interface V2ApiKeyEntry {
+  kind: 'apikey'
+  provider: string
+  /** Stable id derived from `sha8(provider + ':' + commandName)`. */
+  id: string
+  /** Human-friendly label, optional. */
+  label?: string
+  addedAt: string
+  /** Reference to the API-key secret in keychain. */
+  keyRef: V2KeychainRef
+}
+
+interface V2NoAuthEntry {
+  kind: 'none'
+  provider: string
+  id: string
+  label?: string
+  addedAt: string
+}
+
+type V2Entry = V2OAuthEntry | V2ApiKeyEntry | V2NoAuthEntry
+
+interface V2VaultFile {
+  schemaVersion: 2
+  accounts: V2Entry[]
+}
+
+// ── Metadata I/O ─────────────────────────────────────────────────────────────
+
+/** Internal: parse the on-disk file into the v2 shape, migrating if needed. */
+function readV2File(): V2VaultFile {
+  let raw: unknown
+  try {
+    raw = JSON.parse(fs.readFileSync(ACCOUNTS_FILE, 'utf-8'))
+  } catch {
+    return { schemaVersion: 2, accounts: [] }
+  }
+
+  // v1 shape (bare AccountMeta[]): the only shape until wave-6.
+  if (Array.isArray(raw)) {
+    const migrated = migrateV1ToV2(raw as AccountMeta[])
+    persistV2File(migrated)
+    return migrated
+  }
+
+  // Anything else (object) — check schemaVersion.
+  if (raw && typeof raw === 'object') {
+    const obj = raw as Record<string, unknown>
+    const version = typeof obj.schemaVersion === 'number' ? obj.schemaVersion : 1
+    if (version >= 2 && Array.isArray(obj.accounts)) {
+      return { schemaVersion: 2, accounts: obj.accounts as V2Entry[] }
+    }
+    // v1 stored as `{ accounts: [...] }` is theoretically possible if
+    // someone hand-edited the file; treat the inner array as v1.
+    if (version === 1 && Array.isArray(obj.accounts)) {
+      const migrated = migrateV1ToV2(obj.accounts as AccountMeta[])
+      persistV2File(migrated)
+      return migrated
+    }
+  }
+
+  return { schemaVersion: 2, accounts: [] }
+}
+
+function persistV2File(file: V2VaultFile): void {
   fs.mkdirSync(SWEECH_DIR, { recursive: true, mode: 0o700 })
-  atomicWriteFileSync(ACCOUNTS_FILE, JSON.stringify(accounts, null, 2))
+  atomicWriteFileSync(ACCOUNTS_FILE, JSON.stringify(file, null, 2))
   try { fs.chmodSync(ACCOUNTS_FILE, 0o600) } catch {}
+}
+
+/**
+ * Migrate a v1 bare-array `AccountMeta[]` to the v2 shape.
+ *
+ * Steps:
+ *   - Wrap each OAuth row with `kind: 'oauth'`, copy `kind` into
+ *     `accountKind`, derive a `refreshTokenRef` pointing at the
+ *     existing `sweech-vault-<kind>-<id>` keychain entry.
+ *   - Walk ConfigManager workspaces for non-OAuth providers (apikey
+ *     or local) and emit one V2 entry per workspace, referencing the
+ *     existing `sweech-api-key:<commandName>` entry.
+ *   - Sort by `(provider, addedAt)` for stable diffs.
+ *   - Append a one-line audit entry to `~/.sweech/audit.jsonl`.
+ *
+ * Idempotent: running on an already-v2 file produces the same output.
+ */
+export function migrateV1ToV2(legacy: AccountMeta[]): V2VaultFile {
+  const accounts: V2Entry[] = []
+
+  // ── 1. OAuth rows ──────────────────────────────────────────────────────────
+  let oauthRetained = 0
+  for (const m of legacy) {
+    const accountKind = m.kind
+    const provider: 'anthropic' | 'openai' = accountKind === 'anthropic' ? 'anthropic' : 'openai'
+    accounts.push({
+      kind: 'oauth',
+      provider,
+      id: m.id,
+      email: m.email,
+      displayName: m.displayName,
+      externalId: m.externalId,
+      orgId: m.orgId,
+      orgName: m.orgName,
+      plan: m.plan,
+      rateLimitTier: m.rateLimitTier,
+      addedAt: m.addedAt,
+      lastRefreshedAt: m.lastRefreshedAt,
+      expiresAt: m.expiresAt,
+      status: m.status,
+      accountKind,
+      refreshTokenRef: {
+        service: `sweech-vault-${accountKind}-${m.id}`,
+        account: KEYCHAIN_ACCOUNT,
+      },
+    })
+    oauthRetained++
+  }
+
+  // ── 2. API-key / local workspaces ──────────────────────────────────────────
+  //
+  // Lazy-required so vault.ts has no static dependency on config.ts
+  // (avoids a load-order cycle when tests mock vault).
+  let apikeyAdded = 0
+  let noneAdded = 0
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { ConfigManager } = require('./config') as typeof import('./config')
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { effectiveProvider, PROVIDERS } = require('./providers') as typeof import('./providers')
+
+    const cfg = new ConfigManager()
+    const profiles = cfg.getProfiles()
+    const seen = new Set<string>()
+    for (const p of profiles) {
+      const eff = effectiveProvider(p.provider, p.baseUrl) || p.provider
+      // OAuth-backed providers are represented by their OAuth account
+      // rows already; skip so we don't double-count.
+      if (eff === 'anthropic' || eff === 'openai') continue
+      const id = idForApiKey(eff, p.commandName)
+      if (seen.has(id)) continue
+      seen.add(id)
+
+      // `authOptional` providers (Ollama local, etc.) are recorded
+      // as `kind: 'none'`; everything else is `kind: 'apikey'`.
+      const legacyProv = PROVIDERS[p.provider]
+      const isLocal = !!legacyProv?.authOptional
+        || eff === 'local-ollama'
+        || eff === 'local-proxy'
+        || eff === 'xortron'
+
+      if (isLocal) {
+        accounts.push({
+          kind: 'none',
+          provider: eff,
+          id,
+          label: p.commandName,
+          addedAt: p.createdAt ?? new Date().toISOString(),
+        })
+        noneAdded++
+      } else {
+        accounts.push({
+          kind: 'apikey',
+          provider: eff,
+          id,
+          label: p.commandName,
+          addedAt: p.createdAt ?? new Date().toISOString(),
+          keyRef: {
+            service: 'sweech-api-key',
+            account: p.commandName,
+          },
+        })
+        apikeyAdded++
+      }
+    }
+  } catch {
+    // ConfigManager unavailable (mocked-out tests, fresh install with
+    // no config.json) — that's fine, we just emit zero apikey rows.
+  }
+
+  // ── 3. Deterministic sort: provider asc, then addedAt asc, then id asc.
+  accounts.sort((a, b) => {
+    const provCmp = a.provider.localeCompare(b.provider)
+    if (provCmp !== 0) return provCmp
+    const aAdded = a.addedAt ?? ''
+    const bAdded = b.addedAt ?? ''
+    if (aAdded !== bAdded) return aAdded.localeCompare(bAdded)
+    return a.id.localeCompare(b.id)
+  })
+
+  // ── 4. Audit log line. Best-effort; never blocks the migration. ────────────
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { logAudit } = require('./auditLog') as typeof import('./auditLog')
+    logAudit({
+      timestamp: new Date().toISOString(),
+      action: 'vault_schema_migration',
+      details: {
+        fromVersion: 1,
+        toVersion: 2,
+        oauthRetained,
+        apikeyAdded,
+        noneAdded,
+        note: 'wave-6 T-070 — Provider/Account/Workspace unification',
+      },
+    })
+  } catch { /* audit log unavailable */ }
+
+  return { schemaVersion: 2, accounts }
+}
+
+/** sha8(provider:commandName) — kept in sync with providerModel.accountIdForApiKey. */
+function idForApiKey(provider: string, commandName: string): string {
+  return crypto
+    .createHash('sha256')
+    .update(`${provider}:${commandName}`)
+    .digest('hex')
+    .slice(0, 12)
+}
+
+/**
+ * Read all OAuth (legacy) rows. Backwards-compatible with every caller
+ * that existed before T-070 — non-OAuth rows are filtered out and the
+ * `kind:'oauth'` wrapper is unwrapped so the returned shape matches
+ * the pre-wave-6 `AccountMeta[]`.
+ */
+function readMeta(): AccountMeta[] {
+  const file = readV2File()
+  const out: AccountMeta[] = []
+  for (const entry of file.accounts) {
+    if (entry.kind !== 'oauth') continue
+    out.push({
+      id: entry.id,
+      kind: entry.accountKind,
+      email: entry.email,
+      displayName: entry.displayName,
+      externalId: entry.externalId,
+      orgId: entry.orgId,
+      orgName: entry.orgName,
+      plan: entry.plan,
+      rateLimitTier: entry.rateLimitTier,
+      addedAt: entry.addedAt,
+      lastRefreshedAt: entry.lastRefreshedAt,
+      expiresAt: entry.expiresAt,
+      status: entry.status,
+    })
+  }
+  return out
+}
+
+/**
+ * Write the OAuth rows back to disk, preserving any non-OAuth (apikey /
+ * none) entries already present. Callers continue to operate on the
+ * `AccountMeta[]` shape; this function reconstructs the v2 wrappers.
+ */
+function writeMeta(accounts: AccountMeta[]): void {
+  const existing = readV2File()
+  const preserved = existing.accounts.filter(e => e.kind !== 'oauth')
+  const oauthEntries: V2Entry[] = accounts.map(m => {
+    const provider: 'anthropic' | 'openai' = m.kind === 'anthropic' ? 'anthropic' : 'openai'
+    return {
+      kind: 'oauth',
+      provider,
+      id: m.id,
+      email: m.email,
+      displayName: m.displayName,
+      externalId: m.externalId,
+      orgId: m.orgId,
+      orgName: m.orgName,
+      plan: m.plan,
+      rateLimitTier: m.rateLimitTier,
+      addedAt: m.addedAt,
+      lastRefreshedAt: m.lastRefreshedAt,
+      expiresAt: m.expiresAt,
+      status: m.status,
+      accountKind: m.kind,
+      refreshTokenRef: {
+        service: `sweech-vault-${m.kind}-${m.id}`,
+        account: KEYCHAIN_ACCOUNT,
+      },
+    }
+  })
+  const merged = [...oauthEntries, ...preserved]
+  merged.sort((a, b) => {
+    const provCmp = a.provider.localeCompare(b.provider)
+    if (provCmp !== 0) return provCmp
+    const aAdded = a.addedAt ?? ''
+    const bAdded = b.addedAt ?? ''
+    if (aAdded !== bAdded) return aAdded.localeCompare(bAdded)
+    return a.id.localeCompare(b.id)
+  })
+  persistV2File({ schemaVersion: 2, accounts: merged })
+}
+
+/**
+ * Full v2 account list (oauth + apikey + none). Exposed for the
+ * unified provider tree in `providerModel.ts` and any downstream
+ * caller that needs the full discriminated view.
+ *
+ * Returns a structural copy — mutating the returned array does not
+ * persist back to disk.
+ */
+export function listAccountsV2(): import('./providerModel').Account[] {
+  const file = readV2File()
+  return file.accounts.map((entry): import('./providerModel').Account => {
+    if (entry.kind === 'oauth') {
+      return {
+        kind: 'oauth',
+        provider: entry.provider,
+        id: entry.id,
+        email: entry.email,
+        displayName: entry.displayName,
+        externalId: entry.externalId,
+        orgId: entry.orgId,
+        orgName: entry.orgName,
+        plan: entry.plan,
+        rateLimitTier: entry.rateLimitTier,
+        addedAt: entry.addedAt,
+        lastRefreshedAt: entry.lastRefreshedAt,
+        expiresAt: entry.expiresAt,
+        status: entry.status,
+        refreshTokenRef: entry.refreshTokenRef,
+      }
+    }
+    if (entry.kind === 'apikey') {
+      return {
+        kind: 'apikey',
+        provider: entry.provider,
+        id: entry.id,
+        label: entry.label,
+        addedAt: entry.addedAt,
+        keyRef: entry.keyRef,
+      }
+    }
+    return {
+      kind: 'none',
+      provider: entry.provider,
+      id: entry.id,
+      label: entry.label,
+      addedAt: entry.addedAt,
+    }
+  })
+}
+
+/**
+ * Persist a full v2 account list (oauth + apikey + none).
+ *
+ * Used by future writers (`vault add apikey ...`, T-072 onwards).
+ * Today the OAuth path keeps using `saveAccount` so we don't break
+ * the surface; this is the entry point that knows how to write
+ * apikey/none rows.
+ */
+export function saveAccountsV2(accounts: import('./providerModel').Account[]): void {
+  withVaultLock(() => {
+    const entries: V2Entry[] = accounts.map((a): V2Entry => {
+      if (a.kind === 'oauth') {
+        const accountKind: AccountKind = a.provider === 'anthropic' ? 'anthropic' : 'openai'
+        return {
+          kind: 'oauth',
+          provider: a.provider,
+          id: a.id,
+          email: a.email,
+          displayName: a.displayName,
+          externalId: a.externalId,
+          orgId: a.orgId,
+          orgName: a.orgName,
+          plan: a.plan,
+          rateLimitTier: a.rateLimitTier,
+          addedAt: a.addedAt,
+          lastRefreshedAt: a.lastRefreshedAt,
+          expiresAt: a.expiresAt,
+          status: a.status,
+          accountKind,
+          refreshTokenRef: a.refreshTokenRef ?? {
+            service: `sweech-vault-${accountKind}-${a.id}`,
+            account: KEYCHAIN_ACCOUNT,
+          },
+        }
+      }
+      if (a.kind === 'apikey') {
+        return {
+          kind: 'apikey',
+          provider: a.provider,
+          id: a.id,
+          label: a.label,
+          addedAt: a.addedAt,
+          keyRef: a.keyRef,
+        }
+      }
+      return {
+        kind: 'none',
+        provider: a.provider,
+        id: a.id,
+        label: a.label,
+        addedAt: a.addedAt,
+      }
+    })
+    entries.sort((a, b) => {
+      const provCmp = a.provider.localeCompare(b.provider)
+      if (provCmp !== 0) return provCmp
+      const aAdded = a.addedAt ?? ''
+      const bAdded = b.addedAt ?? ''
+      if (aAdded !== bAdded) return aAdded.localeCompare(bAdded)
+      return a.id.localeCompare(b.id)
+    })
+    persistV2File({ schemaVersion: 2, accounts: entries })
+  })
 }
 
 /**
