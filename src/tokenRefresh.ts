@@ -54,12 +54,12 @@ function readSettings(settingsPath: string): Record<string, any> | null {
  *
  * Atomic write (temp file + rename) — concurrent readers (the wrapper
  * script's python3 hoist, getCurrentApiKey, peer sweech invocations)
- * never observe a truncated half-written file. chmod 0600 because the
- * file holds the refresh token + access token after this rewrite.
+ * never observe a truncated half-written file. mode 0o600 is applied to
+ * the TEMP file BEFORE rename so the freshly-rotated refresh token never
+ * appears as world-readable, even for the rename↔chmod window.
  */
 function writeSettings(settingsPath: string, settings: Record<string, any>): void {
-  atomicWriteFileSync(settingsPath, JSON.stringify(settings, null, 2));
-  try { fs.chmodSync(settingsPath, 0o600); } catch { /* best-effort */ }
+  atomicWriteFileSync(settingsPath, JSON.stringify(settings, null, 2), { mode: 0o600 });
 }
 
 /**

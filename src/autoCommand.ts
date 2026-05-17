@@ -35,9 +35,46 @@ export function buildAutoCommandJson(rec: AccountRecommendation): AutoCommandJso
 }
 
 /**
+ * Variables stripped from the spawned child's environment so the picked
+ * profile's settings.env (already mirrored into the wrapper script's
+ * `export "$K=$V"` loop) wins instead of being shadowed by whatever the
+ * user's shell has exported. Covers:
+ *   - Claude Code nesting vars (don't let the child think it's nested)
+ *   - Anthropic / OpenAI / Kimi / GLM / DeepSeek / Qwen API keys that
+ *     could route the picked profile to the wrong account silently
+ *   - CONFIG_DIR overrides that would point the CLI elsewhere
+ *   - MCP_SERVERS_PATH which would import an unintended MCP graph
+ */
+const STRIPPED_ENV_VARS = [
+  // Claude Code nesting
+  'CLAUDECODE',
+  'CLAUDE_CODE_ENTRYPOINT',
+  'CLAUDE_CODE_SSE_PORT',
+  'CLAUDE_CODE_OAUTH_TOKEN',
+  // API keys that could shadow the picked profile's settings.env
+  'ANTHROPIC_AUTH_TOKEN',
+  'ANTHROPIC_API_KEY',
+  'OPENAI_API_KEY',
+  'KIMI_API_KEY',
+  'MOONSHOT_API_KEY',
+  'GLM_API_KEY',
+  'ZAI_API_KEY',
+  'ZHIPU_API_KEY',
+  'DEEPSEEK_API_KEY',
+  'QWEN_API_KEY',
+  'DASHSCOPE_API_KEY',
+  // CLI config-dir overrides — re-set per-spawn below to the picked profile
+  'CLAUDE_CONFIG_DIR',
+  'CODEX_HOME',
+  // MCP server graph
+  'MCP_SERVERS_PATH',
+] as const;
+
+/**
  * Build the spawn environment for `sweech auto --exec`. Sets the picked
- * profile's config-dir env var and strips Claude Code nesting vars so the
- * child CLI doesn't think it's running inside another agentic session.
+ * profile's config-dir env var and strips Claude Code nesting vars +
+ * shadowing API keys so the wrapper script's hoisted settings.env is the
+ * sole source of truth for credentials in the child.
  *
  * Pure: takes a base env in, returns a new env out — does not read process.env.
  */
@@ -46,9 +83,13 @@ export function buildAutoExecEnv(
   configDir: string,
   baseEnv: NodeJS.ProcessEnv,
 ): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = { ...baseEnv, [cli.configDirEnvVar]: configDir };
-  delete env.CLAUDECODE;
-  delete env.CLAUDE_CODE_ENTRYPOINT;
+  const env: NodeJS.ProcessEnv = { ...baseEnv };
+  for (const key of STRIPPED_ENV_VARS) {
+    delete env[key];
+  }
+  // Re-set the picked profile's config-dir AFTER stripping, so it isn't
+  // shadowed by whatever was inherited from the parent.
+  env[cli.configDirEnvVar] = configDir;
   return env;
 }
 

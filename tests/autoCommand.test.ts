@@ -125,6 +125,65 @@ describe('buildAutoExecEnv', () => {
     const env = buildAutoExecEnv(claudeCli, '/new', { CLAUDE_CONFIG_DIR: '/old', PATH: '/usr/bin' });
     expect(env.CLAUDE_CONFIG_DIR).toBe('/new');
   });
+
+  test('strips shadowing API keys (Anthropic / OpenAI / Kimi / GLM / DeepSeek / Qwen)', () => {
+    const baseEnv = {
+      ANTHROPIC_AUTH_TOKEN: 'stale-token',
+      ANTHROPIC_API_KEY: 'stale-key',
+      OPENAI_API_KEY: 'leak-openai',
+      KIMI_API_KEY: 'leak-kimi',
+      MOONSHOT_API_KEY: 'leak-moonshot',
+      GLM_API_KEY: 'leak-glm',
+      ZAI_API_KEY: 'leak-zai',
+      ZHIPU_API_KEY: 'leak-zhipu',
+      DEEPSEEK_API_KEY: 'leak-deepseek',
+      QWEN_API_KEY: 'leak-qwen',
+      DASHSCOPE_API_KEY: 'leak-dashscope',
+      PATH: '/usr/bin',
+    };
+    const env = buildAutoExecEnv(claudeCli, '/x', baseEnv);
+    expect(env.ANTHROPIC_AUTH_TOKEN).toBeUndefined();
+    expect(env.ANTHROPIC_API_KEY).toBeUndefined();
+    expect(env.OPENAI_API_KEY).toBeUndefined();
+    expect(env.KIMI_API_KEY).toBeUndefined();
+    expect(env.MOONSHOT_API_KEY).toBeUndefined();
+    expect(env.GLM_API_KEY).toBeUndefined();
+    expect(env.ZAI_API_KEY).toBeUndefined();
+    expect(env.ZHIPU_API_KEY).toBeUndefined();
+    expect(env.DEEPSEEK_API_KEY).toBeUndefined();
+    expect(env.QWEN_API_KEY).toBeUndefined();
+    expect(env.DASHSCOPE_API_KEY).toBeUndefined();
+    expect(env.PATH).toBe('/usr/bin'); // non-secret env preserved
+  });
+
+  test('strips other Claude Code nesting vars (SSE_PORT, OAUTH_TOKEN)', () => {
+    const env = buildAutoExecEnv(claudeCli, '/x', {
+      CLAUDE_CODE_SSE_PORT: '12345',
+      CLAUDE_CODE_OAUTH_TOKEN: 'tok',
+      PATH: '/usr/bin',
+    });
+    expect(env.CLAUDE_CODE_SSE_PORT).toBeUndefined();
+    expect(env.CLAUDE_CODE_OAUTH_TOKEN).toBeUndefined();
+  });
+
+  test('strips MCP_SERVERS_PATH so the child does not inherit an unintended MCP graph', () => {
+    const env = buildAutoExecEnv(claudeCli, '/x', { MCP_SERVERS_PATH: '/parent/mcp', PATH: '/usr/bin' });
+    expect(env.MCP_SERVERS_PATH).toBeUndefined();
+  });
+
+  test('strip happens BEFORE configDirEnvVar set — picked profile wins', () => {
+    // Regression: if the strip ran AFTER the configDirEnvVar set, we'd
+    // delete the value we just wrote. Verify the order is correct by
+    // passing both the inherited and the new configDir.
+    const env = buildAutoExecEnv(codexCli, '/picked-codex', {
+      CODEX_HOME: '/inherited-codex',
+      CLAUDE_CONFIG_DIR: '/inherited-claude',
+      PATH: '/usr/bin',
+    });
+    expect(env.CODEX_HOME).toBe('/picked-codex');
+    // CLAUDE_CONFIG_DIR was stripped (not the picked CLI's var)
+    expect(env.CLAUDE_CONFIG_DIR).toBeUndefined();
+  });
 });
 
 describe('noProfileErrorMessage', () => {

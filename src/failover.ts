@@ -37,7 +37,7 @@ import * as os from 'os';
 import { sweechEvents } from './events';
 import { logAudit } from './auditLog';
 import { atomicWriteFileSync } from './atomicWrite';
-import { suggestBestAccount, type AccountRecommendation } from './accountSelector';
+import { recommendRoute, suggestBestAccount, type AccountRecommendation } from './accountSelector';
 import type { ProfileConfig } from './config';
 
 const SWEECH_DIR = path.join(os.homedir(), '.sweech');
@@ -76,8 +76,10 @@ function readCooldownStore(): CooldownStore {
 function writeCooldownStore(store: CooldownStore): void {
   try {
     if (!fs.existsSync(SWEECH_DIR)) fs.mkdirSync(SWEECH_DIR, { recursive: true, mode: 0o700 });
-    atomicWriteFileSync(COOLDOWN_FILE, JSON.stringify(store, null, 2));
-    try { fs.chmodSync(COOLDOWN_FILE, 0o600); } catch { /* best-effort */ }
+    // mode 0o600 is applied on the temp file before rename — closes the
+    // TOCTOU window where a co-tenant could open() a world-readable fd
+    // between rename and chmod and keep it open across the chmod.
+    atomicWriteFileSync(COOLDOWN_FILE, JSON.stringify(store, null, 2), { mode: 0o600 });
   } catch (err) {
     process.stderr.write(`[sweech] failover cooldown write failed: ${err instanceof Error ? err.message : String(err)}\n`);
   }
@@ -225,29 +227,42 @@ export async function pickFailoverTarget(
     excluded.add(entry.commandName);
   }
 
-  // Walk the recommendation iteratively: suggestBestAccount only returns
-  // ONE candidate, so we need a way to skip excluded names. Easiest is to
-  // expand the search via recommendRoute() and pick the first non-excluded
-  // candidate ourselves — but to keep the API surface tight we just retry
-  // suggestBestAccount with a profile list that omits excluded entries.
+  // suggestBestAccount only returns ONE candidate AND it adds built-in
+  // defaults (claude, codex, kimi) on top of the passed profile list —
+  // post-filtering a single result silently drops availability if the
+  // default collides with `excluded`. Use recommendRoute, which returns
+  // every scored candidate, and pick the highest-scoring one that's
+  // actually free.
   const baseProfiles = opts.profiles ?? (() => {
     const { ConfigManager } = require('./config') as typeof import('./config');
     return new ConfigManager().getProfiles();
   })();
   const filteredProfiles = baseProfiles.filter(p => !excluded.has(p.commandName));
 
-  // suggestBestAccount considers built-in default accounts (claude, codex)
-  // even when not in the profile list. If the source IS the default, we
-  // need to exclude it via the result instead of the input list.
-  const candidate = await suggestBestAccount(opts.cliType, filteredProfiles);
-  if (!candidate) return undefined;
-  if (excluded.has(candidate.account.commandName)) {
-    // Default account collided with the source — give it one more try with
-    // a guaranteed-different cli filter? No: just return undefined and let
-    // the caller surface "no failover target available."
-    return undefined;
+  const route = await recommendRoute({ cliType: opts.cliType }, filteredProfiles);
+
+  // Walk candidates by descending score (the response already sorts that
+  // way) and return the first one not in the excluded set. Each candidate
+  // is wrapped to match the AccountRecommendation shape suggestBestAccount
+  // would have returned — preserves the existing caller contract.
+  for (const candidate of route.candidates) {
+    if (excluded.has(candidate.account.commandName)) continue;
+    if (candidate.reasons.length > 0) continue; // rejected by capability/auth/etc
+    if (!Number.isFinite(candidate.score)) continue;
+    return {
+      account: {
+        name: candidate.account.name,
+        commandName: candidate.account.commandName,
+        cliType: candidate.route.cliType,
+        configDir: candidate.route.configDir,
+        isDefault: candidate.account.isDefault,
+        isManaged: candidate.account.isManaged,
+      },
+      score: candidate.score,
+      reason: candidate.scoreReason,
+    };
   }
-  return candidate;
+  return undefined;
 }
 
 /**
@@ -282,8 +297,26 @@ export function recordFailover(from: string, to: string, reason: string): void {
 let __listenerRegistered = false;
 let __listener: ((data: { account: string; window: '5h' | '7d'; timestamp: string }) => void) | null = null;
 
+// Tag attached to our listener function so we can identify and remove our
+// own callbacks across module-reload boundaries (no-op today; nodemon /
+// keel-style daemon hot-reload would otherwise leak listeners). Survives
+// require-cache busting because the EventEmitter holds the function ref.
+const SWEECH_FAILOVER_TAG = '__sweechFailover';
+
 export function startFailoverListener(): () => void {
+  // Defence in depth: scrub any tagged listener that survived a hot reload
+  // (or a previous test crash that bypassed stopFailoverListener), so we
+  // never end up with two failover handlers on the same event.
+  for (const l of sweechEvents.listeners('limit_reached')) {
+    if ((l as unknown as Record<string, unknown>)[SWEECH_FAILOVER_TAG]) {
+      sweechEvents.off('limit_reached', l as (data: any) => void);
+    }
+  }
+
   if (__listenerRegistered && __listener) {
+    // State says registered but the scrub above removed any tagged
+    // listener — re-attach to keep the contract honest.
+    sweechEvents.on('limit_reached', __listener);
     return () => stopFailoverListener();
   }
   __listener = (data) => {
@@ -300,15 +333,26 @@ export function startFailoverListener(): () => void {
       resetMs,
     });
   };
+  (__listener as unknown as Record<string, unknown>)[SWEECH_FAILOVER_TAG] = true;
   sweechEvents.on('limit_reached', __listener);
   __listenerRegistered = true;
   return () => stopFailoverListener();
 }
 
 export function stopFailoverListener(): void {
+  // Always reset module-level state even if the listener was never set —
+  // a test that throws between start and stop must NOT leave a stale
+  // __listenerRegistered=true behind that suppresses the next start.
   if (__listener) {
     sweechEvents.off('limit_reached', __listener);
-    __listener = null;
   }
+  // Also scrub any tagged listener that survived from another module
+  // instance (hot reload, test pollution).
+  for (const l of sweechEvents.listeners('limit_reached')) {
+    if ((l as unknown as Record<string, unknown>)[SWEECH_FAILOVER_TAG]) {
+      sweechEvents.off('limit_reached', l as (data: any) => void);
+    }
+  }
+  __listener = null;
   __listenerRegistered = false;
 }

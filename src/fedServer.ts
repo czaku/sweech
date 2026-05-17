@@ -346,12 +346,16 @@ export async function startSweechFedServerWithShutdown(port: number): Promise<ht
 
   const shutdown = () => {
     console.error('[sweech serve] shutting down...')
-    logRotator?.stop()
-    logRotator = null
-    stopTokenRefresh?.()
-    stopTokenRefresh = null
+    // Order matters: silence the event bus FIRST (so a final
+    // token-refresh probe or response handler that fires limit_reached
+    // during teardown doesn't trigger a disk write while we're already
+    // closing). Then stop the refresh timer, then close the server.
     stopFailoverListener?.()
     stopFailoverListener = null
+    stopTokenRefresh?.()
+    stopTokenRefresh = null
+    logRotator?.stop()
+    logRotator = null
     server.close(() => {
       process.exit(0)
     })

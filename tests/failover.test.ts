@@ -35,10 +35,15 @@ jest.mock('node:os', () => {
 });
 
 // Stub accountSelector for pickFailoverTarget — keeps tests isolated from
-// the real Keychain / fs probing.
-const mockSuggestBestAccount = jest.fn();
+// the real Keychain / fs probing. pickFailoverTarget uses `recommendRoute`
+// so it can walk all candidates and skip excluded ones rather than
+// post-filtering a single suggestion.
+const mockRecommendRoute = jest.fn();
 jest.mock('../src/accountSelector', () => ({
-  suggestBestAccount: (...args: unknown[]) => mockSuggestBestAccount(...args),
+  recommendRoute: (...args: unknown[]) => mockRecommendRoute(...args),
+  // suggestBestAccount stays as a no-op stub so any future test that mounts
+  // this module doesn't crash on a missing export.
+  suggestBestAccount: jest.fn(),
 }));
 
 import {
@@ -59,7 +64,7 @@ const COOLDOWN_FILE = path.join(TMP_HOME, '.sweech', 'failover-cooldowns.json');
 
 beforeEach(() => {
   mockLogAudit.mockReset();
-  mockSuggestBestAccount.mockReset();
+  mockRecommendRoute.mockReset();
   // Wipe any leftover cooldowns from the previous test.
   try { fs.rmSync(COOLDOWN_FILE, { force: true }); } catch {}
   stopFailoverListener();
@@ -223,45 +228,67 @@ describe('clearAllCooldowns', () => {
 // ─── pickFailoverTarget ──────────────────────────────────────────────────────
 
 describe('pickFailoverTarget', () => {
-  function makeRec(commandName: string, score = 50) {
+  // Build a recommendRoute candidate matching the shape pickFailoverTarget
+  // reads (subset of RouteCandidate — we only assert on what's consumed).
+  function makeCandidate(commandName: string, score = 50, opts: { reasons?: string[]; isDefault?: boolean } = {}) {
     return {
-      account: { name: commandName, commandName, cliType: 'claude', configDir: `/h/.${commandName}`, isDefault: false, isManaged: true },
+      account: {
+        name: commandName,
+        commandName,
+        isDefault: opts.isDefault ?? false,
+        isManaged: !opts.isDefault,
+        needsReauth: false,
+        liveStatus: 'allowed',
+      },
+      route: {
+        cliType: 'claude',
+        configDir: `/h/.${commandName}`,
+      },
       score,
-      reason: `pick:${commandName}`,
+      reasons: opts.reasons ?? [],
+      scoreReason: `pick:${commandName}`,
     };
   }
 
-  test('returns suggestBestAccount candidate when nothing excluded', async () => {
-    mockSuggestBestAccount.mockResolvedValueOnce(makeRec('claude-best'));
+  function makeRouteResponse(...candidates: ReturnType<typeof makeCandidate>[]) {
+    return { candidates, selected: candidates[0] ?? null, rejected: candidates.slice(1) };
+  }
+
+  test('returns the highest-scoring non-rejected candidate when nothing excluded', async () => {
+    mockRecommendRoute.mockResolvedValueOnce(makeRouteResponse(
+      makeCandidate('claude-best', 80),
+      makeCandidate('claude-other', 60),
+    ));
     const target = await pickFailoverTarget(undefined, { profiles: [] });
     expect(target?.account.commandName).toBe('claude-best');
+    expect(target?.score).toBe(80);
   });
 
-  test('excludes the source profile from the search', async () => {
-    mockSuggestBestAccount.mockResolvedValueOnce(makeRec('claude-other'));
+  test('excludes the source profile from the recommendRoute call (filteredProfiles)', async () => {
+    mockRecommendRoute.mockResolvedValueOnce(makeRouteResponse(makeCandidate('claude-other', 70)));
     await pickFailoverTarget('claude-main', { profiles: [
       { name: 'claude-main', commandName: 'claude-main', cliType: 'claude', createdAt: '' },
       { name: 'claude-other', commandName: 'claude-other', cliType: 'claude', createdAt: '' },
     ] as any });
-    const filtered = mockSuggestBestAccount.mock.calls[0][1];
+    const filtered = mockRecommendRoute.mock.calls[0][1];
     expect(filtered.map((p: any) => p.commandName)).not.toContain('claude-main');
     expect(filtered.map((p: any) => p.commandName)).toContain('claude-other');
   });
 
-  test('excludes profiles currently in cooldown', async () => {
+  test('excludes profiles currently in cooldown from the input list', async () => {
     recordRateLimitCooldown('claude-busy', { resetMs: 60_000 });
-    mockSuggestBestAccount.mockResolvedValueOnce(makeRec('claude-free'));
+    mockRecommendRoute.mockResolvedValueOnce(makeRouteResponse(makeCandidate('claude-free', 60)));
     await pickFailoverTarget(undefined, { profiles: [
       { name: 'claude-busy', commandName: 'claude-busy', cliType: 'claude', createdAt: '' },
       { name: 'claude-free', commandName: 'claude-free', cliType: 'claude', createdAt: '' },
     ] as any });
-    const filtered = mockSuggestBestAccount.mock.calls[0][1];
+    const filtered = mockRecommendRoute.mock.calls[0][1];
     expect(filtered.map((p: any) => p.commandName)).not.toContain('claude-busy');
     expect(filtered.map((p: any) => p.commandName)).toContain('claude-free');
   });
 
   test('honours --exclude in addition to source + cooldowns', async () => {
-    mockSuggestBestAccount.mockResolvedValueOnce(makeRec('claude-d'));
+    mockRecommendRoute.mockResolvedValueOnce(makeRouteResponse(makeCandidate('claude-d', 50)));
     await pickFailoverTarget('claude-a', {
       profiles: [
         { name: 'claude-a', commandName: 'claude-a', cliType: 'claude', createdAt: '' },
@@ -271,27 +298,57 @@ describe('pickFailoverTarget', () => {
       ] as any,
       exclude: ['claude-b', 'claude-c'],
     });
-    const filtered = mockSuggestBestAccount.mock.calls[0][1];
+    const filtered = mockRecommendRoute.mock.calls[0][1];
     expect(filtered.map((p: any) => p.commandName).sort()).toEqual(['claude-d']);
   });
 
-  test('returns undefined when no accounts remain', async () => {
-    mockSuggestBestAccount.mockResolvedValueOnce(undefined);
+  test('skips candidates with non-empty reasons (rejected by auth/quota/etc.)', async () => {
+    mockRecommendRoute.mockResolvedValueOnce(makeRouteResponse(
+      makeCandidate('claude-rejected', 100, { reasons: ['needs-reauth'] }),
+      makeCandidate('claude-ok', 50),
+    ));
+    const target = await pickFailoverTarget(undefined, { profiles: [] });
+    expect(target?.account.commandName).toBe('claude-ok');
+  });
+
+  test('skips candidates with non-finite score', async () => {
+    mockRecommendRoute.mockResolvedValueOnce(makeRouteResponse(
+      makeCandidate('claude-bad', -Infinity),
+      makeCandidate('claude-good', 30),
+    ));
+    const target = await pickFailoverTarget(undefined, { profiles: [] });
+    expect(target?.account.commandName).toBe('claude-good');
+  });
+
+  test('skips a built-in default candidate that collides with the source', async () => {
+    // recommendRoute returns BOTH the source (default account) and other
+    // candidates. The fix: walk candidates instead of post-filtering one
+    // result so the next viable option is found.
+    mockRecommendRoute.mockResolvedValueOnce(makeRouteResponse(
+      makeCandidate('claude', 100, { isDefault: true }),
+      makeCandidate('claude-pole', 70),
+    ));
+    const target = await pickFailoverTarget('claude', { profiles: [] });
+    expect(target?.account.commandName).toBe('claude-pole');
+  });
+
+  test('returns undefined when every candidate is excluded or rejected', async () => {
+    mockRecommendRoute.mockResolvedValueOnce(makeRouteResponse(
+      makeCandidate('claude-x', 80, { reasons: ['needs-reauth'] }),
+      makeCandidate('claude-y', 60, { reasons: ['availability:limit_reached'] }),
+    ));
+    const target = await pickFailoverTarget(undefined, { profiles: [] });
+    expect(target).toBeUndefined();
+  });
+
+  test('returns undefined when recommendRoute returns an empty candidate list', async () => {
+    mockRecommendRoute.mockResolvedValueOnce(makeRouteResponse());
     const target = await pickFailoverTarget('claude-only', { profiles: [
       { name: 'claude-only', commandName: 'claude-only', cliType: 'claude', createdAt: '' },
     ] as any });
     expect(target).toBeUndefined();
   });
 
-  test('returns undefined when default account collides with the source', async () => {
-    // Even when filtered profiles are empty, suggestBestAccount may return
-    // the default account (e.g. "claude"). If that IS the source, we surface
-    // "no failover target" rather than recommending the very thing that just
-    // hit the rate limit.
-    mockSuggestBestAccount.mockResolvedValueOnce(makeRec('claude'));
-    const target = await pickFailoverTarget('claude', { profiles: [] });
-    expect(target).toBeUndefined();
-  });
 });
 
 // ─── recordFailover ──────────────────────────────────────────────────────────
