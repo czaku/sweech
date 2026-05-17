@@ -2076,6 +2076,188 @@ profileCmd
     }
   });
 
+// ── sweech profile audit ───────────────────────────────────────────────────
+// T-LU-008: flag dormant profiles + identity cross-bleed, propose prune.
+// Read-only by default. --prune walks each prunable finding interactively;
+// --prune --yes prunes everything without prompts (gated by confirmation
+// summary). Audit NEVER auto-deletes per CLAUDE.md safety rules.
+profileCmd
+  .command('audit')
+  .description('Audit profiles for dormancy + identity cross-bleed + orphan credentials')
+  .option('--json', 'Output machine-readable JSON')
+  .option('--dormancy-days <n>', 'Days of inactivity before a profile is flagged dormant', '30')
+  .option('--prune', 'Interactively remove profiles flagged with suggestion=prune')
+  .option('--yes', 'When combined with --prune, skip per-profile prompts')
+  .action(async (opts: { json?: boolean; dormancyDays?: string; prune?: boolean; yes?: boolean }) => {
+    try {
+      const { auditProfiles, prunableProfiles } = await import('./profileAudit');
+      const dormancyDays = opts.dormancyDays ? parseInt(opts.dormancyDays, 10) : 30;
+      if (Number.isNaN(dormancyDays) || dormancyDays < 0) {
+        console.error(chalk.red(`\nInvalid --dormancy-days: ${opts.dormancyDays}\n`));
+        process.exit(1);
+      }
+      const report = await auditProfiles({ dormancyDays });
+
+      // ── JSON output ───────────────────────────────────────────────
+      if (opts.json && !opts.prune) {
+        process.stdout.write(JSON.stringify(report, null, 2) + '\n');
+        process.exit(report.summary.total_issues > 0 ? 1 : 0);
+      }
+
+      // ── Human-readable table ──────────────────────────────────────
+      if (!opts.prune) {
+        if (report.findings.length === 0) {
+          console.log(chalk.green(`\n✓ Audited ${report.scanned} profile(s). No issues found.\n`));
+          return;
+        }
+        console.log(chalk.bold(`\n  sweech profile audit · ${report.scanned} profile(s) scanned\n`));
+        for (const f of report.findings) {
+          const severityIcon = f.severity === 'critical'
+            ? chalk.red('●')
+            : f.severity === 'warn' ? chalk.yellow('●') : chalk.gray('●');
+          const sugg = f.suggestion ? chalk.dim(` [suggest: ${f.suggestion}]`) : '';
+          console.log(`  ${severityIcon} ${chalk.bold(f.profile)} ${chalk.dim(`(${f.cliType}/${f.provider})`)}  ${chalk.cyan(f.kind)}${sugg}`);
+          console.log(chalk.dim(`      ${f.detail}`));
+        }
+        console.log();
+        const { summary } = report;
+        const summaryParts = [
+          `${summary.dormant} dormant`,
+          `${summary.cross_bleed} cross-bleed`,
+          `${summary.orphan_credentials} orphan-cred`,
+          `${summary.missing_settings} missing-settings`,
+          `${summary.expired_token} expired-token`,
+        ];
+        console.log(chalk.dim(`  Summary: ${summaryParts.join(', ')} — ${summary.total_issues} issue(s), ${summary.prunable} prunable`));
+        if (summary.prunable > 0) {
+          console.log(chalk.dim(`  Run ${chalk.bold('sweech profile audit --prune')} to clean up.`));
+        }
+        console.log();
+        process.exit(summary.total_issues > 0 ? 1 : 0);
+      }
+
+      // ── --prune path ──────────────────────────────────────────────
+      const prunable = prunableProfiles(report);
+      if (prunable.length === 0) {
+        if (opts.json) {
+          process.stdout.write(JSON.stringify({ ok: true, pruned: [], skipped: [], report }, null, 2) + '\n');
+        } else {
+          console.log(chalk.green(`\n✓ Nothing to prune. Audited ${report.scanned} profile(s).\n`));
+        }
+        return;
+      }
+
+      // Show the prune list BEFORE doing anything — per CLAUDE.md, the
+      // user must see what will be deleted before consenting. In --json
+      // mode the list goes to stderr so stdout stays machine-parseable.
+      const renderPruneList = (out: NodeJS.WriteStream): void => {
+        out.write(chalk.bold(`\n  Profiles flagged for prune (${prunable.length}):\n\n`));
+        for (const p of prunable) {
+          const reasons = p.reasons.map(r => r.kind).join(', ');
+          out.write(`  ${chalk.red('●')} ${chalk.bold(p.profile)} ${chalk.dim(`(${p.cliType}/${p.provider})`)}  ${chalk.cyan(reasons)}\n`);
+          for (const r of p.reasons) {
+            out.write(chalk.dim(`      ${r.detail}`) + '\n');
+          }
+        }
+        out.write('\n');
+      };
+      renderPruneList(opts.json ? process.stderr : process.stdout);
+
+      // Detect non-TTY: refuse to prune interactively without --yes.
+      const isTTY = process.stdout.isTTY && process.stdin.isTTY;
+      if (!opts.yes && !isTTY) {
+        console.error(chalk.red('\n  Refusing to prune in non-interactive shell without --yes.\n'));
+        if (opts.json) {
+          process.stdout.write(JSON.stringify({ ok: false, error: 'non-tty requires --yes', report }, null, 2) + '\n');
+        }
+        process.exit(1);
+      }
+
+      // --yes: gate behind a single confirmation summary.
+      const pruned: Array<{ profile: string; removedDependents: string[] }> = [];
+      const skipped: string[] = [];
+      const errors: Array<{ profile: string; error: string }> = [];
+
+      if (opts.yes) {
+        if (isTTY && !opts.json) {
+          const inquirer = (await import('inquirer')).default;
+          const { confirmAll } = await inquirer.prompt([
+            {
+              type: 'confirm',
+              name: 'confirmAll',
+              message: `Delete ${prunable.length} profile(s) listed above? This is irreversible.`,
+              default: false,
+            },
+          ]);
+          if (!confirmAll) {
+            console.log(chalk.yellow('\n  Aborted. No profiles removed.\n'));
+            return;
+          }
+        }
+        for (const p of prunable) {
+          try {
+            const result = removeManagedProfile(p.profile, { forceDependents: true });
+            pruned.push({ profile: p.profile, removedDependents: result.removedDependents });
+          } catch (e: unknown) {
+            errors.push({
+              profile: p.profile,
+              error: scrubSecrets(e instanceof Error ? e.message : String(e)),
+            });
+          }
+        }
+      } else {
+        // Interactive per-profile prompt.
+        const inquirer = (await import('inquirer')).default;
+        for (const p of prunable) {
+          const reasons = p.reasons.map(r => r.kind).join(', ');
+          const { confirm } = await inquirer.prompt([
+            {
+              type: 'confirm',
+              name: 'confirm',
+              message: `Remove ${chalk.bold(p.profile)} (${reasons})?`,
+              default: false,
+            },
+          ]);
+          if (!confirm) {
+            skipped.push(p.profile);
+            continue;
+          }
+          try {
+            const result = removeManagedProfile(p.profile, { forceDependents: true });
+            pruned.push({ profile: p.profile, removedDependents: result.removedDependents });
+            console.log(chalk.green(`  ✓ Removed ${p.profile}`));
+          } catch (e: unknown) {
+            const msg = scrubSecrets(e instanceof Error ? e.message : String(e));
+            errors.push({ profile: p.profile, error: msg });
+            console.error(chalk.red(`  ✗ Failed to remove ${p.profile}: ${msg}`));
+          }
+        }
+      }
+
+      if (opts.json) {
+        process.stdout.write(JSON.stringify({
+          ok: errors.length === 0,
+          pruned,
+          skipped,
+          errors,
+          report,
+        }, null, 2) + '\n');
+      } else {
+        console.log();
+        console.log(chalk.dim(`  Pruned: ${pruned.length}, Skipped: ${skipped.length}, Errors: ${errors.length}\n`));
+      }
+      if (errors.length > 0) process.exit(1);
+    } catch (error: unknown) {
+      const msg = scrubSecrets(error instanceof Error ? error.message : String(error));
+      if (opts.json) {
+        process.stdout.write(JSON.stringify({ ok: false, error: msg }, null, 2) + '\n');
+      } else {
+        console.error(chalk.red('Error:'), msg);
+      }
+      process.exit(1);
+    }
+  });
+
 // Share command — selective symlink management
 program
   .command('share [profile]')
