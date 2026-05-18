@@ -1893,6 +1893,33 @@ program
     console.error();
   });
 
+// Hidden: wrapper-script hot-path heal. Called from every generated
+// wrapper before exec'ing the CLI binary, so users who launch
+// workspaces directly (e.g. `claude-pole`, not via `sweech use`) still
+// get drifted share-topology repaired automatically. Best-effort,
+// silent, and bounded to a single profile — typical run completes in
+// well under 50ms when nothing's wrong (one lstat per shareable).
+program
+  .command('_heal-profile <command-name>', { hidden: true } as any)
+  .description('Internal: re-link drifted shareables for a single workspace. Used by wrapper scripts.')
+  .option('--quiet', 'Suppress all output (always silent on success too)')
+  .action((commandName: string, _opts: { quiet?: boolean }) => {
+    try {
+      // Suppress constructor heal to avoid double-passing — we do one
+      // explicit per-profile call below.
+      const prior = ConfigManager.disableConstructorHeal;
+      ConfigManager.disableConstructorHeal = true;
+      let config: ConfigManager;
+      try { config = new ConfigManager(); }
+      finally { ConfigManager.disableConstructorHeal = prior; }
+      config.healProfileSharedDirs(commandName);
+    } catch {
+      // NEVER throw — this runs before exec'ing the CLI binary; a
+      // heal failure must never block launch.
+    }
+    process.exit(0);
+  });
+
 // T-078: hidden postinstall hook. Runs after `npm install -g sweech`
 // (and any upgrade) to resync share topology for every sharedWith
 // profile. Hidden from --help; never throws; always exits 0 so a heal

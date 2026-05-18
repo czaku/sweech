@@ -1425,6 +1425,17 @@ case "\${1:-}" in
   --help|-h|--version|-V) exec "${eCliCommand}" "$@" ;;
 esac
 
+# Auto-heal: re-link any drifted share topology BEFORE the CLI binary
+# starts reading projects/sessions/plugins. Without this, users who
+# launch workspaces directly (e.g. \`${eCommandName}\` rather than
+# \`sweech use ${eCommandName}\`) hit a stale state until something
+# else triggers ConfigManager construction. Synchronous + bounded
+# (~50ms for the common no-op case, one lstat per shareable).
+# Best-effort: a heal failure NEVER blocks launch.
+if command -v sweech &>/dev/null; then
+  sweech _heal-profile "${eCommandName}" --quiet 2>/dev/null || true
+fi
+
 # Auto-scrub: when resuming a session, strip cross-provider thinking blocks
 # so a transcript produced by GLM-5.1 (or any non-Anthropic provider) doesn't
 # 400 with "Invalid signature in thinking block" against the real Anthropic

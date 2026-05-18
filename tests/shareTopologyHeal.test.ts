@@ -307,6 +307,28 @@ describe('healShareTopology', () => {
   });
 });
 
+describe('createWrapperScript embeds heal call', () => {
+  test('wrapper template invokes `sweech _heal-profile` before exec', () => {
+    isolateHome();
+    const cfg = new ConfigManager();
+    // We don't need an actual claude binary to verify wrapper content —
+    // just generate the script for a minimal CLIConfig and inspect.
+    const cli = {
+      name: 'claude',
+      command: 'claude',
+      displayName: 'Claude Code',
+      configDirEnvVar: 'CLAUDE_CONFIG_DIR',
+    } as any;
+    cfg.createWrapperScript('test-wrapper', cli);
+    const wrapper = fs.readFileSync(path.join(cfg.getBinDir(), 'test-wrapper'), 'utf-8');
+    expect(wrapper).toContain('sweech _heal-profile');
+    expect(wrapper).toContain('test-wrapper');
+    // Must be best-effort (` || true` follows the heal call).
+    const healLineIdx = wrapper.indexOf('sweech _heal-profile');
+    expect(wrapper.slice(healLineIdx, healLineIdx + 200)).toContain('|| true');
+  });
+});
+
 describe('healProfileSharedDirs (hot-path)', () => {
   test('returns 0 when profile has no sharedWith', () => {
     isolateHome();
