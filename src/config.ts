@@ -1107,12 +1107,19 @@ export class ConfigManager {
 
   /**
    * Update mutable, non-identity fields on a profile (model, baseUrl,
-   * smallFastModel, envOverrides). Does NOT change commandName or cliType
-   * — use `renameManagedProfile` for that. Returns the merged profile.
+   * smallFastModel, envOverrides, provider). Does NOT change commandName
+   * or cliType — use `renameManagedProfile` for that. Returns the merged
+   * profile.
+   *
+   * `provider` is editable because misconfigured profiles (e.g. the
+   * codex-heretic case where provider='openai' but the real backend is
+   * a local llodge route) need a way to be corrected without dropping
+   * the workspace. `sweech profile audit --fix-provider` is the
+   * supervised entry point.
    */
   public editProfile(
     commandName: string,
-    patch: Partial<Pick<ProfileConfig, 'model' | 'baseUrl' | 'smallFastModel' | 'envOverrides'>>,
+    patch: Partial<Pick<ProfileConfig, 'model' | 'baseUrl' | 'smallFastModel' | 'envOverrides' | 'provider'>>,
   ): ProfileConfig {
     const profiles = this.getProfiles();
     const target = profiles.find(p => p.commandName === commandName);
@@ -1120,10 +1127,10 @@ export class ConfigManager {
       throw new Error(`Profile '${commandName}' not found`);
     }
     const merged: ProfileConfig = { ...target };
-    for (const k of ['model', 'baseUrl', 'smallFastModel'] as const) {
+    for (const k of ['model', 'baseUrl', 'smallFastModel', 'provider'] as const) {
       if (patch[k] !== undefined) {
-        if (patch[k] === '') delete merged[k];
-        else merged[k] = patch[k] as string;
+        if (patch[k] === '') delete (merged as any)[k];
+        else (merged as any)[k] = patch[k];
       }
     }
     if (patch.envOverrides !== undefined) {

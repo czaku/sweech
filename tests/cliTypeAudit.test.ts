@@ -23,7 +23,14 @@ import * as os from 'os';
 function setHomedir(p: string | null): void { __mockHome = p; }
 
 import { ConfigManager } from '../src/config';
-import { inferExpectedCliType, fixCliTypeOnProfile, auditProfiles } from '../src/profileAudit';
+import {
+  inferExpectedCliType,
+  fixCliTypeOnProfile,
+  auditProfiles,
+  probeCodexBackend,
+  classifyCodexBackend,
+  fixProviderOnProfile,
+} from '../src/profileAudit';
 
 function isolateHome(): string {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'sweech-clitype-test-'));
@@ -170,5 +177,127 @@ describe('fixCliTypeOnProfile', () => {
     const result = fixCliTypeOnProfile(cfg, 'nonexistent');
     expect(result.changed).toBe(false);
     expect(result.reason).toBe('profile-not-found');
+  });
+});
+
+describe('probeCodexBackend + classifyCodexBackend', () => {
+  test('detects a Kimi-via-litellm codex profile', () => {
+    const home = isolateHome();
+    const dir = path.join(home, '.codex-kimi');
+    fs.mkdirSync(dir);
+    fs.writeFileSync(path.join(dir, 'config.toml'), [
+      'model_provider = "kimi"',
+      'model = "gpt-5.4"',
+      '',
+      '[model_providers.kimi]',
+      'name = "Kimi (Moonshot)"',
+      'base_url = "http://litellm.local/v1"',
+      'wire_api = "responses"',
+      'env_key = "KIMI_API_KEY"',
+      '',
+    ].join('\n'));
+    const probe = probeCodexBackend(dir);
+    expect(probe?.modelProvider).toBe('kimi');
+    expect(probe?.providerName).toBe('Kimi (Moonshot)');
+    expect(probe?.baseUrl).toBe('http://litellm.local/v1');
+    expect(classifyCodexBackend('codex-kimi', probe!)).toBe('kimi');
+  });
+
+  test('detects a custom local backend (heretic-style llodge)', () => {
+    const home = isolateHome();
+    const dir = path.join(home, '.codex-heretic');
+    fs.mkdirSync(dir);
+    fs.writeFileSync(path.join(dir, 'config.toml'), [
+      'model = "qwen36_27b_heretic"',
+      'model_provider = "llodge"',
+      '',
+      '[model_providers.llodge]',
+      'name = "llodge"',
+      'base_url = "http://127.0.0.1:9000/api/llm/openai/v1"',
+      'wire_api = "responses"',
+      '',
+    ].join('\n'));
+    const probe = probeCodexBackend(dir);
+    expect(classifyCodexBackend('codex-heretic', probe!)).toBe('custom');
+  });
+
+  test('returns null for pure OpenAI', () => {
+    const home = isolateHome();
+    const dir = path.join(home, '.codex-real-openai');
+    fs.mkdirSync(dir);
+    fs.writeFileSync(path.join(dir, 'config.toml'), [
+      'model = "gpt-5.5"',
+      'model_provider = "openai"',
+      '',
+      '[model_providers.openai]',
+      'name = "OpenAI"',
+      'base_url = "https://api.openai.com/v1"',
+      '',
+    ].join('\n'));
+    const probe = probeCodexBackend(dir);
+    expect(classifyCodexBackend('codex', probe!)).toBeNull();
+  });
+
+  test('returns null when no config.toml exists', () => {
+    const home = isolateHome();
+    const dir = path.join(home, '.codex-bare');
+    fs.mkdirSync(dir);
+    expect(probeCodexBackend(dir)).toBeNull();
+  });
+});
+
+describe('auditProfiles provider_misconfig finding', () => {
+  test('flags a codex-kimi profile whose provider says openai', async () => {
+    const home = isolateHome();
+    const cfg = new ConfigManager();
+    const dir = path.join(home, '.codex-kimi');
+    fs.mkdirSync(dir);
+    fs.writeFileSync(path.join(dir, 'settings.json'), JSON.stringify({ env: {} }));
+    fs.writeFileSync(path.join(dir, 'config.toml'), [
+      'model_provider = "kimi"',
+      'model = "kimi-k2.6"',
+      '[model_providers.kimi]',
+      'name = "Kimi (Moonshot)"',
+      'base_url = "https://api.moonshot.ai/v1"',
+    ].join('\n'));
+    cfg.writeProfiles([{
+      name: 'codex-kimi',
+      commandName: 'codex-kimi',
+      cliType: 'codex',
+      provider: 'openai',
+      createdAt: '2026-05-17T00:00:00Z',
+    } as any]);
+
+    const report = await auditProfiles({ config: cfg, dormancyDays: 9999 });
+    const misconfigs = report.findings.filter(f => f.kind === 'provider_misconfig');
+    expect(misconfigs.length).toBe(1);
+    expect((misconfigs[0].evidence as any).expectedProvider).toBe('kimi');
+    expect(report.summary.provider_misconfig).toBe(1);
+  });
+});
+
+describe('fixProviderOnProfile', () => {
+  test('rewrites provider, writes a backup', () => {
+    isolateHome();
+    const cfg = new ConfigManager();
+    cfg.writeProfiles([{
+      name: 'codex-kimi',
+      commandName: 'codex-kimi',
+      cliType: 'codex',
+      provider: 'openai',
+      createdAt: '2026-05-17T00:00:00Z',
+    } as any]);
+
+    const result = fixProviderOnProfile(cfg, 'codex-kimi', 'kimi');
+    expect(result.changed).toBe(true);
+    expect(result.from).toBe('openai');
+    expect(result.to).toBe('kimi');
+
+    const updated = cfg.getProfiles().find(p => p.commandName === 'codex-kimi');
+    expect(updated?.provider).toBe('kimi');
+
+    const backups = fs.readdirSync(cfg.getBackupsDir())
+      .filter(f => f.startsWith('config.json.provider_fix.') && f.endsWith('.bak'));
+    expect(backups.length).toBe(1);
   });
 });

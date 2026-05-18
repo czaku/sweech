@@ -2259,15 +2259,56 @@ profileCmd
   .option('--prune', 'Interactively remove profiles flagged with suggestion=prune')
   .option('--yes', 'When combined with --prune, skip per-profile prompts')
   .option('--fix-cli-type', 'T-079: auto-correct cli_type_mismatch findings (e.g. claude-* profiles wrongly set to cliType=codex). Backs up config.json before mutating.')
-  .action(async (opts: { json?: boolean; dormancyDays?: string; prune?: boolean; yes?: boolean; fixCliType?: boolean }) => {
+  .option('--fix-provider', 'Auto-correct provider_misconfig findings (e.g. codex-kimi with provider=openai but routing through Moonshot). Backs up config.json before mutating.')
+  .action(async (opts: { json?: boolean; dormancyDays?: string; prune?: boolean; yes?: boolean; fixCliType?: boolean; fixProvider?: boolean }) => {
     try {
-      const { auditProfiles, prunableProfiles, fixCliTypeOnProfile } = await import('./profileAudit');
+      const { auditProfiles, prunableProfiles, fixCliTypeOnProfile, fixProviderOnProfile } = await import('./profileAudit');
       const dormancyDays = opts.dormancyDays ? parseInt(opts.dormancyDays, 10) : 30;
       if (Number.isNaN(dormancyDays) || dormancyDays < 0) {
         console.error(chalk.red(`\nInvalid --dormancy-days: ${opts.dormancyDays}\n`));
         process.exit(1);
       }
       const report = await auditProfiles({ dormancyDays });
+
+      // ── --fix-provider path ───────────────────────────────────────
+      if (opts.fixProvider) {
+        const cfg = new ConfigManager();
+        const mismatches = report.findings.filter(f => f.kind === 'provider_misconfig');
+        const fixed: Array<{ profile: string; from?: string; to?: string }> = [];
+        const skipped: Array<{ profile: string; reason: string }> = [];
+        for (const f of mismatches) {
+          const expected = (f.evidence as any).expectedProvider as string | undefined;
+          if (!expected) {
+            skipped.push({ profile: f.profile, reason: 'no-expected-provider' });
+            continue;
+          }
+          const result = fixProviderOnProfile(cfg, f.profile, expected);
+          if (result.changed) {
+            fixed.push({ profile: f.profile, from: result.from, to: result.to });
+          } else {
+            skipped.push({ profile: f.profile, reason: result.reason ?? 'unknown' });
+          }
+        }
+        if (opts.json) {
+          process.stdout.write(JSON.stringify({ ok: true, fixed, skipped, report }, null, 2) + '\n');
+        } else {
+          console.log(chalk.bold(`\n  sweech profile audit --fix-provider\n`));
+          if (fixed.length === 0 && skipped.length === 0) {
+            console.log(chalk.green('  ✓ No provider_misconfig findings to fix.\n'));
+          }
+          for (const f of fixed) {
+            console.log(chalk.green(`  ✓ ${f.profile}: provider '${f.from}' → '${f.to}'`));
+          }
+          for (const s of skipped) {
+            console.log(chalk.gray(`  · ${s.profile}: ${s.reason}`));
+          }
+          if (fixed.length > 0) {
+            console.log(chalk.dim(`\n  Backup written to ${cfg.getBackupsDir()}/config.json.provider_fix.*.bak`));
+          }
+          console.log();
+        }
+        return;
+      }
 
       // ── --fix-cli-type path (T-079) ───────────────────────────────
       if (opts.fixCliType) {
@@ -2335,6 +2376,7 @@ profileCmd
           `${summary.missing_settings} missing-settings`,
           `${summary.expired_token} expired-token`,
           `${summary.cli_type_mismatch} cli-type-mismatch`,
+          `${summary.provider_misconfig} provider-misconfig`,
         ];
         console.log(chalk.dim(`  Summary: ${summaryParts.join(', ')} — ${summary.total_issues} issue(s), ${summary.prunable} prunable`));
         if (summary.prunable > 0) {
@@ -2342,6 +2384,9 @@ profileCmd
         }
         if (summary.cli_type_mismatch > 0) {
           console.log(chalk.dim(`  Run ${chalk.bold('sweech profile audit --fix-cli-type')} to auto-correct cliType mismatches.`));
+        }
+        if (summary.provider_misconfig > 0) {
+          console.log(chalk.dim(`  Run ${chalk.bold('sweech profile audit --fix-provider')} to auto-correct provider mismatches.`));
         }
         console.log();
         process.exit(summary.total_issues > 0 ? 1 : 0);

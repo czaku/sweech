@@ -37,9 +37,10 @@ export type AuditKind =
   | 'orphan_credentials'
   | 'missing_settings'
   | 'expired_token'
-  | 'cli_type_mismatch';
+  | 'cli_type_mismatch'
+  | 'provider_misconfig';
 
-export type AuditSuggestion = 'prune' | 'rename' | 'rotate' | 'fix_cli_type' | null;
+export type AuditSuggestion = 'prune' | 'rename' | 'rotate' | 'fix_cli_type' | 'fix_provider' | null;
 
 export interface AuditFinding {
   /** Profile commandName. */
@@ -73,6 +74,7 @@ export interface AuditReport {
     missing_settings: number;
     expired_token: number;
     cli_type_mismatch: number;
+    provider_misconfig: number;
     /** Number of findings whose severity is `warn` or `critical`. */
     total_issues: number;
     /** Number of findings whose `suggestion === 'prune'`. */
@@ -529,6 +531,121 @@ export function inferExpectedCliType(
 }
 
 /**
+ * Read a codex profile's actual model_provider + base_url out of its
+ * config.toml. Codex routes via [model_providers.X] blocks, NOT via
+ * the sweech `provider` field, so a config-json provider='openai' on a
+ * profile that points config.toml at a local llodge endpoint is a
+ * misconfig — the SweechBar grouping is wrong and `sweech cost
+ * --budget` produces bogus answers. Best-effort TOML scan; codex
+ * config.toml is hand-edited so we keep it lightweight.
+ */
+export interface CodexBackendProbe {
+  modelProvider: string | null;
+  baseUrl: string | null;
+  model: string | null;
+  providerName: string | null;
+}
+
+export function probeCodexBackend(profileDir: string): CodexBackendProbe | null {
+  const tomlPath = path.join(profileDir, 'config.toml');
+  if (!fs.existsSync(tomlPath)) return null;
+  let raw: string;
+  try { raw = fs.readFileSync(tomlPath, 'utf-8'); } catch { return null; }
+
+  const topModel = /^\s*model\s*=\s*["']([^"']+)["']/m.exec(raw)?.[1] ?? null;
+  const topProvider = /^\s*model_provider\s*=\s*["']([^"']+)["']/m.exec(raw)?.[1] ?? null;
+
+  let providerName: string | null = null;
+  let baseUrl: string | null = null;
+  if (topProvider) {
+    // Section runs from its header until the next [section] header or
+    // end-of-string. We do NOT use the `m` flag — with `m`, the `$`
+    // anchor matches end-of-line and our non-greedy `[\s\S]*?` stops
+    // at the first blank line, missing every property inside the
+    // section.
+    const sectionRx = new RegExp(`\\[model_providers\\.${escapeRegex(topProvider)}\\]([\\s\\S]*?)(?=\\n\\[|$(?![\\r\\n]))`);
+    const section = sectionRx.exec(raw)?.[1] ?? '';
+    providerName = /^\s*name\s*=\s*["']([^"']+)["']/m.exec(section)?.[1] ?? null;
+    baseUrl = /^\s*base_url\s*=\s*["']([^"']+)["']/m.exec(section)?.[1] ?? null;
+  }
+  return { modelProvider: topProvider, baseUrl, model: topModel, providerName };
+}
+
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Decide what sweech provider key best matches a codex backend probe.
+ * Returns null when no confident match — we never silently switch a
+ * profile to an arbitrary provider.
+ */
+export function classifyCodexBackend(
+  commandName: string,
+  probe: CodexBackendProbe,
+): string | null {
+  const haystack = [
+    commandName.toLowerCase(),
+    (probe.modelProvider ?? '').toLowerCase(),
+    (probe.providerName ?? '').toLowerCase(),
+    (probe.baseUrl ?? '').toLowerCase(),
+    (probe.model ?? '').toLowerCase(),
+  ].join(' ');
+
+  if (/\b(kimi|moonshot)\b/.test(haystack)) return 'kimi';
+  if (/\b(glm|z\.ai|zhipu)\b/.test(haystack)) return 'glm';
+  if (/\bminimax\b/.test(haystack)) return 'minimax';
+  if (/\b(dashscope|qwen|aliyuncs)\b/.test(haystack)) return 'dashscope';
+  if (/\bopenrouter\b/.test(haystack)) return 'openrouter';
+  if (/\bdeepseek\b/.test(haystack)) return 'deepseek';
+  if (/\bgroq\b/.test(haystack)) return 'groq';
+  if (/\bollama\b/.test(haystack)) return 'ollama';
+
+  const baseUrl = (probe.baseUrl ?? '').toLowerCase();
+  if (baseUrl.includes('api.openai.com') || baseUrl === '' || probe.modelProvider === null) {
+    return null;
+  }
+  return 'custom';
+}
+
+/**
+ * Apply the audit's `fix_provider` suggestion. Writes the corrected
+ * provider field via ConfigManager.editProfile (which also handles the
+ * config.json round-trip cleanly), backs up the prior config, and logs.
+ */
+export function fixProviderOnProfile(
+  config: ConfigManager,
+  commandName: string,
+  expectedProvider: string,
+): { changed: boolean; from?: string; to?: string; reason?: string } {
+  const profiles = config.getProfiles();
+  const profile = profiles.find(p => p.commandName === commandName);
+  if (!profile) return { changed: false, reason: 'profile-not-found' };
+  if (profile.provider === expectedProvider) {
+    return { changed: false, reason: 'already-correct' };
+  }
+
+  const ts = new Date().toISOString().replace(/[:.]/g, '-');
+  try {
+    const src = config.getConfigFile();
+    if (fs.existsSync(src)) {
+      const dest = path.join(config.getBackupsDir(), `config.json.provider_fix.${ts}.bak`);
+      fs.copyFileSync(src, dest);
+    }
+  } catch { /* non-fatal */ }
+
+  const from = profile.provider;
+  config.editProfile(commandName, { provider: expectedProvider });
+  config.logLifecycle({
+    event: 'audit.provider_fixed',
+    profile: commandName,
+    from,
+    to: expectedProvider,
+  });
+  return { changed: true, from, to: expectedProvider };
+}
+
+/**
  * Apply the audit's `fix_cli_type` suggestion to one profile. Writes
  * the corrected cliType to config.json, backs up the prior config,
  * and logs the change. Returns the updated profile or null if no fix
@@ -721,6 +838,34 @@ export async function auditProfiles(opts: AuditOptions = {}): Promise<AuditRepor
       });
     }
 
+    // ── provider_misconfig ───────────────────────────────────────────
+    // Codex profiles whose config.toml routes to a non-OpenAI backend
+    // but whose sweech `provider` is still 'openai'. The real-world
+    // case: codex-heretic / codex-kimi appearing under OpenAI in
+    // SweechBar despite routing to local llodge / Moonshot Kimi.
+    if (cliType === 'codex' && dirExists) {
+      const probe = probeCodexBackend(profileDir);
+      if (probe) {
+        const expectedProvider = classifyCodexBackend(profile.commandName, probe);
+        if (expectedProvider && expectedProvider !== profile.provider) {
+          findings.push({
+            profile: profile.commandName,
+            cliType,
+            provider,
+            severity: 'warn',
+            kind: 'provider_misconfig',
+            detail: `Codex profile routes via [model_providers.${probe.modelProvider ?? '?'}] to ${probe.baseUrl ?? '?'} (model=${probe.model ?? '?'}), but sweech provider='${profile.provider}'. Expected provider='${expectedProvider}'.`,
+            evidence: {
+              configuredProvider: profile.provider,
+              expectedProvider,
+              probe,
+            },
+            suggestion: 'fix_provider',
+          });
+        }
+      }
+    }
+
     // ── cli_type_mismatch ────────────────────────────────────────────
     // A profile named `claude-or-pole` with cliType='codex' is a real
     // bug we've hit in the wild: the wrapper ends up exec'ing `codex`
@@ -779,6 +924,7 @@ export async function auditProfiles(opts: AuditOptions = {}): Promise<AuditRepor
     missing_settings: findings.filter(f => f.kind === 'missing_settings').length,
     expired_token: findings.filter(f => f.kind === 'expired_token').length,
     cli_type_mismatch: findings.filter(f => f.kind === 'cli_type_mismatch').length,
+    provider_misconfig: findings.filter(f => f.kind === 'provider_misconfig').length,
     total_issues: findings.filter(f => f.severity !== 'info').length,
     prunable: findings.filter(f => f.suggestion === 'prune').length,
   };
