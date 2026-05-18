@@ -130,29 +130,204 @@ function bashEscape(str: string): string {
     .replace(/\n/g, '\\n');
 }
 
+/**
+ * True iff the path exists AND is a symbolic link. Wraps lstat so callers
+ * don't have to handle ENOENT vs EACCES discrimination — used by the
+ * share-topology heal pass where every check is best-effort.
+ */
+function isLstatSymlink(p: string): boolean {
+  try {
+    return fs.lstatSync(p).isSymbolicLink();
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Recursively copy a directory tree (or single file) into `dest`. Used by
+ * the share-topology heal pass to (a) back up colliding entries before
+ * merge and (b) merge real data into the master target with
+ * "master-wins" semantics (the source value never overwrites an existing
+ * destination file — equivalent to `rsync --ignore-existing`).
+ *
+ * Symlinks are recreated verbatim so a share-of-a-share collision can't
+ * accidentally walk into the master's tree and duplicate everything.
+ *
+ * Returns the number of files copied so callers can log a digest.
+ */
+function copyTreeIgnoreExisting(src: string, dest: string): number {
+  let copied = 0;
+  const visit = (s: string, d: string): void => {
+    let stat: fs.Stats;
+    try { stat = fs.lstatSync(s); } catch { return; }
+    if (stat.isSymbolicLink()) {
+      if (fs.existsSync(d) || isLstatSymlink(d)) return;
+      try {
+        const target = fs.readlinkSync(s);
+        fs.symlinkSync(target, d);
+        copied++;
+      } catch { /* skip — best-effort */ }
+      return;
+    }
+    if (stat.isDirectory()) {
+      if (!fs.existsSync(d)) {
+        try { fs.mkdirSync(d, { recursive: true, mode: stat.mode & 0o777 }); }
+        catch { return; }
+      }
+      let entries: string[];
+      try { entries = fs.readdirSync(s); } catch { return; }
+      for (const name of entries) {
+        visit(path.join(s, name), path.join(d, name));
+      }
+      return;
+    }
+    if (stat.isFile()) {
+      if (fs.existsSync(d)) return; // master-wins
+      try {
+        fs.copyFileSync(s, d);
+        try { fs.chmodSync(d, stat.mode & 0o777); } catch { /* ignore */ }
+        copied++;
+      } catch { /* skip — best-effort */ }
+    }
+  };
+  visit(src, dest);
+  return copied;
+}
+
+/**
+ * Recursively copy a directory tree (or single file) into `dest`,
+ * overwriting any pre-existing files. Used to make a complete
+ * pre-merge backup of a colliding profile entry so that a botched
+ * merge never destroys data the user can't recover.
+ */
+function copyTreeOverwrite(src: string, dest: string): number {
+  let copied = 0;
+  const visit = (s: string, d: string): void => {
+    let stat: fs.Stats;
+    try { stat = fs.lstatSync(s); } catch { return; }
+    if (stat.isSymbolicLink()) {
+      try {
+        const target = fs.readlinkSync(s);
+        if (fs.existsSync(d) || isLstatSymlink(d)) fs.unlinkSync(d);
+        fs.symlinkSync(target, d);
+        copied++;
+      } catch { /* skip — best-effort */ }
+      return;
+    }
+    if (stat.isDirectory()) {
+      if (!fs.existsSync(d)) {
+        try { fs.mkdirSync(d, { recursive: true, mode: stat.mode & 0o777 }); }
+        catch { return; }
+      }
+      let entries: string[];
+      try { entries = fs.readdirSync(s); } catch { return; }
+      for (const name of entries) {
+        visit(path.join(s, name), path.join(d, name));
+      }
+      return;
+    }
+    if (stat.isFile()) {
+      try {
+        if (fs.existsSync(d)) fs.unlinkSync(d);
+        fs.copyFileSync(s, d);
+        try { fs.chmodSync(d, stat.mode & 0o777); } catch { /* ignore */ }
+        copied++;
+      } catch { /* skip — best-effort */ }
+    }
+  };
+  visit(src, dest);
+  return copied;
+}
+
 export class ConfigManager {
   private configDir: string;
   private configFile: string;
   private profilesDir: string;
   private binDir: string;
+  private shareSnapshotsDir: string;
+  private backupsDir: string;
+  private logsDir: string;
+
+  /**
+   * Disable the constructor-time `healShareTopology()` pass. Tests that
+   * spin up a ConfigManager pointed at a synthetic homedir don't want
+   * heal logic running over the test fixtures. Set via the test harness
+   * before instantiation; reset between tests.
+   */
+  static disableConstructorHeal = false;
 
   constructor() {
     this.configDir = path.join(os.homedir(), '.sweech');
     this.configFile = path.join(this.configDir, 'config.json');
     this.profilesDir = path.join(this.configDir, 'profiles');
     this.binDir = path.join(this.configDir, 'bin');
+    // Sidecar dir for share-topology snapshots. Survives removeProfile so
+    // a later recreation of the same commandName can self-heal back to
+    // the previous symlinks. See healShareTopology() for the heal pass.
+    this.shareSnapshotsDir = path.join(this.configDir, 'share-snapshots');
+    // Backups for the heal pass live under a dedicated root so the user
+    // (and future cleanup tooling) can find every pre-merge snapshot in
+    // one place. Distinct from .sweech/backups/ which already holds
+    // config.json migration backups.
+    this.backupsDir = path.join(this.configDir, 'backups');
+    // Structured logs for lifecycle events (heal, migrate, prune).
+    // Plain-text JSONL — one event per line.
+    this.logsDir = path.join(this.configDir, 'logs');
 
     this.ensureDirectories();
     this.migrateApiKeys();
+    // Self-healing pass: re-link any profile whose snapshot exists +
+    // profile dir is present + master targets are present + entries
+    // currently missing on disk. Idempotent and non-destructive — see
+    // method docs for the safety invariants.
+    if (!ConfigManager.disableConstructorHeal) {
+      this.healShareTopology();
+    }
   }
 
   private ensureDirectories(): void {
-    [this.configDir, this.profilesDir, this.binDir].forEach(dir => {
+    [this.configDir, this.profilesDir, this.binDir, this.shareSnapshotsDir, this.backupsDir, this.logsDir].forEach(dir => {
       if (!fs.existsSync(dir)) {
         fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
       }
     });
   }
+
+  /**
+   * Append a structured lifecycle event to `~/.sweech/logs/lifecycle.jsonl`.
+   * Each line is a self-contained JSON object — easy to grep, easy to tail,
+   * survives concurrent writers because appendFileSync uses O_APPEND.
+   *
+   * Designed for the share-topology heal pass and future audit/migration
+   * routines that mutate profile state. Best-effort: a log failure NEVER
+   * blocks the operation it describes (the user cares about their data
+   * being safe, not about the log line being there).
+   */
+  public logLifecycle(event: Record<string, unknown>): void {
+    try {
+      const payload = {
+        ts: new Date().toISOString(),
+        pid: process.pid,
+        sweechVersion: this.readSweechVersion(),
+        ...event,
+      };
+      const line = JSON.stringify(payload) + '\n';
+      const file = path.join(this.logsDir, 'lifecycle.jsonl');
+      fs.appendFileSync(file, line, { mode: 0o600 });
+    } catch { /* never throw from a logger */ }
+  }
+
+  private readSweechVersion(): string | null {
+    try {
+      const pkgPath = path.join(__dirname, '..', 'package.json');
+      const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
+      return typeof pkg.version === 'string' ? pkg.version : null;
+    } catch { return null; }
+  }
+
+  public getLogsDir(): string { return this.logsDir; }
+  public getBackupsDir(): string { return this.backupsDir; }
+  public getShareSnapshotsDir(): string { return this.shareSnapshotsDir; }
 
   /**
    * Migrate any plaintext apiKey fields from config.json to the platform
@@ -342,6 +517,17 @@ export class ConfigManager {
       return;
     }
 
+    // Snapshot any existing share topology BEFORE destruction so that a
+    // future recreation of the same commandName can self-heal back to the
+    // previous shared state. Pre-incident: a `removeProfile` followed by
+    // a `seedProfile`/recreation (e.g. from tests bypassing
+    // `setupSharedDirs`) would silently lose the symlinks, leaving the
+    // user with an "unshared" profile and no way to know without diffing
+    // against a working sibling. The snapshot is a hint — the
+    // `healShareTopology` pass on the next ConfigManager construction
+    // reads it, verifies master targets still exist, then re-links.
+    this.snapshotShareTopology(commandName);
+
     // Remove wrapper script
     const wrapperPath = path.join(this.binDir, commandName);
     if (fs.existsSync(wrapperPath)) {
@@ -362,6 +548,391 @@ export class ConfigManager {
         fs.rmSync(profileDir, { recursive: true, force: true });
       }
     }
+  }
+
+  /**
+   * Capture the symlink topology of `~/.<commandName>/` so a future
+   * recreation of the same commandName can self-heal back to the same
+   * shared state. Walks the profile dir and records every entry that is
+   * a symlink, storing its name + resolved target. Real (non-symlink)
+   * entries are ignored — only the share-topology is captured, not the
+   * data itself. Best-effort: any I/O error is silently swallowed since
+   * snapshot is a recovery hint, not a primary contract.
+   */
+  private snapshotShareTopology(commandName: string): void {
+    const profileDir = this.getProfileDir(commandName);
+    if (!fs.existsSync(profileDir)) return;
+    const links: Record<string, string> = {};
+    try {
+      const entries = fs.readdirSync(profileDir, { withFileTypes: true });
+      for (const entry of entries) {
+        if (!entry.isSymbolicLink()) continue;
+        try {
+          const linkPath = path.join(profileDir, entry.name);
+          const target = fs.readlinkSync(linkPath);
+          links[entry.name] = target;
+        } catch { /* unreadable link — skip */ }
+      }
+    } catch { return; }
+    if (Object.keys(links).length === 0) return;
+    const snapshotPath = path.join(this.shareSnapshotsDir, `${commandName}.json`);
+    const payload = {
+      schemaVersion: 1,
+      commandName,
+      capturedAt: new Date().toISOString(),
+      links,
+    };
+    try {
+      atomicWriteFileSync(snapshotPath, JSON.stringify(payload, null, 2));
+      fs.chmodSync(snapshotPath, 0o600);
+      this.logLifecycle({
+        event: 'share_snapshot.captured',
+        profile: commandName,
+        linkCount: Object.keys(links).length,
+        snapshotPath,
+      });
+    } catch { /* snapshot failed — proceed with removal anyway */ }
+  }
+
+  /**
+   * Fast hot-path heal for a SINGLE profile, used by `sweech use`,
+   * `sweech run`, `sweech auto`. Only acts when:
+   *   - the profile has sharedWith set (otherwise nothing to heal)
+   *   - the master dir exists
+   *   - at least one expected shareable is missing or wrong-targeted
+   *
+   * Designed to add <50ms in the common case (everything already
+   * linked) by short-circuiting after the first lstat check per entry.
+   * Re-uses `setupSharedDirs` for the actual repair so the heal path
+   * and the create path stay in sync.
+   *
+   * Returns the number of entries repaired (0 = no-op).
+   */
+  public healProfileSharedDirs(commandName: string): number {
+    const profile = this.getProfiles().find(p => p.commandName === commandName);
+    if (!profile || !profile.sharedWith) return 0;
+
+    const profileDir = this.getProfileDir(commandName);
+    if (!fs.existsSync(profileDir)) return 0;
+
+    const isCodex = profile.cliType === 'codex'
+      || profile.sharedWith === 'codex'
+      || commandName.startsWith('codex');
+    const isKimi = profile.cliType === 'kimi'
+      || profile.sharedWith === 'kimi'
+      || commandName.startsWith('kimi');
+
+    const defaultDirs = ['claude', 'codex', 'kimi'];
+    const masterDir = defaultDirs.includes(profile.sharedWith)
+      ? path.join(os.homedir(), `.${profile.sharedWith}`)
+      : this.getProfileDir(profile.sharedWith);
+    if (!fs.existsSync(masterDir)) return 0;
+
+    const dirs = isCodex ? CODEX_SHAREABLE_DIRS
+      : isKimi ? KIMI_SHAREABLE_DIRS
+      : SHAREABLE_DIRS;
+    const files = isCodex ? [...CODEX_SHAREABLE_FILES, ...CODEX_SHAREABLE_DBS]
+      : isKimi ? KIMI_SHAREABLE_FILES
+      : SHAREABLE_FILES;
+
+    let repaired = 0;
+    for (const item of [...dirs, ...files]) {
+      const linkPath = path.join(profileDir, item);
+      const targetPath = path.join(masterDir, item);
+
+      // Fast path: already the correct symlink → skip.
+      try {
+        const stat = fs.lstatSync(linkPath);
+        if (stat.isSymbolicLink() && fs.readlinkSync(linkPath) === targetPath) continue;
+      } catch { /* missing — repair below */ }
+
+      // Target must exist before we link. For dirs we can create the
+      // master placeholder; for files we skip (avoid creating spurious
+      // empty mcp.json files in the master).
+      if (!fs.existsSync(targetPath)) {
+        if ((dirs as readonly string[]).includes(item)) {
+          try { fs.mkdirSync(targetPath, { recursive: true, mode: 0o700 }); }
+          catch { continue; }
+        } else {
+          continue;
+        }
+      }
+
+      // Delegate the actual heal to healOneCollision when there's a
+      // real file/dir at linkPath — that path guarantees backup +
+      // merge + log. For pure "missing" we just create the symlink.
+      try {
+        if (fs.existsSync(linkPath) || isLstatSymlink(linkPath)) {
+          const ts = new Date().toISOString().replace(/[:.]/g, '-');
+          const outcome = this.healOneCollision(commandName, item, linkPath, targetPath, ts);
+          if (outcome.ok) repaired++;
+        } else {
+          fs.symlinkSync(targetPath, linkPath);
+          repaired++;
+          this.logLifecycle({
+            event: 'share_heal.symlink_created',
+            profile: commandName,
+            name: item,
+            target: targetPath,
+            linkPath,
+            via: 'healProfileSharedDirs',
+          });
+        }
+      } catch { /* best-effort — skip */ }
+    }
+
+    return repaired;
+  }
+
+  /**
+   * Heal share topology from sidecar snapshots. Runs on every
+   * ConfigManager construction. Idempotent + non-destructive:
+   *
+   *   - if profile dir doesn't exist: skip (profile not yet recreated)
+   *   - if entry is already the correct symlink: no-op
+   *   - if entry is missing AND target exists: create the symlink
+   *   - if entry is a REAL file/dir or wrong-target symlink (collision):
+   *       1. snapshot the colliding entry to ~/.sweech/backups/share-heal/
+   *          <ts>/<commandName>/<name>/ (full recursive copy, mode 0700)
+   *       2. merge contents into the master target with master-wins
+   *          semantics (rsync --ignore-existing equivalent) so no
+   *          accidentally-divergent data is lost
+   *       3. remove the real entry and create the symlink
+   *       4. append a structured event to ~/.sweech/logs/lifecycle.jsonl
+   *   - if target doesn't exist (master profile gone): skip silently
+   *
+   * Why backup-first: a self-healing routine that overwrites real data
+   * without a recovery path is a self-destroying routine. Every
+   * destructive step is preceded by a complete pre-merge backup.
+   *
+   * Returns a digest of what happened so callers (doctor --heal,
+   * postinstall, use-time hook) can report it.
+   */
+  public healShareTopology(opts: { dryRun?: boolean } = {}): {
+    profilesScanned: number;
+    linksCreated: Array<{ profile: string; name: string; target: string }>;
+    collisionsHealed: Array<{ profile: string; name: string; target: string; backupPath: string; merged: number }>;
+    collisionsSkipped: Array<{ profile: string; name: string; reason: string }>;
+  } {
+    const result = {
+      profilesScanned: 0,
+      linksCreated: [] as Array<{ profile: string; name: string; target: string }>,
+      collisionsHealed: [] as Array<{ profile: string; name: string; target: string; backupPath: string; merged: number }>,
+      collisionsSkipped: [] as Array<{ profile: string; name: string; reason: string }>,
+    };
+
+    let snapshots: string[];
+    try {
+      snapshots = fs.readdirSync(this.shareSnapshotsDir)
+        .filter(f => f.endsWith('.json'));
+    } catch { return result; }
+
+    const healTimestamp = new Date().toISOString().replace(/[:.]/g, '-');
+
+    for (const snapFile of snapshots) {
+      let payload: { commandName?: string; links?: Record<string, string> };
+      try {
+        payload = JSON.parse(fs.readFileSync(path.join(this.shareSnapshotsDir, snapFile), 'utf-8'));
+      } catch { continue; }
+
+      const commandName = payload.commandName;
+      const links = payload.links;
+      if (!commandName || !links || typeof links !== 'object') continue;
+
+      // Validate commandName against the same allowlist getProfileDir uses
+      // so we never resolve a poisoned snapshot path.
+      if (!/^[A-Za-z0-9_-]+$/.test(commandName)) continue;
+
+      const profileDir = path.join(os.homedir(), `.${commandName}`);
+      if (!fs.existsSync(profileDir)) continue;
+
+      result.profilesScanned++;
+
+      for (const [name, target] of Object.entries(links)) {
+        // Reject relative escapes — only absolute paths under homedir
+        // are accepted as link targets.
+        if (typeof target !== 'string') continue;
+        if (!target.startsWith(os.homedir() + path.sep)) continue;
+        if (!fs.existsSync(target)) {
+          result.collisionsSkipped.push({ profile: commandName, name, reason: 'target-missing' });
+          continue;
+        }
+        // Reject names that escape profileDir (defence-in-depth against
+        // a poisoned snapshot containing `name: "../escape"`).
+        if (name.includes('/') || name.includes('\\') || name === '..' || name === '.') continue;
+
+        const linkPath = path.join(profileDir, name);
+        const existsOrLink = fs.existsSync(linkPath) || isLstatSymlink(linkPath);
+
+        if (existsOrLink) {
+          // Case (b): already the correct symlink → no-op.
+          if (isLstatSymlink(linkPath)) {
+            try {
+              if (fs.readlinkSync(linkPath) === target) continue;
+            } catch { /* fall through to heal */ }
+          }
+
+          // Case (c): collision (real dir/file or wrong-target symlink).
+          if (opts.dryRun) {
+            result.collisionsSkipped.push({ profile: commandName, name, reason: 'dry-run' });
+            continue;
+          }
+
+          const healed = this.healOneCollision(commandName, name, linkPath, target, healTimestamp);
+          if (healed.ok) {
+            result.collisionsHealed.push({
+              profile: commandName,
+              name,
+              target,
+              backupPath: healed.backupPath,
+              merged: healed.merged,
+            });
+          } else {
+            result.collisionsSkipped.push({ profile: commandName, name, reason: healed.reason });
+          }
+          continue;
+        }
+
+        // Case (a): entry missing, target exists, all checks passed.
+        if (opts.dryRun) {
+          result.linksCreated.push({ profile: commandName, name, target });
+          continue;
+        }
+        try {
+          fs.symlinkSync(target, linkPath);
+          result.linksCreated.push({ profile: commandName, name, target });
+          this.logLifecycle({
+            event: 'share_heal.symlink_created',
+            profile: commandName,
+            name,
+            target,
+            linkPath,
+          });
+        } catch (err) {
+          result.collisionsSkipped.push({
+            profile: commandName,
+            name,
+            reason: `symlink-failed: ${(err as Error).message ?? 'unknown'}`,
+          });
+        }
+      }
+    }
+
+    return result;
+  }
+
+  /**
+   * Resolve one collision discovered by healShareTopology. Walks the
+   * complete safety cycle: backup → master-wins merge → remove real
+   * entry → create symlink → log. Returns an outcome record so the
+   * caller can include it in the heal digest.
+   */
+  private healOneCollision(
+    commandName: string,
+    name: string,
+    linkPath: string,
+    target: string,
+    healTimestamp: string,
+  ): { ok: true; backupPath: string; merged: number } | { ok: false; reason: string } {
+    // 1. Pre-merge backup. ALWAYS the first step — if anything below
+    //    fails we still have a complete copy of the user's data.
+    const backupRoot = path.join(this.backupsDir, 'share-heal', healTimestamp, commandName);
+    const backupPath = path.join(backupRoot, name);
+    try {
+      fs.mkdirSync(backupRoot, { recursive: true, mode: 0o700 });
+    } catch {
+      return { ok: false, reason: 'backup-mkdir-failed' };
+    }
+
+    let stat: fs.Stats;
+    try { stat = fs.lstatSync(linkPath); }
+    catch { return { ok: false, reason: 'lstat-failed' }; }
+
+    let backedUp = 0;
+    try {
+      if (stat.isSymbolicLink()) {
+        // Wrong-target symlink — record the link itself, not its content.
+        try {
+          const wrongTarget = fs.readlinkSync(linkPath);
+          fs.symlinkSync(wrongTarget, backupPath);
+          backedUp = 1;
+        } catch {
+          return { ok: false, reason: 'symlink-backup-failed' };
+        }
+      } else {
+        backedUp = copyTreeOverwrite(linkPath, backupPath);
+      }
+    } catch {
+      return { ok: false, reason: 'backup-failed' };
+    }
+
+    // 2. Merge into master (master-wins). Skip for wrong-target symlinks
+    //    — there's no real data to merge, the symlink is just stale.
+    let merged = 0;
+    try {
+      if (!stat.isSymbolicLink()) {
+        merged = copyTreeIgnoreExisting(linkPath, target);
+      }
+    } catch {
+      this.logLifecycle({
+        event: 'share_heal.merge_failed',
+        profile: commandName,
+        name,
+        target,
+        backupPath,
+      });
+      return { ok: false, reason: 'merge-failed-backup-preserved' };
+    }
+
+    // 3. Remove real entry. Safe to do — we have the backup AND the
+    //    contents have been merged into master.
+    try {
+      if (stat.isSymbolicLink() || stat.isFile()) {
+        fs.unlinkSync(linkPath);
+      } else if (stat.isDirectory()) {
+        fs.rmSync(linkPath, { recursive: true, force: true });
+      }
+    } catch {
+      this.logLifecycle({
+        event: 'share_heal.unlink_failed',
+        profile: commandName,
+        name,
+        target,
+        backupPath,
+      });
+      return { ok: false, reason: 'unlink-failed-backup-preserved' };
+    }
+
+    // 4. Create symlink.
+    try {
+      fs.symlinkSync(target, linkPath);
+    } catch (err) {
+      this.logLifecycle({
+        event: 'share_heal.symlink_failed_after_merge',
+        profile: commandName,
+        name,
+        target,
+        backupPath,
+        error: (err as Error).message ?? 'unknown',
+      });
+      return { ok: false, reason: 'symlink-failed-data-merged' };
+    }
+
+    // 5. Log success digest. Records every action so the user can audit
+    //    `tail -f ~/.sweech/logs/lifecycle.jsonl` to see exactly what
+    //    sweech did to their data.
+    this.logLifecycle({
+      event: 'share_heal.collision_resolved',
+      profile: commandName,
+      name,
+      target,
+      backupPath,
+      filesBackedUp: backedUp,
+      filesMergedToMaster: merged,
+      collisionType: stat.isSymbolicLink() ? 'wrong-target-symlink' : stat.isDirectory() ? 'real-directory' : 'real-file',
+    });
+
+    return { ok: true, backupPath, merged };
   }
 
   /**

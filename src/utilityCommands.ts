@@ -208,6 +208,216 @@ export async function probeDaemonHealthz(opts: {
 }
 
 /**
+ * T-078: post-`npm install` heal pass. Resyncs every sharedWith profile
+ * so upgrades that added a new shareable dir/file don't leave older
+ * profiles missing the symlink. Skipped on no-version-change to keep
+ * the upgrade idempotent across re-runs (npm `prepare` fires twice in
+ * some publish flows).
+ *
+ * Best-effort + silent: any failure is logged to the lifecycle JSONL
+ * but never surfaced to stdout/stderr — postinstall noise breaks
+ * `npm install -g sweech` for users.
+ */
+export async function runPostinstallHeal(): Promise<void> {
+  const config = new ConfigManager();
+  const sweechVersion = (() => {
+    try {
+      const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf-8'));
+      return typeof pkg.version === 'string' ? pkg.version : null;
+    } catch { return null; }
+  })();
+
+  const markerPath = path.join(config.getConfigDir(), 'last-postinstall.json');
+  let lastSeen: { version?: string; ranAt?: string } = {};
+  try {
+    if (fs.existsSync(markerPath)) {
+      lastSeen = JSON.parse(fs.readFileSync(markerPath, 'utf-8'));
+    }
+  } catch { /* ignore corrupt marker */ }
+
+  if (sweechVersion && lastSeen.version === sweechVersion) {
+    // Same version we've already run heal for. No-op so `npm install`
+    // re-runs (e.g. via `npm rebuild`) don't churn the disk.
+    config.logLifecycle({
+      event: 'postinstall.skipped_same_version',
+      sweechVersion,
+      lastRanAt: lastSeen.ranAt ?? null,
+    });
+    return;
+  }
+
+  config.logLifecycle({
+    event: 'postinstall.starting',
+    fromVersion: lastSeen.version ?? null,
+    toVersion: sweechVersion,
+  });
+
+  let totalRepaired = 0;
+  let profilesScanned = 0;
+  try {
+    // Snapshot-driven pass first (covers removed+recreated profiles).
+    const snapResult = config.healShareTopology();
+    totalRepaired += snapResult.linksCreated.length + snapResult.collisionsHealed.length;
+
+    // Steady-state sweep — covers new shareables added in this version.
+    for (const profile of config.getProfiles()) {
+      if (!profile.sharedWith) continue;
+      profilesScanned++;
+      try {
+        totalRepaired += config.healProfileSharedDirs(profile.commandName);
+      } catch (err) {
+        config.logLifecycle({
+          event: 'postinstall.profile_heal_failed',
+          profile: profile.commandName,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+  } catch (err) {
+    config.logLifecycle({
+      event: 'postinstall.failed',
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return;
+  }
+
+  // Stamp the marker AFTER a successful run so a crash mid-heal will
+  // be retried on the next install.
+  try {
+    fs.writeFileSync(
+      markerPath,
+      JSON.stringify({
+        version: sweechVersion,
+        ranAt: new Date().toISOString(),
+        totalRepaired,
+        profilesScanned,
+      }, null, 2),
+      { mode: 0o600 },
+    );
+  } catch { /* ignore */ }
+
+  config.logLifecycle({
+    event: 'postinstall.completed',
+    sweechVersion,
+    totalRepaired,
+    profilesScanned,
+  });
+}
+
+/**
+ * sweetch doctor --heal — one-shot share-topology repair.
+ *
+ * Walks every managed profile, replays the snapshot-driven heal pass
+ * (covers profiles that were removed+recreated and lost their links),
+ * then sweeps every profile that has `sharedWith` set and repairs any
+ * missing / wrong-targeted shareable symlinks via
+ * `ConfigManager.healProfileSharedDirs`. Both code paths use the safe
+ * collision flow (backup → master-wins merge → symlink → log).
+ *
+ * Idempotent. Safe to run repeatedly. Logs every action to
+ * `~/.sweech/logs/lifecycle.jsonl` for audit.
+ */
+export async function runHeal(opts: { dryRun?: boolean; json?: boolean } = {}): Promise<void> {
+  const dryRun = !!opts.dryRun;
+  const json = !!opts.json;
+  const config = new ConfigManager();
+  const profiles = config.getProfiles();
+
+  // Pass 1: snapshot-driven heal (covers removed+recreated profiles).
+  const snapResult = config.healShareTopology({ dryRun });
+
+  // Pass 2: sweep every sharedWith profile and heal drift even when no
+  // snapshot exists (covers the steady-state "user upgraded sweech and
+  // a new dir/file got added to the shareable list" case).
+  const sweepResult: {
+    repairs: Array<{ profile: string; repaired: number }>;
+    skipped: Array<{ profile: string; reason: string }>;
+  } = { repairs: [], skipped: [] };
+
+  for (const profile of profiles) {
+    if (!profile.sharedWith) continue;
+    if (dryRun) {
+      // Dry-run sweep is informational only; the snapshot pass already
+      // reported what's missing for snapshot-known profiles.
+      sweepResult.skipped.push({ profile: profile.commandName, reason: 'dry-run' });
+      continue;
+    }
+    try {
+      const repaired = config.healProfileSharedDirs(profile.commandName);
+      if (repaired > 0) {
+        sweepResult.repairs.push({ profile: profile.commandName, repaired });
+      }
+    } catch (err: unknown) {
+      sweepResult.skipped.push({
+        profile: profile.commandName,
+        reason: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  if (json) {
+    process.stdout.write(JSON.stringify({
+      dryRun,
+      snapshot: snapResult,
+      sweep: sweepResult,
+      logFile: path.join(config.getLogsDir(), 'lifecycle.jsonl'),
+    }, null, 2) + '\n');
+    return;
+  }
+
+  console.log(chalk.bold(`\n🔧 Sweetch Share-Topology Heal ${dryRun ? '(dry-run)' : ''}\n`));
+
+  const totalCreated = snapResult.linksCreated.length;
+  const totalHealed = snapResult.collisionsHealed.length;
+  const totalSweepRepairs = sweepResult.repairs.reduce((sum, r) => sum + r.repaired, 0);
+  const totalSkipped = snapResult.collisionsSkipped.length;
+
+  if (totalCreated === 0 && totalHealed === 0 && totalSweepRepairs === 0 && totalSkipped === 0) {
+    console.log(chalk.green('  ✓ Nothing to heal — all share topology intact.'));
+  }
+
+  if (snapResult.linksCreated.length > 0) {
+    console.log(chalk.bold('Symlinks recreated from snapshot:'));
+    for (const item of snapResult.linksCreated) {
+      console.log(chalk.green(`  ✓ ${item.profile}/${item.name} → ${item.target}`));
+    }
+    console.log();
+  }
+
+  if (snapResult.collisionsHealed.length > 0) {
+    console.log(chalk.bold('Collisions resolved (backup + master-wins merge + symlink):'));
+    for (const item of snapResult.collisionsHealed) {
+      console.log(chalk.yellow(`  ✓ ${item.profile}/${item.name}`));
+      console.log(chalk.gray(`      backup: ${item.backupPath}`));
+      console.log(chalk.gray(`      merged ${item.merged} file(s) into ${item.target}`));
+    }
+    console.log();
+  }
+
+  if (sweepResult.repairs.length > 0) {
+    console.log(chalk.bold('Steady-state sweep repairs:'));
+    for (const item of sweepResult.repairs) {
+      console.log(chalk.green(`  ✓ ${item.profile}: ${item.repaired} entr${item.repaired === 1 ? 'y' : 'ies'} repaired`));
+    }
+    console.log();
+  }
+
+  if (snapResult.collisionsSkipped.length > 0) {
+    console.log(chalk.bold('Skipped:'));
+    for (const item of snapResult.collisionsSkipped) {
+      console.log(chalk.gray(`  · ${item.profile}/${item.name} — ${item.reason}`));
+    }
+    console.log();
+  }
+
+  console.log(chalk.gray(`  Lifecycle log: ${path.join(config.getLogsDir(), 'lifecycle.jsonl')}`));
+  if (!dryRun && (totalHealed > 0)) {
+    console.log(chalk.gray(`  Backups:       ${path.join(config.getBackupsDir(), 'share-heal')}/`));
+  }
+  console.log();
+}
+
+/**
  * sweetch doctor - Health check
  */
 export async function runDoctor(): Promise<void> {

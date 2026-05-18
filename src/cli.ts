@@ -1174,6 +1174,15 @@ program
       process.exit(1);
     }
     const cli = cliConfig!; // safe: guarded above
+
+    // T-077: always-on share-topology heal for the resolved profile.
+    // Fast path is sub-millisecond when nothing's wrong (single lstat
+    // per shareable). Best-effort: never block launch on heal failure.
+    if (profile && profile.sharedWith) {
+      try { config.healProfileSharedDirs(profile.commandName); }
+      catch { /* silent — heal must never block launch */ }
+    }
+
     const profileDir = profile
       ? config.getProfileDir(profile.commandName)
       : path.join(require('os').homedir(), `.${cli.name}`);
@@ -1485,6 +1494,14 @@ program
 
     const profileName = profile?.commandName ?? cli.command;
     const useTmux = shouldUseTmux(isTmuxAvailable(), opts);
+
+    // T-077 hot-path heal: re-link drifted shareables before launch.
+    // Best-effort + silent; never blocks the user.
+    if (profile && profile.sharedWith) {
+      try { config.healProfileSharedDirs(profile.commandName); }
+      catch { /* swallow */ }
+    }
+
     logLaunch({
       source: useTmux ? 'tmux' : 'cli',
       profile: profileName,
@@ -1876,12 +1893,40 @@ program
     console.error();
   });
 
+// T-078: hidden postinstall hook. Runs after `npm install -g sweech`
+// (and any upgrade) to resync share topology for every sharedWith
+// profile. Hidden from --help; never throws; always exits 0 so a heal
+// hiccup can't break an npm install.
+program
+  .command('_postinstall-heal', { hidden: true } as any)
+  .description('Internal: re-link drifted share topology after upgrade. Idempotent + silent.')
+  .action(async () => {
+    try {
+      const { runPostinstallHeal } = await import('./utilityCommands');
+      await runPostinstallHeal();
+    } catch {
+      // Postinstall MUST be silent on failure — a heal error during
+      // `npm install -g sweech` would otherwise turn into an install
+      // failure surfaced to every user upgrading. The lifecycle log
+      // captures the actual error for later debugging.
+    }
+    process.exit(0);
+  });
+
 // Doctor command - Health check
 program
   .command('doctor')
   .description('Check sweetch installation and configuration')
-  .action(async () => {
+  .option('--heal', 'Repair share-topology drift: missing/wrong shareable symlinks across managed profiles. Auto-backs up real data before merging into the master target.')
+  .option('--heal-dry-run', 'Same as --heal but reports actions without modifying disk.')
+  .option('--json', 'Emit machine-readable output (only honored with --heal/--heal-dry-run).')
+  .action(async (opts: { heal?: boolean; healDryRun?: boolean; json?: boolean }) => {
     try {
+      if (opts.heal || opts.healDryRun) {
+        const { runHeal } = await import('./utilityCommands');
+        await runHeal({ dryRun: !!opts.healDryRun, json: !!opts.json });
+        return;
+      }
       await runDoctor();
     } catch (error: unknown) {
       const msg = scrubSecrets(error instanceof Error ? error.message : String(error));
@@ -2213,15 +2258,52 @@ profileCmd
   .option('--dormancy-days <n>', 'Days of inactivity before a profile is flagged dormant', '30')
   .option('--prune', 'Interactively remove profiles flagged with suggestion=prune')
   .option('--yes', 'When combined with --prune, skip per-profile prompts')
-  .action(async (opts: { json?: boolean; dormancyDays?: string; prune?: boolean; yes?: boolean }) => {
+  .option('--fix-cli-type', 'T-079: auto-correct cli_type_mismatch findings (e.g. claude-* profiles wrongly set to cliType=codex). Backs up config.json before mutating.')
+  .action(async (opts: { json?: boolean; dormancyDays?: string; prune?: boolean; yes?: boolean; fixCliType?: boolean }) => {
     try {
-      const { auditProfiles, prunableProfiles } = await import('./profileAudit');
+      const { auditProfiles, prunableProfiles, fixCliTypeOnProfile } = await import('./profileAudit');
       const dormancyDays = opts.dormancyDays ? parseInt(opts.dormancyDays, 10) : 30;
       if (Number.isNaN(dormancyDays) || dormancyDays < 0) {
         console.error(chalk.red(`\nInvalid --dormancy-days: ${opts.dormancyDays}\n`));
         process.exit(1);
       }
       const report = await auditProfiles({ dormancyDays });
+
+      // ── --fix-cli-type path (T-079) ───────────────────────────────
+      if (opts.fixCliType) {
+        const cfg = new ConfigManager();
+        const mismatches = report.findings.filter(f => f.kind === 'cli_type_mismatch');
+        const fixed: Array<{ profile: string; from?: string; to?: string }> = [];
+        const skipped: Array<{ profile: string; reason: string }> = [];
+        for (const f of mismatches) {
+          const result = fixCliTypeOnProfile(cfg, f.profile);
+          if (result.changed) {
+            fixed.push({ profile: f.profile, from: result.from, to: result.to });
+          } else {
+            skipped.push({ profile: f.profile, reason: result.reason ?? 'unknown' });
+          }
+        }
+        if (opts.json) {
+          process.stdout.write(JSON.stringify({ ok: true, fixed, skipped, report }, null, 2) + '\n');
+        } else {
+          console.log(chalk.bold(`\n  sweech profile audit --fix-cli-type\n`));
+          if (fixed.length === 0 && skipped.length === 0) {
+            console.log(chalk.green('  ✓ No cli_type_mismatch findings to fix.\n'));
+          }
+          for (const f of fixed) {
+            console.log(chalk.green(`  ✓ ${f.profile}: cliType '${f.from}' → '${f.to}'`));
+          }
+          for (const s of skipped) {
+            console.log(chalk.gray(`  · ${s.profile}: ${s.reason}`));
+          }
+          if (fixed.length > 0) {
+            console.log(chalk.dim(`\n  Backup written to ${cfg.getBackupsDir()}/config.json.cli_type_fix.*.bak`));
+            console.log(chalk.dim(`  Run ${chalk.bold('sweech update-wrappers')} to regenerate wrapper scripts.`));
+          }
+          console.log();
+        }
+        return;
+      }
 
       // ── JSON output ───────────────────────────────────────────────
       if (opts.json && !opts.prune) {
@@ -2252,10 +2334,14 @@ profileCmd
           `${summary.orphan_credentials} orphan-cred`,
           `${summary.missing_settings} missing-settings`,
           `${summary.expired_token} expired-token`,
+          `${summary.cli_type_mismatch} cli-type-mismatch`,
         ];
         console.log(chalk.dim(`  Summary: ${summaryParts.join(', ')} — ${summary.total_issues} issue(s), ${summary.prunable} prunable`));
         if (summary.prunable > 0) {
           console.log(chalk.dim(`  Run ${chalk.bold('sweech profile audit --prune')} to clean up.`));
+        }
+        if (summary.cli_type_mismatch > 0) {
+          console.log(chalk.dim(`  Run ${chalk.bold('sweech profile audit --fix-cli-type')} to auto-correct cliType mismatches.`));
         }
         console.log();
         process.exit(summary.total_issues > 0 ? 1 : 0);
@@ -4982,6 +5068,9 @@ program
           console.error(chalk.red(`Unknown cliType '${result.cliType}' — cannot --exec`));
           process.exit(1);
         }
+        // T-077 hot-path heal: ensure the chosen profile's share links
+        // are intact before exec'ing. Best-effort + silent.
+        try { config.healProfileSharedDirs(result.account); } catch { /* swallow */ }
         const { spawn } = require('child_process');
         const settingsEnv = readSettingsEnv(dir);
         const env = buildAutoExecEnv(cli, dir, process.env, settingsEnv);
@@ -5042,6 +5131,8 @@ program
         console.error(chalk.red(`Unknown cliType '${pick.cliType}' — cannot --exec`));
         process.exit(1);
       }
+      // T-077 hot-path heal: re-link any drifted shareables before exec.
+      try { config.healProfileSharedDirs(pick.commandName); } catch { /* silent */ }
       const { spawn } = require('child_process');
       // Hoist the picked profile's settings.env so codex sees its API key
       // at runtime — direct spawn bypasses the wrapper script which would
@@ -5171,6 +5262,11 @@ program
       // Record AFTER we've decided to actually rotate (spawn), so audit
       // history reflects real switches not just dry-run lookups.
       recordFailover(from ?? '(unspecified)', pick.commandName, target.reason);
+      // T-077 hot-path heal: re-link drifted shareables before spawning.
+      try {
+        const cfg = new ConfigManager();
+        cfg.healProfileSharedDirs(pick.commandName);
+      } catch { /* silent */ }
       const { spawn } = require('child_process');
       // Hoist the picked profile's settings.env so codex sees its API key
       // at runtime — direct spawn bypasses the wrapper script which would

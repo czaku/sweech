@@ -25,6 +25,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { ConfigManager, ProfileConfig } from './config';
 import { readSettingsEnv } from './autoCommand';
+import { getProvider, CLIType, CLI_TYPES } from './providers';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -35,9 +36,10 @@ export type AuditKind =
   | 'cross_bleed'
   | 'orphan_credentials'
   | 'missing_settings'
-  | 'expired_token';
+  | 'expired_token'
+  | 'cli_type_mismatch';
 
-export type AuditSuggestion = 'prune' | 'rename' | 'rotate' | null;
+export type AuditSuggestion = 'prune' | 'rename' | 'rotate' | 'fix_cli_type' | null;
 
 export interface AuditFinding {
   /** Profile commandName. */
@@ -70,6 +72,7 @@ export interface AuditReport {
     orphan_credentials: number;
     missing_settings: number;
     expired_token: number;
+    cli_type_mismatch: number;
     /** Number of findings whose severity is `warn` or `critical`. */
     total_issues: number;
     /** Number of findings whose `suggestion === 'prune'`. */
@@ -489,6 +492,87 @@ export function decideVendor(
   return { configuredVendor, nameVendor, authVendor, orphanProviderEnvs };
 }
 
+// ── cliType audit ────────────────────────────────────────────────────────────
+
+/**
+ * Determine the expected cliType for a profile based on its commandName
+ * prefix and its provider's compatibility list.
+ *
+ * Decision order (most specific first):
+ *   1. commandName prefix (`claude-`, `codex-`, `kimi-`) — strongest signal
+ *      because sweech itself generates these prefixes in the create flow,
+ *      so any deviation is a misconfig.
+ *   2. provider.compatibility — if the prefix doesn't match but the
+ *      provider only supports one CLI, that's the right cliType.
+ *
+ * Returns `null` when no inference is possible (provider supports
+ * multiple CLIs AND commandName has no recognised prefix).
+ */
+export function inferExpectedCliType(
+  commandName: string,
+  providerKey: string,
+): CLIType | null {
+  // Prefix-based inference. The dash matters — `claude-X` vs bare `claudeX`
+  // (the latter is "looks like claude" rather than the sweech convention).
+  const lower = commandName.toLowerCase();
+  if (lower === 'claude' || lower.startsWith('claude-')) return 'claude';
+  if (lower === 'codex' || lower.startsWith('codex-')) return 'codex';
+  if (lower === 'kimi' || lower.startsWith('kimi-')) return 'kimi';
+
+  // Fall back to provider compatibility — only confident when there's
+  // exactly one valid cliType.
+  const provider = getProvider(providerKey);
+  if (provider && provider.compatibility.length === 1) {
+    return provider.compatibility[0];
+  }
+  return null;
+}
+
+/**
+ * Apply the audit's `fix_cli_type` suggestion to one profile. Writes
+ * the corrected cliType to config.json, backs up the prior config,
+ * and logs the change. Returns the updated profile or null if no fix
+ * was applied (no expected cliType derivable or already correct).
+ */
+export function fixCliTypeOnProfile(
+  config: ConfigManager,
+  commandName: string,
+): { changed: boolean; from?: string; to?: string; reason?: string } {
+  const profiles = config.getProfiles();
+  const profile = profiles.find(p => p.commandName === commandName);
+  if (!profile) return { changed: false, reason: 'profile-not-found' };
+
+  const expected = inferExpectedCliType(profile.commandName, profile.provider);
+  if (!expected) return { changed: false, reason: 'no-inference' };
+  if (profile.cliType === expected) return { changed: false, reason: 'already-correct' };
+
+  // Take a backup of config.json before the mutation. The shared
+  // `migrateApiKeys` flow already drops a timestamped backup; we
+  // explicitly do the same here so reverting a wrong fix is trivial.
+  const ts = new Date().toISOString().replace(/[:.]/g, '-');
+  try {
+    const src = config.getConfigFile();
+    if (fs.existsSync(src)) {
+      const dest = path.join(config.getBackupsDir(), `config.json.cli_type_fix.${ts}.bak`);
+      fs.copyFileSync(src, dest);
+    }
+  } catch { /* non-fatal */ }
+
+  const updated = profiles.map(p =>
+    p.commandName === commandName ? { ...p, cliType: expected } : p,
+  );
+  config.writeProfiles(updated);
+  config.logLifecycle({
+    event: 'audit.cli_type_fixed',
+    profile: commandName,
+    from: profile.cliType,
+    to: expected,
+    provider: profile.provider,
+  });
+
+  return { changed: true, from: profile.cliType, to: expected };
+}
+
 // ── Main audit entry point ──────────────────────────────────────────────────
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
@@ -637,6 +721,35 @@ export async function auditProfiles(opts: AuditOptions = {}): Promise<AuditRepor
       });
     }
 
+    // ── cli_type_mismatch ────────────────────────────────────────────
+    // A profile named `claude-or-pole` with cliType='codex' is a real
+    // bug we've hit in the wild: the wrapper ends up exec'ing `codex`
+    // against a Claude-style settings.json + .claude.json, which the
+    // codex CLI ignores. Detect both prefix mismatch and provider-only
+    // mismatch (provider compatibility narrows cliType to one value
+    // and the profile uses a different one).
+    const expectedCliType = inferExpectedCliType(profile.commandName, profile.provider);
+    if (expectedCliType && expectedCliType !== cliType) {
+      const providerCompat = getProvider(profile.provider)?.compatibility ?? [];
+      const compatOk = providerCompat.includes(cliType as CLIType);
+      findings.push({
+        profile: profile.commandName,
+        cliType,
+        provider,
+        severity: compatOk ? 'warn' : 'critical',
+        kind: 'cli_type_mismatch',
+        detail: compatOk
+          ? `Profile commandName '${profile.commandName}' implies cliType='${expectedCliType}' but is set to '${cliType}'. Wrapper will exec the wrong CLI binary.`
+          : `Profile cliType='${cliType}' is incompatible with provider '${provider}' (supports: ${providerCompat.join(', ') || 'unknown'}). Expected cliType='${expectedCliType}'.`,
+        evidence: {
+          observedCliType: cliType,
+          expectedCliType,
+          providerCompatibility: providerCompat,
+        },
+        suggestion: 'fix_cli_type',
+      });
+    }
+
     // ── expired_token ───────────────────────────────────────────────
     if (profile.oauth?.expiresAt && typeof profile.oauth.expiresAt === 'number') {
       if (profile.oauth.expiresAt < nowMs) {
@@ -665,6 +778,7 @@ export async function auditProfiles(opts: AuditOptions = {}): Promise<AuditRepor
     orphan_credentials: findings.filter(f => f.kind === 'orphan_credentials').length,
     missing_settings: findings.filter(f => f.kind === 'missing_settings').length,
     expired_token: findings.filter(f => f.kind === 'expired_token').length,
+    cli_type_mismatch: findings.filter(f => f.kind === 'cli_type_mismatch').length,
     total_issues: findings.filter(f => f.severity !== 'info').length,
     prunable: findings.filter(f => f.suggestion === 'prune').length,
   };
