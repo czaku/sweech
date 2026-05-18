@@ -139,14 +139,17 @@ function makeProfile(overrides: Partial<ProfileConfig> = {}): ProfileConfig {
 
 async function captureDoctorOutput(): Promise<string> {
   const lines: string[] = [];
+  const priorExitCode = process.exitCode;
   const logSpy = jest.spyOn(console, 'log').mockImplementation((...args) => {
     lines.push(args.map(String).join(' '));
   });
-  jest.spyOn(console, 'error').mockImplementation(() => {});
+  const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
   try {
     await runDoctor();
   } finally {
     logSpy.mockRestore();
+    errorSpy.mockRestore();
+    process.exitCode = priorExitCode;
   }
   return lines.join('\n');
 }
@@ -156,6 +159,7 @@ async function captureDoctorOutput(): Promise<string> {
 describe('doctor — Token refresh ETA section (T-LU-006)', () => {
   afterEach(() => {
     mockProfiles = [];
+    process.exitCode = undefined;
   });
 
   test('renders "Token refresh ETA" header when at least one OAuth profile exists', async () => {
