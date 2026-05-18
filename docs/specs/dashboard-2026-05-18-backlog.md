@@ -233,6 +233,29 @@ Backend `fetchedAt` infrastructure already landed in commit 1554355.
 - Tests + smoke.
 - Reference: `/Users/luke/dev/sweech/packages/engine/runner/gemini.ts`.
 
+### T-DASH-024 · jcode cliType support
+**Files:** `src/clis.ts`, wrapper template, install detection.
+**Depends:** T-DASH-021 (XDG pattern).
+**Tasks:**
+- Register `command: 'jcode'`. Install path via homebrew tap `1jehuang/homebrew-jcode` or `curl install.sh`.
+- Multi-session aware — sweech's session model needs to capture jcode's `--session` semantics.
+- Performance-optimized (per upstream README), so wrapper must add minimal overhead.
+- XDG isolation per profile.
+- 10+ tests covering registration + wrapper.
+- Reference: `gh repo view 1jehuang/jcode`, install script at `master/scripts/install.sh`.
+
+### T-DASH-025 · Cloud-vs-local provider classification
+**Files:** `src/providers.ts` (add `pricingModel` field on every entry), `src/usageProxy.ts` (new, Tier 2/3 estimators), `~/.sweech/balance-manual.json` (Tier 4 manual entries), tests.
+**Depends:** none — independent foundation for T-DASH-019.
+**Tasks:**
+- Add `pricingModel: 'paid' | 'free' | 'metered'` to ProviderConfig type.
+- Annotate every entry: anthropic/openai/kimi/glm/minimax/dashscope/openrouter/ollama-cloud/kimi-coding → `paid`; groq/deepseek/gemini/nvidia → `metered`; ollama-local + custom-with-localhost → `free`.
+- Auto-classifier for user-created custom providers: localhost-pattern + authOptional → `free`, else `paid`.
+- `usageProxy.ts`: Tier 2 (cost × token sums from sessions.db) and Tier 3 (launch-count proxy) estimators.
+- Balance panel + briefing both consult `pricingModel` to decide eligibility.
+- Settings panel: per-provider override of detected tier.
+- 20+ tests: classification, tier overrides, manual marker read/write.
+
 ### T-DASH-023 · goose cliType support
 **Files:** `src/clis.ts`, `src/config.ts` createWrapperScript, goose YAML config writer.
 **Depends:** T-DASH-021.
@@ -294,7 +317,7 @@ PARALLEL Wave 2 (4 agents):
   ┣━ T-DASH-008 (sessionSummarizer)
   ┗━ T-DASH-009 (federation routes)
                 ↓ merge
-PARALLEL Wave 3 (11 agents):
+PARALLEL Wave 3 (13 agents):
   ┣━ T-DASH-010 (Sessions panel)
   ┣━ T-DASH-011 (Workspaces/Accounts/Cost)
   ┣━ T-DASH-012 (Audit/Failover/Routing/Billing)
@@ -305,7 +328,9 @@ PARALLEL Wave 3 (11 agents):
   ┣━ T-DASH-020 (Daily briefing)
   ┣━ T-DASH-021 (opencode cliType)
   ┣━ T-DASH-022 (gemini-cli cliType)
-  ┗━ T-DASH-023 (goose cliType)
+  ┣━ T-DASH-023 (goose cliType)
+  ┣━ T-DASH-024 (jcode cliType)
+  ┗━ T-DASH-025 (cloud-vs-local classification + usageProxy)
                 ↓ merge
 SEQUENTIAL Wave 4:
   ┣━ T-DASH-016 (E2E)
@@ -313,7 +338,7 @@ SEQUENTIAL Wave 4:
   ┗━ T-DASH-018 (ship)
 ```
 
-Total: **23 tasks across 4 waves**, ~11 unique agents in parallel at peak.
+Total: **25 tasks across 4 waves**, ~13 unique agents in parallel at peak.
 
 Acceptance criteria for "done with backlog":
 - `sweech dashboard` opens new React app in default browser
