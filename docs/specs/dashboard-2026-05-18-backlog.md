@@ -190,6 +190,59 @@ Backend `fetchedAt` infrastructure already landed in commit 1554355.
 - `<ViewerCountBadge count={n} />` per Q5 (hides when ≤ 1).
 - 8+ component tests.
 
+### T-DASH-019 · Subscription balance (provider-based)
+**Files:** `src/subscriptionBalance.ts` (new), `apps/dashboard/src/panels/Balance.tsx`, `src/cli.ts` (new `sweech balance` subcommand).
+**Depends:** T-DASH-001, T-DASH-005.
+**Tasks:**
+- Subscription model: key = `<provider>:<accountId>`, target utilization + window per spec §Q6 (default billing-aligned, rolling-weekly fallback).
+- Compute gap per subscription from existing rate-limit-cache + history + billing.json.
+- Map workspaces → subscriptions (existing `profile.provider` + account binding).
+- Routing: `sweech auto --balance` weights candidates by gap score; tiebreak existing.
+- CLI: `sweech balance show | set <sub> --target X | suggest | hint`.
+- Panel: table per spec mockup, "[auto-use ★★ for next launch]" CTA.
+- 15+ tests covering gap computation, billing-window resolution, multiple-account-per-provider.
+
+### T-DASH-020 · Daily briefing
+**Files:** `src/briefing.ts` (new), `apps/dashboard/src/components/TodaysBriefing.tsx`, `src/cli.ts` (`sweech briefing`).
+**Depends:** T-DASH-019.
+**Tasks:**
+- Background job at user-configured time (default 09:00 local) computes briefing from sessions.db + balance state.
+- AI suggestion section uses existing hybrid local-first summariser pattern (~£0.001/day).
+- Surfaces: dashboard sticky banner (per-day dismissible), macOS notification, `sweech briefing` CLI, SweechBar badge.
+- Settings: `briefing.time`, `briefing.channels`, `briefing.includeSuggestions`.
+- 10+ tests covering content generation, channel routing, dismissal persistence.
+
+### T-DASH-021 · opencode cliType support
+**Files:** `src/clis.ts` (add entry), `src/config.ts` createWrapperScript (XDG_CONFIG_HOME isolation branch).
+**Depends:** T-DASH-001.
+**Tasks:**
+- Register: `command: 'opencode'`, `yoloFlag: '--dangerously-skip-permissions'`, `resumeFlag: '--continue'`, `sessionNameFlag: '--title'`.
+- Wrapper sets `XDG_CONFIG_HOME=<profileDir>/.config` and `XDG_DATA_HOME=<profileDir>/.local/share` for opencode profiles.
+- Reuse settings.json env hoist pattern from codex.
+- Add `sessions/` discovery for opencode session listing (reuse claude `--session` flag semantics).
+- 10+ tests: wrapper template, env construction, settings.json round-trip.
+- Reference upstream runner: `/Users/luke/dev/sweech/packages/engine/runner/opencode.ts`.
+
+### T-DASH-022 · gemini-cli cliType support
+**Files:** `src/clis.ts`, `src/config.ts` createWrapperScript (or extend opencode path).
+**Depends:** T-DASH-021 (XDG isolation pattern).
+**Tasks:**
+- Register: `command: 'gemini'`, `yoloFlag: '-y'`, `nonInteractiveFlag: '-p'`, no resume.
+- Auth: prefer OAuth via `gemini auth login`, fall back to `GEMINI_API_KEY` env.
+- Config dir: `~/.gemini/` per-profile via XDG redirect.
+- Tests + smoke.
+- Reference: `/Users/luke/dev/sweech/packages/engine/runner/gemini.ts`.
+
+### T-DASH-023 · goose cliType support
+**Files:** `src/clis.ts`, `src/config.ts` createWrapperScript, goose YAML config writer.
+**Depends:** T-DASH-021.
+**Tasks:**
+- Register: `command: 'goose'`, `yoloFlag: null` (config-driven via `GOOSE_MODE`), `resumeFlag: '--resume'`, `sessionNameFlag: '-n'`.
+- Per-profile `config.yaml` generation (analogous to kimi's config.toml writer) — provider, model, mode.
+- XDG isolation for `~/.config/goose/` and `~/.local/share/goose/`.
+- Tests for YAML emission + provider-block round-trip.
+- Reference: `/Users/luke/dev/sweech/packages/engine/runner/goose.ts`.
+
 ---
 
 ## Wave 4 — Review + ship (sequential)
@@ -241,13 +294,18 @@ PARALLEL Wave 2 (4 agents):
   ┣━ T-DASH-008 (sessionSummarizer)
   ┗━ T-DASH-009 (federation routes)
                 ↓ merge
-PARALLEL Wave 3 (6 agents):
+PARALLEL Wave 3 (11 agents):
   ┣━ T-DASH-010 (Sessions panel)
   ┣━ T-DASH-011 (Workspaces/Accounts/Cost)
   ┣━ T-DASH-012 (Audit/Failover/Routing/Billing)
   ┣━ T-DASH-013 (Doctor/Logs/Plugins/Templates)
   ┣━ T-DASH-014 (Federation/Settings/Wizard)
-  ┗━ T-DASH-015 (Hero/Freshness/Viewer chips)
+  ┣━ T-DASH-015 (Hero/Freshness/Viewer chips)
+  ┣━ T-DASH-019 (Balance backend + panel)
+  ┣━ T-DASH-020 (Daily briefing)
+  ┣━ T-DASH-021 (opencode cliType)
+  ┣━ T-DASH-022 (gemini-cli cliType)
+  ┗━ T-DASH-023 (goose cliType)
                 ↓ merge
 SEQUENTIAL Wave 4:
   ┣━ T-DASH-016 (E2E)
@@ -255,7 +313,7 @@ SEQUENTIAL Wave 4:
   ┗━ T-DASH-018 (ship)
 ```
 
-Total: **18 tasks across 4 waves**, ~15 unique agents in parallel at peak.
+Total: **23 tasks across 4 waves**, ~11 unique agents in parallel at peak.
 
 Acceptance criteria for "done with backlog":
 - `sweech dashboard` opens new React app in default browser
