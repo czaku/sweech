@@ -144,40 +144,59 @@ function isLstatSymlink(p: string): boolean {
 }
 
 /**
+ * Maximum traversal depth for copyTree helpers. Bounded to keep a
+ * pathological symlink cycle or absurdly deep tree from blowing the
+ * Node call stack. 64 levels is far beyond any realistic profile
+ * tree (which tops out around 6 levels: `projects/<repo>/sessions/<uid>/x.jsonl`).
+ */
+const COPY_TREE_MAX_DEPTH = 64;
+
+/**
+ * Result of a tree-copy operation. `truncated` flags when the walk
+ * hit the depth cap or an unreadable subtree — callers use it to
+ * refuse the post-merge destructive step (a partial backup must
+ * never authorise rmSync).
+ */
+interface CopyTreeResult {
+  /** Number of files (or symlinks) copied. */
+  copied: number;
+  /** True when at least one entry was skipped because of depth/read errors. */
+  truncated: boolean;
+}
+
+/**
  * Recursively copy a directory tree (or single file) into `dest`. Used by
- * the share-topology heal pass to (a) back up colliding entries before
- * merge and (b) merge real data into the master target with
- * "master-wins" semantics (the source value never overwrites an existing
- * destination file — equivalent to `rsync --ignore-existing`).
+ * the share-topology heal pass to merge real data into the master target
+ * with "master-wins" semantics (the source value never overwrites an
+ * existing destination file — equivalent to `rsync --ignore-existing`).
  *
  * Symlinks are recreated verbatim so a share-of-a-share collision can't
  * accidentally walk into the master's tree and duplicate everything.
- *
- * Returns the number of files copied so callers can log a digest.
  */
-function copyTreeIgnoreExisting(src: string, dest: string): number {
-  let copied = 0;
-  const visit = (s: string, d: string): void => {
+function copyTreeIgnoreExisting(src: string, dest: string): CopyTreeResult {
+  const result: CopyTreeResult = { copied: 0, truncated: false };
+  const visit = (s: string, d: string, depth: number): void => {
+    if (depth > COPY_TREE_MAX_DEPTH) { result.truncated = true; return; }
     let stat: fs.Stats;
-    try { stat = fs.lstatSync(s); } catch { return; }
+    try { stat = fs.lstatSync(s); } catch { result.truncated = true; return; }
     if (stat.isSymbolicLink()) {
       if (fs.existsSync(d) || isLstatSymlink(d)) return;
       try {
         const target = fs.readlinkSync(s);
         fs.symlinkSync(target, d);
-        copied++;
-      } catch { /* skip — best-effort */ }
+        result.copied++;
+      } catch { result.truncated = true; }
       return;
     }
     if (stat.isDirectory()) {
       if (!fs.existsSync(d)) {
         try { fs.mkdirSync(d, { recursive: true, mode: stat.mode & 0o777 }); }
-        catch { return; }
+        catch { result.truncated = true; return; }
       }
       let entries: string[];
-      try { entries = fs.readdirSync(s); } catch { return; }
+      try { entries = fs.readdirSync(s); } catch { result.truncated = true; return; }
       for (const name of entries) {
-        visit(path.join(s, name), path.join(d, name));
+        visit(path.join(s, name), path.join(d, name), depth + 1);
       }
       return;
     }
@@ -186,12 +205,12 @@ function copyTreeIgnoreExisting(src: string, dest: string): number {
       try {
         fs.copyFileSync(s, d);
         try { fs.chmodSync(d, stat.mode & 0o777); } catch { /* ignore */ }
-        copied++;
-      } catch { /* skip — best-effort */ }
+        result.copied++;
+      } catch { result.truncated = true; }
     }
   };
-  visit(src, dest);
-  return copied;
+  visit(src, dest, 0);
+  return result;
 }
 
 /**
@@ -199,30 +218,35 @@ function copyTreeIgnoreExisting(src: string, dest: string): number {
  * overwriting any pre-existing files. Used to make a complete
  * pre-merge backup of a colliding profile entry so that a botched
  * merge never destroys data the user can't recover.
+ *
+ * The caller MUST inspect `truncated` before treating the backup as
+ * complete. A truncated backup is NOT a green light to delete the
+ * source — see healOneCollision() for the verification step.
  */
-function copyTreeOverwrite(src: string, dest: string): number {
-  let copied = 0;
-  const visit = (s: string, d: string): void => {
+function copyTreeOverwrite(src: string, dest: string): CopyTreeResult {
+  const result: CopyTreeResult = { copied: 0, truncated: false };
+  const visit = (s: string, d: string, depth: number): void => {
+    if (depth > COPY_TREE_MAX_DEPTH) { result.truncated = true; return; }
     let stat: fs.Stats;
-    try { stat = fs.lstatSync(s); } catch { return; }
+    try { stat = fs.lstatSync(s); } catch { result.truncated = true; return; }
     if (stat.isSymbolicLink()) {
       try {
         const target = fs.readlinkSync(s);
         if (fs.existsSync(d) || isLstatSymlink(d)) fs.unlinkSync(d);
         fs.symlinkSync(target, d);
-        copied++;
-      } catch { /* skip — best-effort */ }
+        result.copied++;
+      } catch { result.truncated = true; }
       return;
     }
     if (stat.isDirectory()) {
       if (!fs.existsSync(d)) {
         try { fs.mkdirSync(d, { recursive: true, mode: stat.mode & 0o777 }); }
-        catch { return; }
+        catch { result.truncated = true; return; }
       }
       let entries: string[];
-      try { entries = fs.readdirSync(s); } catch { return; }
+      try { entries = fs.readdirSync(s); } catch { result.truncated = true; return; }
       for (const name of entries) {
-        visit(path.join(s, name), path.join(d, name));
+        visit(path.join(s, name), path.join(d, name), depth + 1);
       }
       return;
     }
@@ -231,12 +255,38 @@ function copyTreeOverwrite(src: string, dest: string): number {
         if (fs.existsSync(d)) fs.unlinkSync(d);
         fs.copyFileSync(s, d);
         try { fs.chmodSync(d, stat.mode & 0o777); } catch { /* ignore */ }
-        copied++;
-      } catch { /* skip — best-effort */ }
+        result.copied++;
+      } catch { result.truncated = true; }
     }
   };
-  visit(src, dest);
-  return copied;
+  visit(src, dest, 0);
+  return result;
+}
+
+/**
+ * Count source files in a tree, bounded by the same depth cap as
+ * copyTree*. Used by healOneCollision to verify that the backup is
+ * complete BEFORE we delete the source. A backup that copied fewer
+ * files than the source contains is NOT safe to authorise rmSync.
+ */
+function countTreeFiles(src: string): { count: number; truncated: boolean } {
+  let count = 0;
+  let truncated = false;
+  const visit = (p: string, depth: number): void => {
+    if (depth > COPY_TREE_MAX_DEPTH) { truncated = true; return; }
+    let stat: fs.Stats;
+    try { stat = fs.lstatSync(p); } catch { truncated = true; return; }
+    if (stat.isSymbolicLink()) { count++; return; }
+    if (stat.isDirectory()) {
+      let entries: string[];
+      try { entries = fs.readdirSync(p); } catch { truncated = true; return; }
+      for (const name of entries) visit(path.join(p, name), depth + 1);
+      return;
+    }
+    if (stat.isFile()) count++;
+  };
+  visit(src, 0);
+  return { count, truncated };
 }
 
 export class ConfigManager {
@@ -823,9 +873,23 @@ export class ConfigManager {
 
   /**
    * Resolve one collision discovered by healShareTopology. Walks the
-   * complete safety cycle: backup → master-wins merge → remove real
-   * entry → create symlink → log. Returns an outcome record so the
-   * caller can include it in the heal digest.
+   * complete safety cycle:
+   *
+   *   1. Acquire an O_EXCL per-linkPath lock so two concurrent
+   *      `sweech use` / postinstall invocations can't race on the same
+   *      heal. If the lock already exists we skip — assume the holder
+   *      is mid-heal and let the next pass pick up any drift.
+   *   2. Pre-merge backup. Capture EVERY file before any destruction.
+   *   3. **Verify** the backup is complete: file count matches the
+   *      source, no truncation flag, lstats still match. If anything is
+   *      off, ABORT before destruction — better an unhealed profile
+   *      than lost data.
+   *   4. Merge into master (master-wins).
+   *   5. Remove the real entry, then create the symlink.
+   *   6. Log the digest to lifecycle.jsonl.
+   *
+   * Steps 2 + 3 are the load-bearing safety invariants: rmSync only
+   * runs when we know we have a complete recoverable copy.
    */
   private healOneCollision(
     commandName: string,
@@ -834,105 +898,188 @@ export class ConfigManager {
     target: string,
     healTimestamp: string,
   ): { ok: true; backupPath: string; merged: number } | { ok: false; reason: string } {
-    // 1. Pre-merge backup. ALWAYS the first step — if anything below
-    //    fails we still have a complete copy of the user's data.
-    const backupRoot = path.join(this.backupsDir, 'share-heal', healTimestamp, commandName);
-    const backupPath = path.join(backupRoot, name);
+    // 1. O_EXCL lock. Per-linkPath so independent profiles can heal in
+    //    parallel. Lock lives under .sweech/share-heal-locks/ — a hash
+    //    of linkPath keeps the filename safe regardless of the path
+    //    we're protecting.
+    const lockDir = path.join(this.configDir, 'share-heal-locks');
+    try { fs.mkdirSync(lockDir, { recursive: true, mode: 0o700 }); }
+    catch { /* fall through — lock creation will fail and we skip */ }
+    const crypto = require('crypto');
+    const lockName = crypto.createHash('sha256').update(linkPath).digest('hex').slice(0, 16) + '.lock';
+    const lockPath = path.join(lockDir, lockName);
+    let lockFd: number | null = null;
     try {
-      fs.mkdirSync(backupRoot, { recursive: true, mode: 0o700 });
+      lockFd = fs.openSync(lockPath, 'wx');
+      fs.writeSync(lockFd, JSON.stringify({
+        pid: process.pid,
+        linkPath,
+        acquiredAt: new Date().toISOString(),
+      }));
     } catch {
-      return { ok: false, reason: 'backup-mkdir-failed' };
+      // Another process holds the lock. Treat as "someone else is
+      // healing this entry"; bail out rather than risk a double-heal.
+      return { ok: false, reason: 'lock-contended' };
     }
 
-    let stat: fs.Stats;
-    try { stat = fs.lstatSync(linkPath); }
-    catch { return { ok: false, reason: 'lstat-failed' }; }
+    const releaseLock = (): void => {
+      try { if (lockFd !== null) fs.closeSync(lockFd); } catch { /* ignore */ }
+      try { fs.unlinkSync(lockPath); } catch { /* ignore */ }
+    };
 
-    let backedUp = 0;
     try {
+      // 2. Re-stat AFTER taking the lock — another process may have
+      //    finished a heal between our caller's check and our lock
+      //    acquisition.
+      let stat: fs.Stats;
+      try { stat = fs.lstatSync(linkPath); }
+      catch { return { ok: false, reason: 'lstat-failed' }; }
+
+      // Already healed by another process? Treat as no-op success.
       if (stat.isSymbolicLink()) {
-        // Wrong-target symlink — record the link itself, not its content.
         try {
-          const wrongTarget = fs.readlinkSync(linkPath);
-          fs.symlinkSync(wrongTarget, backupPath);
-          backedUp = 1;
-        } catch {
-          return { ok: false, reason: 'symlink-backup-failed' };
+          if (fs.readlinkSync(linkPath) === target) {
+            return { ok: false, reason: 'already-correct-post-lock' };
+          }
+        } catch { /* fall through */ }
+      }
+
+      // 3. Pre-merge backup.
+      const backupRoot = path.join(this.backupsDir, 'share-heal', healTimestamp, commandName);
+      const backupPath = path.join(backupRoot, name);
+      try {
+        fs.mkdirSync(backupRoot, { recursive: true, mode: 0o700 });
+      } catch {
+        return { ok: false, reason: 'backup-mkdir-failed' };
+      }
+
+      let backedUp = 0;
+      let truncated = false;
+      let sourceFileCount = 0;
+      try {
+        if (stat.isSymbolicLink()) {
+          // Wrong-target symlink — record the link itself, not its content.
+          try {
+            const wrongTarget = fs.readlinkSync(linkPath);
+            fs.symlinkSync(wrongTarget, backupPath);
+            backedUp = 1;
+            sourceFileCount = 1;
+          } catch {
+            return { ok: false, reason: 'symlink-backup-failed' };
+          }
+        } else {
+          const result = copyTreeOverwrite(linkPath, backupPath);
+          backedUp = result.copied;
+          truncated = result.truncated;
+          const counted = countTreeFiles(linkPath);
+          sourceFileCount = counted.count;
+          if (counted.truncated) truncated = true;
         }
-      } else {
-        backedUp = copyTreeOverwrite(linkPath, backupPath);
+      } catch {
+        return { ok: false, reason: 'backup-failed' };
       }
-    } catch {
-      return { ok: false, reason: 'backup-failed' };
-    }
 
-    // 2. Merge into master (master-wins). Skip for wrong-target symlinks
-    //    — there's no real data to merge, the symlink is just stale.
-    let merged = 0;
-    try {
-      if (!stat.isSymbolicLink()) {
-        merged = copyTreeIgnoreExisting(linkPath, target);
+      // 4. **Verify backup before destruction.** This is the invariant
+      //    that the prior version of this function violated: a backup
+      //    that silently copied 0 files (EACCES, depth-cap hit, etc.)
+      //    would still authorise rmSync. Now: if anything is off, we
+      //    abort and leave the user's data in place.
+      if (truncated || backedUp < sourceFileCount) {
+        this.logLifecycle({
+          event: 'share_heal.backup_incomplete_aborting',
+          profile: commandName,
+          name,
+          target,
+          backupPath,
+          sourceFileCount,
+          filesBackedUp: backedUp,
+          truncated,
+        });
+        return { ok: false, reason: 'backup-incomplete-aborted' };
       }
-    } catch {
+
+      // 5. Merge into master (master-wins). Skip for wrong-target
+      //    symlinks — there's no real data to merge.
+      let merged = 0;
+      let mergeTruncated = false;
+      try {
+        if (!stat.isSymbolicLink()) {
+          const m = copyTreeIgnoreExisting(linkPath, target);
+          merged = m.copied;
+          mergeTruncated = m.truncated;
+        }
+      } catch {
+        this.logLifecycle({
+          event: 'share_heal.merge_failed',
+          profile: commandName,
+          name,
+          target,
+          backupPath,
+        });
+        return { ok: false, reason: 'merge-failed-backup-preserved' };
+      }
+      if (mergeTruncated) {
+        this.logLifecycle({
+          event: 'share_heal.merge_partial_aborting',
+          profile: commandName,
+          name,
+          target,
+          backupPath,
+          filesMergedToMaster: merged,
+        });
+        return { ok: false, reason: 'merge-partial-backup-preserved' };
+      }
+
+      // 6. Remove real entry. Safe to do — backup is verified AND
+      //    contents have been fully merged into master.
+      try {
+        if (stat.isSymbolicLink() || stat.isFile()) {
+          fs.unlinkSync(linkPath);
+        } else if (stat.isDirectory()) {
+          fs.rmSync(linkPath, { recursive: true, force: true });
+        }
+      } catch {
+        this.logLifecycle({
+          event: 'share_heal.unlink_failed',
+          profile: commandName,
+          name,
+          target,
+          backupPath,
+        });
+        return { ok: false, reason: 'unlink-failed-backup-preserved' };
+      }
+
+      // 7. Create symlink.
+      try {
+        fs.symlinkSync(target, linkPath);
+      } catch (err) {
+        this.logLifecycle({
+          event: 'share_heal.symlink_failed_after_merge',
+          profile: commandName,
+          name,
+          target,
+          backupPath,
+          error: (err as Error).message ?? 'unknown',
+        });
+        return { ok: false, reason: 'symlink-failed-data-merged' };
+      }
+
+      // 8. Log success digest.
       this.logLifecycle({
-        event: 'share_heal.merge_failed',
+        event: 'share_heal.collision_resolved',
         profile: commandName,
         name,
         target,
         backupPath,
+        filesBackedUp: backedUp,
+        filesMergedToMaster: merged,
+        collisionType: stat.isSymbolicLink() ? 'wrong-target-symlink' : stat.isDirectory() ? 'real-directory' : 'real-file',
       });
-      return { ok: false, reason: 'merge-failed-backup-preserved' };
+
+      return { ok: true, backupPath, merged };
+    } finally {
+      releaseLock();
     }
-
-    // 3. Remove real entry. Safe to do — we have the backup AND the
-    //    contents have been merged into master.
-    try {
-      if (stat.isSymbolicLink() || stat.isFile()) {
-        fs.unlinkSync(linkPath);
-      } else if (stat.isDirectory()) {
-        fs.rmSync(linkPath, { recursive: true, force: true });
-      }
-    } catch {
-      this.logLifecycle({
-        event: 'share_heal.unlink_failed',
-        profile: commandName,
-        name,
-        target,
-        backupPath,
-      });
-      return { ok: false, reason: 'unlink-failed-backup-preserved' };
-    }
-
-    // 4. Create symlink.
-    try {
-      fs.symlinkSync(target, linkPath);
-    } catch (err) {
-      this.logLifecycle({
-        event: 'share_heal.symlink_failed_after_merge',
-        profile: commandName,
-        name,
-        target,
-        backupPath,
-        error: (err as Error).message ?? 'unknown',
-      });
-      return { ok: false, reason: 'symlink-failed-data-merged' };
-    }
-
-    // 5. Log success digest. Records every action so the user can audit
-    //    `tail -f ~/.sweech/logs/lifecycle.jsonl` to see exactly what
-    //    sweech did to their data.
-    this.logLifecycle({
-      event: 'share_heal.collision_resolved',
-      profile: commandName,
-      name,
-      target,
-      backupPath,
-      filesBackedUp: backedUp,
-      filesMergedToMaster: merged,
-      collisionType: stat.isSymbolicLink() ? 'wrong-target-symlink' : stat.isDirectory() ? 'real-directory' : 'real-file',
-    });
-
-    return { ok: true, backupPath, merged };
   }
 
   /**

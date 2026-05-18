@@ -320,7 +320,18 @@ export async function runPostinstallHeal(): Promise<void> {
 export async function runHeal(opts: { dryRun?: boolean; json?: boolean } = {}): Promise<void> {
   const dryRun = !!opts.dryRun;
   const json = !!opts.json;
-  const config = new ConfigManager();
+  // Suppress the constructor's auto-heal pass — for --dry-run it MUST
+  // be skipped (the constructor pass mutates state), and for the real
+  // run we want runHeal to be the single authoritative caller so the
+  // returned digest is complete.
+  const prior = ConfigManager.disableConstructorHeal;
+  ConfigManager.disableConstructorHeal = true;
+  let config: ConfigManager;
+  try {
+    config = new ConfigManager();
+  } finally {
+    ConfigManager.disableConstructorHeal = prior;
+  }
   const profiles = config.getProfiles();
 
   // Pass 1: snapshot-driven heal (covers removed+recreated profiles).
@@ -365,7 +376,7 @@ export async function runHeal(opts: { dryRun?: boolean; json?: boolean } = {}): 
     return;
   }
 
-  console.log(chalk.bold(`\n🔧 Sweetch Share-Topology Heal ${dryRun ? '(dry-run)' : ''}\n`));
+  console.log(chalk.bold(`\n🔧 Sweech Share-Topology Heal ${dryRun ? '(dry-run)' : ''}\n`));
 
   const totalCreated = snapResult.linksCreated.length;
   const totalHealed = snapResult.collisionsHealed.length;

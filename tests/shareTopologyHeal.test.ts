@@ -255,6 +255,40 @@ describe('healShareTopology', () => {
     expect(result.profilesScanned).toBe(0);
   });
 
+  test('aborts WITHOUT destruction when the backup dir cannot be created', () => {
+    const home = isolateHome();
+    const cfg = new ConfigManager();
+    const masterDir = path.join(home, '.claude');
+    fs.mkdirSync(path.join(masterDir, 'projects'), { recursive: true });
+    fs.writeFileSync(path.join(masterDir, 'projects', 'master.jsonl'), 'M\n');
+
+    fs.writeFileSync(
+      path.join(cfg.getShareSnapshotsDir(), 'test-backup-blocked.json'),
+      JSON.stringify({
+        schemaVersion: 1,
+        commandName: 'test-backup-blocked',
+        links: { projects: path.join(masterDir, 'projects') },
+      }),
+    );
+
+    const profileDir = path.join(home, '.test-backup-blocked');
+    const realProjects = path.join(profileDir, 'projects');
+    fs.mkdirSync(realProjects, { recursive: true });
+    fs.writeFileSync(path.join(realProjects, 'precious.jsonl'), 'IRREPLACEABLE\n');
+
+    // Force backup-mkdir to fail by making backupsDir/share-heal/ a FILE
+    // instead of a dir. healOneCollision must refuse to destroy.
+    const backupBlocker = path.join(cfg.getBackupsDir(), 'share-heal');
+    fs.writeFileSync(backupBlocker, 'this is not a directory');
+
+    const result = cfg.healShareTopology();
+
+    // Heal must have aborted — the precious data must still be on disk.
+    expect(fs.existsSync(path.join(realProjects, 'precious.jsonl'))).toBe(true);
+    expect(result.collisionsHealed).toHaveLength(0);
+    expect(result.collisionsSkipped.length).toBeGreaterThan(0);
+  });
+
   test('skips link targets outside homedir', () => {
     const home = isolateHome();
     const cfg = new ConfigManager();
