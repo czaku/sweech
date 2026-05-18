@@ -38,3 +38,5 @@ macos-menubar/*.app/
 macos-menubar/SweechBar/.swiftpm/
 macos-menubar/SweechBar/SweechBar.xcodeproj/project.xcworkspace/xcuserdata/
 .claude/scheduled_tasks.lock
+.playwright-mcp/
+old-dashboard.png
