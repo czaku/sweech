@@ -1,0 +1,34 @@
+{
+  "id": "T-DASH-022",
+  "title": "gemini-cli cliType support",
+  "wave": "wave-7",
+  "space": "space-cli",
+  "status": "todo",
+  "priority": "medium",
+  "platform": null,
+  "assignee": null,
+  "description": "Register gemini. OAuth via gemini auth login fallback to GEMINI_API_KEY. XDG isolation. Reference: /Users/luke/dev/sweech/packages/engine/runner/gemini.ts.",
+  "createdAt": "2026-05-18T11:00:00Z",
+  "updatedAt": "2026-05-18T11:00:00Z",
+  "product": null,
+  "lane": null,
+  "stage": null,
+  "stageHistory": [],
+  "recurring": null,
+  "attachments": [],
+  "validationOverrides": null,
+  "executionMode": null,
+  "statusHistory": [],
+  "dependsOn": [
+    "T-DASH-021"
+  ],
+  "runStatus": null,
+  "size": "S",
+  "context": [
+    {
+      "at": "2026-05-18T11:00:00Z",
+      "by": "luke",
+      "text": "Filed via /vy-backlog 2026-05-18. Spec: docs/specs/dashboard-2026-05-18.md, backlog: docs/specs/dashboard-2026-05-18-backlog.md"
+    }
+  ]
+}

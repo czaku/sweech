@@ -1,0 +1,36 @@
+{
+  "id": "T-DASH-036",
+  "title": "Briefing & summary AI cost \u2014 distinct line items in cost panel",
+  "wave": "wave-7",
+  "space": "space-cli",
+  "status": "todo",
+  "priority": "medium",
+  "platform": null,
+  "assignee": null,
+  "description": "Aggregate sessions.db summary_cost_usd \u2192 cost.summaries_today_usd + cost.briefings_today_usd. Cost panel breaks down: CLI usage vs summaries vs briefings as three rows with sparklines. Settings: per-summary + per-day caps default uncapped. Cap hit \u2192 fall back to local-only (ollama).",
+  "createdAt": "2026-05-18T11:00:00Z",
+  "updatedAt": "2026-05-18T11:00:00Z",
+  "product": null,
+  "lane": null,
+  "stage": null,
+  "stageHistory": [],
+  "recurring": null,
+  "attachments": [],
+  "validationOverrides": null,
+  "executionMode": null,
+  "statusHistory": [],
+  "dependsOn": [
+    "T-DASH-008",
+    "T-DASH-019",
+    "T-DASH-020"
+  ],
+  "runStatus": null,
+  "size": "S",
+  "context": [
+    {
+      "at": "2026-05-18T11:00:00Z",
+      "by": "luke",
+      "text": "Filed via /vy-backlog 2026-05-18. Spec: docs/specs/dashboard-2026-05-18.md, backlog: docs/specs/dashboard-2026-05-18-backlog.md"
+    }
+  ]
+}

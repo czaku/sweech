@@ -1,0 +1,34 @@
+{
+  "id": "T-DASH-017",
+  "title": "Codex adversarial review of full dashboard diff",
+  "wave": "wave-7",
+  "space": "space-cli",
+  "status": "todo",
+  "priority": "critical",
+  "platform": null,
+  "assignee": null,
+  "description": "Launch codex with fresh-context adversarial reviewer prompt. Focus: race conditions in sessions.db, SSE memory leaks, federation HMAC handling, terminalLauncher shell injection, summary prompt injection. Fix all critical + major findings before ship.",
+  "createdAt": "2026-05-18T11:00:00Z",
+  "updatedAt": "2026-05-18T11:00:00Z",
+  "product": null,
+  "lane": null,
+  "stage": null,
+  "stageHistory": [],
+  "recurring": null,
+  "attachments": [],
+  "validationOverrides": null,
+  "executionMode": null,
+  "statusHistory": [],
+  "dependsOn": [
+    "T-DASH-016"
+  ],
+  "runStatus": null,
+  "size": "S",
+  "context": [
+    {
+      "at": "2026-05-18T11:00:00Z",
+      "by": "luke",
+      "text": "Filed via /vy-backlog 2026-05-18. Spec: docs/specs/dashboard-2026-05-18.md, backlog: docs/specs/dashboard-2026-05-18-backlog.md"
+    }
+  ]
+}

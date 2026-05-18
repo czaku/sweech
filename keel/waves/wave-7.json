@@ -1,0 +1,7 @@
+{
+  "id": "wave-7",
+  "name": "Web dashboard \u2014 single-page control panel, federation, AI tile summaries, balance routing, CLI roster expansion",
+  "description": "Comprehensive sweech v0.4.0 push: single-page React dashboard built on @vykeai/vysual-react (sweech theme), live session tracking via tmux + sessions.db, crash recovery, mDNS federation, AI-summarized tiles, daily briefing via cute-hud, subscription balance with cloud/metered/free classification, 4 new CLIs (opencode/gemini/goose/jcode), and full migration runner. See docs/specs/dashboard-2026-05-18.md + dashboard-2026-05-18-backlog.md.",
+  "status": "todo",
+  "createdAt": "2026-05-18T11:00:00Z"
+}

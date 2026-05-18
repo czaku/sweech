@@ -1,0 +1,34 @@
+{
+  "id": "T-DASH-027",
+  "title": "cute-hud notification integration for daily briefing",
+  "wave": "wave-7",
+  "space": "space-cli",
+  "status": "todo",
+  "priority": "medium",
+  "platform": null,
+  "assignee": null,
+  "description": "Detect cute-hud install. JSON-line stdin protocol per vykeai/cute-hud README. Map briefing severities \u2192 cute-hud modes. Settings: briefing.skipDuringFocus default true. Fallback to osascript display notification when cute-hud missing.",
+  "createdAt": "2026-05-18T11:00:00Z",
+  "updatedAt": "2026-05-18T11:00:00Z",
+  "product": null,
+  "lane": null,
+  "stage": null,
+  "stageHistory": [],
+  "recurring": null,
+  "attachments": [],
+  "validationOverrides": null,
+  "executionMode": null,
+  "statusHistory": [],
+  "dependsOn": [
+    "T-DASH-020"
+  ],
+  "runStatus": null,
+  "size": "S",
+  "context": [
+    {
+      "at": "2026-05-18T11:00:00Z",
+      "by": "luke",
+      "text": "Filed via /vy-backlog 2026-05-18. Spec: docs/specs/dashboard-2026-05-18.md, backlog: docs/specs/dashboard-2026-05-18-backlog.md"
+    }
+  ]
+}

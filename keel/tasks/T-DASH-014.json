@@ -1,0 +1,36 @@
+{
+  "id": "T-DASH-014",
+  "title": "Federation panel + Settings drawer + Setup wizard",
+  "wave": "wave-7",
+  "space": "space-cli",
+  "status": "todo",
+  "priority": "high",
+  "platform": null,
+  "assignee": null,
+  "description": "Federation: peer cards, last-seen, capabilities. Settings drawer (Q1): sections General/tmux/Terminal/Summaries/Federation/Retention/Refresh. Setup wizard: multi-step modal for first-launch (Q4).",
+  "createdAt": "2026-05-18T11:00:00Z",
+  "updatedAt": "2026-05-18T11:00:00Z",
+  "product": null,
+  "lane": null,
+  "stage": null,
+  "stageHistory": [],
+  "recurring": null,
+  "attachments": [],
+  "validationOverrides": null,
+  "executionMode": null,
+  "statusHistory": [],
+  "dependsOn": [
+    "T-DASH-001",
+    "T-DASH-005",
+    "T-DASH-009"
+  ],
+  "runStatus": null,
+  "size": "M",
+  "context": [
+    {
+      "at": "2026-05-18T11:00:00Z",
+      "by": "luke",
+      "text": "Filed via /vy-backlog 2026-05-18. Spec: docs/specs/dashboard-2026-05-18.md, backlog: docs/specs/dashboard-2026-05-18-backlog.md"
+    }
+  ]
+}

@@ -1,0 +1,34 @@
+{
+  "id": "T-DASH-024",
+  "title": "jcode cliType support",
+  "wave": "wave-7",
+  "space": "space-cli",
+  "status": "todo",
+  "priority": "medium",
+  "platform": null,
+  "assignee": null,
+  "description": "Register jcode (1jehuang/jcode, performance-optimized agent harness). homebrew tap install. Multi-session aware via --session. XDG isolation. Reference: gh repo view 1jehuang/jcode.",
+  "createdAt": "2026-05-18T11:00:00Z",
+  "updatedAt": "2026-05-18T11:00:00Z",
+  "product": null,
+  "lane": null,
+  "stage": null,
+  "stageHistory": [],
+  "recurring": null,
+  "attachments": [],
+  "validationOverrides": null,
+  "executionMode": null,
+  "statusHistory": [],
+  "dependsOn": [
+    "T-DASH-021"
+  ],
+  "runStatus": null,
+  "size": "S",
+  "context": [
+    {
+      "at": "2026-05-18T11:00:00Z",
+      "by": "luke",
+      "text": "Filed via /vy-backlog 2026-05-18. Spec: docs/specs/dashboard-2026-05-18.md, backlog: docs/specs/dashboard-2026-05-18-backlog.md"
+    }
+  ]
+}

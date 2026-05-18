@@ -1,0 +1,36 @@
+{
+  "id": "T-DASH-010",
+  "title": "Sessions panel \u2014 flagship tile grid",
+  "wave": "wave-7",
+  "space": "space-cli",
+  "status": "todo",
+  "priority": "critical",
+  "platform": null,
+  "assignee": null,
+  "description": "Full sessions grid: filters (machine/status/workspace/search), sort (last-active default). Tile per spec mockup: status dot, \u2605 local, machine pill, workspace, cwd, AI summary, recent activities, msg count, sparkline, timestamps, tmux name, pid+tty (Q3), viewer count badge (Q5), [\u2197 jump]. Empty state with setup wizard CTA. 10+ component tests.",
+  "createdAt": "2026-05-18T11:00:00Z",
+  "updatedAt": "2026-05-18T11:00:00Z",
+  "product": null,
+  "lane": null,
+  "stage": null,
+  "stageHistory": [],
+  "recurring": null,
+  "attachments": [],
+  "validationOverrides": null,
+  "executionMode": null,
+  "statusHistory": [],
+  "dependsOn": [
+    "T-DASH-001",
+    "T-DASH-005",
+    "T-DASH-008"
+  ],
+  "runStatus": null,
+  "size": "L",
+  "context": [
+    {
+      "at": "2026-05-18T11:00:00Z",
+      "by": "luke",
+      "text": "Filed via /vy-backlog 2026-05-18. Spec: docs/specs/dashboard-2026-05-18.md, backlog: docs/specs/dashboard-2026-05-18-backlog.md"
+    }
+  ]
+}

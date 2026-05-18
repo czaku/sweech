@@ -1,0 +1,35 @@
+{
+  "id": "T-DASH-018",
+  "title": "Ship 0.4.0",
+  "wave": "wave-7",
+  "space": "space-cli",
+  "status": "todo",
+  "priority": "critical",
+  "platform": null,
+  "assignee": null,
+  "description": "Bump package.json to 0.4.0. Run npm test, npm run build, commit, push. Verify sweech dashboard works end-to-end. Manual: real cross-machine restore.",
+  "createdAt": "2026-05-18T11:00:00Z",
+  "updatedAt": "2026-05-18T11:00:00Z",
+  "product": null,
+  "lane": null,
+  "stage": null,
+  "stageHistory": [],
+  "recurring": null,
+  "attachments": [],
+  "validationOverrides": null,
+  "executionMode": null,
+  "statusHistory": [],
+  "dependsOn": [
+    "T-DASH-017",
+    "T-DASH-034"
+  ],
+  "runStatus": null,
+  "size": "S",
+  "context": [
+    {
+      "at": "2026-05-18T11:00:00Z",
+      "by": "luke",
+      "text": "Filed via /vy-backlog 2026-05-18. Spec: docs/specs/dashboard-2026-05-18.md, backlog: docs/specs/dashboard-2026-05-18-backlog.md"
+    }
+  ]
+}

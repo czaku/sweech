@@ -1,0 +1,35 @@
+{
+  "id": "T-DASH-006",
+  "title": "Wrapper writes sessions.db + tmux-wraps",
+  "wave": "wave-7",
+  "space": "space-cli",
+  "status": "todo",
+  "priority": "critical",
+  "platform": null,
+  "assignee": null,
+  "description": "Wrapper inserts sessions.db row on launch (sid from claude jsonl). tmux new -d -s <name> when enabled. Bash pre-check creates row if missing. Hidden _session-launched / _session-closed CLI subcommands.",
+  "createdAt": "2026-05-18T11:00:00Z",
+  "updatedAt": "2026-05-18T11:00:00Z",
+  "product": null,
+  "lane": null,
+  "stage": null,
+  "stageHistory": [],
+  "recurring": null,
+  "attachments": [],
+  "validationOverrides": null,
+  "executionMode": null,
+  "statusHistory": [],
+  "dependsOn": [
+    "T-DASH-002",
+    "T-DASH-004"
+  ],
+  "runStatus": null,
+  "size": "M",
+  "context": [
+    {
+      "at": "2026-05-18T11:00:00Z",
+      "by": "luke",
+      "text": "Filed via /vy-backlog 2026-05-18. Spec: docs/specs/dashboard-2026-05-18.md, backlog: docs/specs/dashboard-2026-05-18-backlog.md"
+    }
+  ]
+}

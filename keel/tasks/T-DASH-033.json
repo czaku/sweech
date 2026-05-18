@@ -1,0 +1,34 @@
+{
+  "id": "T-DASH-033",
+  "title": "Orphan claude-process audit + reaper",
+  "wave": "wave-7",
+  "space": "space-cli",
+  "status": "todo",
+  "priority": "medium",
+  "platform": null,
+  "assignee": null,
+  "description": "New AuditKind: orphan_process. Finds claude/codex/kimi processes whose tty has no live login session. Real incident 2026-05-18: pids 36240/84125/54521/86041/86047 alive on closed ttys. Dashboard one-click [kill] (confirmation gated). CLI: sweech audit orphans [--kill --yes]. tcgetpgrp foreground-group check to never kill active sessions.",
+  "createdAt": "2026-05-18T11:00:00Z",
+  "updatedAt": "2026-05-18T11:00:00Z",
+  "product": null,
+  "lane": null,
+  "stage": null,
+  "stageHistory": [],
+  "recurring": null,
+  "attachments": [],
+  "validationOverrides": null,
+  "executionMode": null,
+  "statusHistory": [],
+  "dependsOn": [
+    "T-DASH-002"
+  ],
+  "runStatus": null,
+  "size": "M",
+  "context": [
+    {
+      "at": "2026-05-18T11:00:00Z",
+      "by": "luke",
+      "text": "Filed via /vy-backlog 2026-05-18. Spec: docs/specs/dashboard-2026-05-18.md, backlog: docs/specs/dashboard-2026-05-18-backlog.md"
+    }
+  ]
+}

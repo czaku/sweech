@@ -1,0 +1,36 @@
+{
+  "id": "T-DASH-019",
+  "title": "Subscription balance \u2014 provider-based (panel + routing + CLI)",
+  "wave": "wave-7",
+  "space": "space-cli",
+  "status": "todo",
+  "priority": "high",
+  "platform": null,
+  "assignee": null,
+  "description": "Key = <provider>:<accountId>. Per-sub targetUtilization + window. Compute gap from rate-limit-cache + history + billing.json. Workspaces map to subs via profile.provider + account. sweech auto --balance weights candidates by gap. sweech balance show/set/suggest/hint. Panel per spec mockup.",
+  "createdAt": "2026-05-18T11:00:00Z",
+  "updatedAt": "2026-05-18T11:00:00Z",
+  "product": null,
+  "lane": null,
+  "stage": null,
+  "stageHistory": [],
+  "recurring": null,
+  "attachments": [],
+  "validationOverrides": null,
+  "executionMode": null,
+  "statusHistory": [],
+  "dependsOn": [
+    "T-DASH-001",
+    "T-DASH-005",
+    "T-DASH-025"
+  ],
+  "runStatus": null,
+  "size": "M",
+  "context": [
+    {
+      "at": "2026-05-18T11:00:00Z",
+      "by": "luke",
+      "text": "Filed via /vy-backlog 2026-05-18. Spec: docs/specs/dashboard-2026-05-18.md, backlog: docs/specs/dashboard-2026-05-18-backlog.md"
+    }
+  ]
+}

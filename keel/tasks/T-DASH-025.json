@@ -1,0 +1,32 @@
+{
+  "id": "T-DASH-025",
+  "title": "ProviderConfig pricingModel + usageProxy.ts (cloud/metered/free)",
+  "wave": "wave-7",
+  "space": "space-cli",
+  "status": "todo",
+  "priority": "high",
+  "platform": null,
+  "assignee": null,
+  "description": "Add pricingModel: 'paid'|'free'|'metered' to ProviderConfig. Annotate every entry: anthropic/openai/kimi/glm/minimax/dashscope/openrouter/ollama-cloud/kimi-coding \u2192 paid; groq/deepseek/gemini/nvidia \u2192 metered; ollama-local + custom-with-localhost \u2192 free. Auto-classifier for user-created customs. usageProxy.ts: Tier 2 cost-from-tokens + Tier 3 launch-count fallback.",
+  "createdAt": "2026-05-18T11:00:00Z",
+  "updatedAt": "2026-05-18T11:00:00Z",
+  "product": null,
+  "lane": null,
+  "stage": null,
+  "stageHistory": [],
+  "recurring": null,
+  "attachments": [],
+  "validationOverrides": null,
+  "executionMode": null,
+  "statusHistory": [],
+  "dependsOn": [],
+  "runStatus": null,
+  "size": "M",
+  "context": [
+    {
+      "at": "2026-05-18T11:00:00Z",
+      "by": "luke",
+      "text": "Filed via /vy-backlog 2026-05-18. Spec: docs/specs/dashboard-2026-05-18.md, backlog: docs/specs/dashboard-2026-05-18-backlog.md"
+    }
+  ]
+}

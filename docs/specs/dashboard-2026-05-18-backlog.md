@@ -285,6 +285,77 @@ Backend `fetchedAt` infrastructure already landed in commit 1554355.
 - `sweech dash` registered as alias of `sweech dashboard`.
 - 5+ tests covering the toggle.
 
+### T-DASH-030 · Mascot — pick winner, package, integrate
+**Files:** `assets/mascot/<size>.png` + `mascot.svg`, edits to `apps/dashboard/src/components/HeroStrip.tsx`, SweechBar widget icon, CLI welcome banner.
+**Depends:** mascot research agent (results pending).
+**Tasks:**
+- Review 9 candidates produced by mascot agent; capture user pick via interactive prompt.
+- Resize selected winner into 16/32/64/128/512/1024 px PNG + SVG vector.
+- Wire into: dashboard hero, setup wizard, SweechBar tray icon variant, CLI banner.
+- Does NOT replace existing 🍭 emoji until user signs off.
+- 6+ tests: asset paths exist, sizes correct, integration smoke.
+
+### T-DASH-031 · SweechBar balance + briefing mirror
+**Files:** `macos-menubar/SweechBar/Sources/{BalanceView.swift,BriefingBadge.swift}` (new), edits to `VaultView.swift`.
+**Depends:** T-DASH-019, T-DASH-020.
+**Tasks:**
+- Popover gets a `Balance` section after Accounts showing ★★ underused subs with gap%.
+- Briefing badge dot on tray icon while undismissed; click → opens dashboard briefing deeplink.
+- Reads `~/.sweech/balance.json` + reuses FSEvents watcher from commit 0381685.
+- Does NOT block tray rendering on briefing computation (background queue).
+- 8+ SwiftUI preview tests for each state.
+
+### T-DASH-032 · sweech upgrade — migration runner for legacy installs
+**Files:** `src/cli.ts` (new `upgrade` command), `src/upgrade.ts` (new).
+**Depends:** T-DASH-002, T-DASH-006, T-DASH-025.
+**Tasks:**
+- `sweech upgrade` runs: `update-wrappers` + `healShareTopology` + sessions.db init + classify-providers + (optional) opens dashboard once.
+- Idempotent — second run is no-op.
+- Extend existing `_postinstall-heal` hidden command to also call upgrade silently on npm install.
+- Reports what changed; honours `--dry-run` and `--json`.
+- Does NOT touch user data — only managed artefacts.
+- 12+ tests covering each migration step.
+
+### T-DASH-033 · Orphan claude-process audit + reaper
+**Files:** `src/profileAudit.ts` (new `orphan_process` AuditKind), `src/cli.ts` (`audit orphans` subcommand).
+**Depends:** T-DASH-002 (sessions.db).
+**Tasks:**
+- New `AuditKind = 'orphan_process'` — finds claude/codex/kimi processes whose tty has no live login session (real incident in 2026-05-18 session: pids 36240/84125/54521/86041/86047 alive on closed ttys).
+- Dashboard audit panel surfaces with one-click `[kill]` action (confirmation gated).
+- CLI: `sweech audit orphans` + `sweech audit orphans --kill --yes` non-interactive.
+- Does NOT kill processes whose tty IS active (foreground-process-group check via `tcgetpgrp`).
+- 10+ tests covering detection + kill safety.
+
+### T-DASH-034 · README + CHANGELOG for 0.4.0
+**Files:** `README.md`, `CHANGELOG.md`.
+**Depends:** all panel + feature tasks complete.
+**Tasks:**
+- CHANGELOG 0.4.0 section: one line per shipped feature.
+- README updated: dashboard screenshot, new commands (`sweech dashboard`, `sweech dash`, `sweech balance`, `sweech briefing`, `sweech upgrade`, `sweech audit orphans`).
+- Migration note for 0.3.x users: "run `sweech upgrade` after install".
+- Mascot embedded in header.
+- Does NOT drop existing 0.3.x README sections still applicable.
+
+### T-DASH-035 · Codex active-profile-hang explicit warning
+**Files:** `src/liveUsage.ts` (`fetchCodexRateLimits`), edits to dashboard accounts panel + SweechBar.
+**Depends:** T-DASH-013, R13 staleness.
+**Tasks:**
+- When 5s timeout fires on the active codex profile, emit distinct `live.codex_hang` lifecycle event (not just generic isStale).
+- Dashboard accounts panel renders `⚠ codex app-server unresponsive · cache 13h old` chip in red, separate from generic staleness chip.
+- SweechBar mirrors with red border + tooltip.
+- Does NOT hide the underlying number — still shows stale value with caveat.
+- 8+ tests covering timeout detection + chip rendering.
+
+### T-DASH-036 · Briefing & summary AI cost — distinct line items in cost panel
+**Files:** edits to `src/sessionSummarizer.ts`, `src/briefing.ts`, dashboard `Cost.tsx` panel.
+**Depends:** T-DASH-008, T-DASH-019, T-DASH-020.
+**Tasks:**
+- Aggregate sessions.db `summary_cost_usd` → `cost.summaries_today_usd` + `cost.briefings_today_usd`.
+- Cost panel breaks down: `CLI usage` vs `summaries` vs `briefings` as three rows with sparklines.
+- Settings exposes per-summary + per-day caps (default uncapped per user decision).
+- Cap hit → warning + fall back to local-only (ollama); does NOT block summarisation.
+- 10+ tests covering aggregation + cap behaviour.
+
 ### T-DASH-025 · Cloud-vs-local provider classification
 **Files:** `src/providers.ts` (add `pricingModel` field on every entry), `src/usageProxy.ts` (new, Tier 2/3 estimators), `~/.sweech/balance-manual.json` (Tier 4 manual entries), tests.
 **Depends:** none — independent foundation for T-DASH-019.
@@ -358,32 +429,31 @@ PARALLEL Wave 2 (4 agents):
   ┣━ T-DASH-008 (sessionSummarizer)
   ┗━ T-DASH-009 (federation routes)
                 ↓ merge
-PARALLEL Wave 3 (17 agents):
-  ┣━ T-DASH-010 (Sessions panel)
-  ┣━ T-DASH-011 (Workspaces/Accounts/Cost)
-  ┣━ T-DASH-012 (Audit/Failover/Routing/Billing)
-  ┣━ T-DASH-013 (Doctor/Logs/Plugins/Templates)
-  ┣━ T-DASH-014 (Federation/Settings/Wizard)
-  ┣━ T-DASH-015 (Hero/Freshness/Viewer chips)
+PARALLEL Wave 3 (24 agents):
+  ┣━ T-DASH-010..015 (panels — 6 agents)
   ┣━ T-DASH-019 (Balance backend + panel)
   ┣━ T-DASH-020 (Daily briefing)
-  ┣━ T-DASH-021 (opencode cliType)
-  ┣━ T-DASH-022 (gemini-cli cliType)
-  ┣━ T-DASH-023 (goose cliType)
-  ┣━ T-DASH-024 (jcode cliType)
+  ┣━ T-DASH-021..024 (opencode/gemini/goose/jcode cliTypes — 4 agents)
   ┣━ T-DASH-025 (cloud-vs-local classification + usageProxy)
   ┣━ T-DASH-026 (sweech.local mDNS)
   ┣━ T-DASH-027 (cute-hud notification integration)
   ┣━ T-DASH-028 (cmd+K command palette)
-  ┗━ T-DASH-029 (sweech bare-invocation auto-open + sweech dash alias)
+  ┣━ T-DASH-029 (sweech bare-invocation auto-open + sweech dash alias)
+  ┣━ T-DASH-030 (mascot integration — pending agent result)
+  ┣━ T-DASH-031 (SweechBar balance + briefing mirror)
+  ┣━ T-DASH-032 (sweech upgrade migration runner)
+  ┣━ T-DASH-033 (orphan claude-process audit + reaper)
+  ┣━ T-DASH-035 (codex active-profile-hang warning)
+  ┗━ T-DASH-036 (briefing & summary cost line items)
                 ↓ merge
 SEQUENTIAL Wave 4:
   ┣━ T-DASH-016 (E2E)
   ┣━ T-DASH-017 (codex review)
+  ┣━ T-DASH-034 (README + CHANGELOG)
   ┗━ T-DASH-018 (ship)
 ```
 
-Total: **29 tasks across 4 waves**, ~17 unique agents in parallel at peak.
+Total: **36 tasks across 4 waves**, ~21 unique agents in parallel at peak.
 
 Acceptance criteria for "done with backlog":
 - `sweech dashboard` opens new React app in default browser

@@ -1,0 +1,36 @@
+{
+  "id": "T-DASH-032",
+  "title": "sweech upgrade \u2014 migration runner for legacy installs",
+  "wave": "wave-7",
+  "space": "space-cli",
+  "status": "todo",
+  "priority": "high",
+  "platform": null,
+  "assignee": null,
+  "description": "sweech upgrade command: update-wrappers + healShareTopology + sessions.db init + classify-providers + open dashboard once. Idempotent. _postinstall-heal extended to call upgrade silently. --dry-run + --json.",
+  "createdAt": "2026-05-18T11:00:00Z",
+  "updatedAt": "2026-05-18T11:00:00Z",
+  "product": null,
+  "lane": null,
+  "stage": null,
+  "stageHistory": [],
+  "recurring": null,
+  "attachments": [],
+  "validationOverrides": null,
+  "executionMode": null,
+  "statusHistory": [],
+  "dependsOn": [
+    "T-DASH-002",
+    "T-DASH-006",
+    "T-DASH-025"
+  ],
+  "runStatus": null,
+  "size": "M",
+  "context": [
+    {
+      "at": "2026-05-18T11:00:00Z",
+      "by": "luke",
+      "text": "Filed via /vy-backlog 2026-05-18. Spec: docs/specs/dashboard-2026-05-18.md, backlog: docs/specs/dashboard-2026-05-18-backlog.md"
+    }
+  ]
+}

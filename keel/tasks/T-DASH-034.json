@@ -1,0 +1,32 @@
+{
+  "id": "T-DASH-034",
+  "title": "README + CHANGELOG for 0.4.0",
+  "wave": "wave-7",
+  "space": "space-cli",
+  "status": "todo",
+  "priority": "high",
+  "platform": null,
+  "assignee": null,
+  "description": "CHANGELOG 0.4.0 with one line per feature. README updated with dashboard screenshot + new commands. Migration note for 0.3.x users. Mascot in header.",
+  "createdAt": "2026-05-18T11:00:00Z",
+  "updatedAt": "2026-05-18T11:00:00Z",
+  "product": null,
+  "lane": null,
+  "stage": null,
+  "stageHistory": [],
+  "recurring": null,
+  "attachments": [],
+  "validationOverrides": null,
+  "executionMode": null,
+  "statusHistory": [],
+  "dependsOn": [],
+  "runStatus": null,
+  "size": "S",
+  "context": [
+    {
+      "at": "2026-05-18T11:00:00Z",
+      "by": "luke",
+      "text": "Filed via /vy-backlog 2026-05-18. Spec: docs/specs/dashboard-2026-05-18.md, backlog: docs/specs/dashboard-2026-05-18-backlog.md"
+    }
+  ]
+}

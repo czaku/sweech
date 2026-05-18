@@ -1,0 +1,34 @@
+{
+  "id": "T-DASH-008",
+  "title": "sessionSummarizer.ts \u2014 AI tile summaries (hybrid local\u2192cloud)",
+  "wave": "wave-7",
+  "space": "space-cli",
+  "status": "todo",
+  "priority": "high",
+  "platform": null,
+  "assignee": null,
+  "description": "Reads last 20-30 jsonl events + aiTitle. Hybrid provider: ollama first via sweech auto --provider ollama, fallback to sweech auto --budget 0.005. Writes summary_one/bullets/provider/model/cost/at to sessions.db. Debounced queue; eager every 50 msgs + on session-end; lazy on viewport scroll. SSE summary.updated events.",
+  "createdAt": "2026-05-18T11:00:00Z",
+  "updatedAt": "2026-05-18T11:00:00Z",
+  "product": null,
+  "lane": null,
+  "stage": null,
+  "stageHistory": [],
+  "recurring": null,
+  "attachments": [],
+  "validationOverrides": null,
+  "executionMode": null,
+  "statusHistory": [],
+  "dependsOn": [
+    "T-DASH-002"
+  ],
+  "runStatus": null,
+  "size": "M",
+  "context": [
+    {
+      "at": "2026-05-18T11:00:00Z",
+      "by": "luke",
+      "text": "Filed via /vy-backlog 2026-05-18. Spec: docs/specs/dashboard-2026-05-18.md, backlog: docs/specs/dashboard-2026-05-18-backlog.md"
+    }
+  ]
+}

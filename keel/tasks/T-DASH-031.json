@@ -1,0 +1,35 @@
+{
+  "id": "T-DASH-031",
+  "title": "SweechBar \u2014 balance + briefing mirror sections",
+  "wave": "wave-7",
+  "space": "space-menubar",
+  "status": "todo",
+  "priority": "high",
+  "platform": null,
+  "assignee": null,
+  "description": "Popover gets Balance section after Accounts: \u2605\u2605 underused subs with gap%. Briefing badge dot on tray icon while undismissed; click \u2192 opens dashboard deeplink. Reuses FSEvents watcher from 0381685.",
+  "createdAt": "2026-05-18T11:00:00Z",
+  "updatedAt": "2026-05-18T11:00:00Z",
+  "product": null,
+  "lane": null,
+  "stage": null,
+  "stageHistory": [],
+  "recurring": null,
+  "attachments": [],
+  "validationOverrides": null,
+  "executionMode": null,
+  "statusHistory": [],
+  "dependsOn": [
+    "T-DASH-019",
+    "T-DASH-020"
+  ],
+  "runStatus": null,
+  "size": "M",
+  "context": [
+    {
+      "at": "2026-05-18T11:00:00Z",
+      "by": "luke",
+      "text": "Filed via /vy-backlog 2026-05-18. Spec: docs/specs/dashboard-2026-05-18.md, backlog: docs/specs/dashboard-2026-05-18-backlog.md"
+    }
+  ]
+}
