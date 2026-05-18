@@ -1021,9 +1021,22 @@ private struct WorkspaceTile: View {
         }
     }
 
+    /// Live-cache freshness for this workspace. Drives the staleness chip
+    /// on the header row and the amber border when the cache hasn't been
+    /// refreshed in ≥15 min.
+    private var liveFreshness: LiveFreshness {
+        ws.live?.freshness() ?? .never
+    }
+
+    /// True when the cache entry exists (`live != nil`) but has no
+    /// `fetchedAt` timestamp — surfaces as a red "never refreshed" chip.
+    private var liveFetchedAtMissing: Bool {
+        ws.live != nil && ws.live?.fetchedAt == nil
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            // Top: glyph + name + warning
+            // Top: glyph + name + freshness chip
             HStack(spacing: 6) {
                 Image(systemName: glyph)
                     .font(.system(size: 14, weight: .semibold))
@@ -1033,6 +1046,12 @@ private struct WorkspaceTile: View {
                     .foregroundStyle(Sweech.Color.textPrimary)
                     .lineLimit(1)
                 Spacer(minLength: 0)
+                // Staleness chip — only when the rate-limit cache hasn't
+                // refreshed recently, or is missing a `fetchedAt`. Fresh
+                // entries render nothing so the header stays clean.
+                if ws.live != nil {
+                    StalenessChip(freshness: liveFreshness, missing: liveFetchedAtMissing)
+                }
             }
 
             // Badges. A live problem (no account / re-auth / OAuth disabled
@@ -1133,13 +1152,26 @@ private struct WorkspaceTile: View {
         )
         .overlay(
             RoundedRectangle(cornerRadius: 8)
-                .strokeBorder(
-                    problemBadge != nil ? Sweech.Color.danger.opacity(0.45) : tint.opacity(0.25),
-                    lineWidth: 1
-                )
+                .strokeBorder(borderColor, lineWidth: borderWidth)
         )
         .clipShape(RoundedRectangle(cornerRadius: 8))
         .contextMenu { workspaceContextMenu }
+    }
+
+    /// Border colour priority: red on a problem (no account / re-auth) or
+    /// when the cache has no `fetchedAt`, amber when the cache is very
+    /// stale (≥15min), else the tint.
+    private var borderColor: Color {
+        if problemBadge != nil { return Sweech.Color.danger.opacity(0.45) }
+        if liveFetchedAtMissing { return Sweech.Color.danger.opacity(0.55) }
+        if case .veryStale = liveFreshness { return Sweech.Color.warning.opacity(0.55) }
+        return tint.opacity(0.25)
+    }
+
+    private var borderWidth: CGFloat {
+        if liveFetchedAtMissing { return 1.2 }
+        if case .veryStale = liveFreshness { return 1.2 }
+        return 1
     }
 
     @ViewBuilder

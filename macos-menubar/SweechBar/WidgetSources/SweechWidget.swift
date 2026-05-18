@@ -51,9 +51,14 @@ struct SweechProvider: TimelineProvider {
             guard let name = dict["name"] as? String,
                   let commandName = dict["commandName"] as? String else { return nil }
             let live = dict["live"] as? [String: Any]
-            // T-057: read utilization from buckets[0]; deprecated top-level mirrors are gone.
+            // Prefer the "All models" bucket; fall back to buckets[0].
+            // Codex returns buckets in arbitrary order — `[Spark, All models]`
+            // for some accounts, `[All models, Spark]` for others. Reading
+            // `buckets[0]` blindly surfaced Spark's 0% utilization on
+            // non-Spark plans. Mirror of `pickPrimaryBucket()` in
+            // src/liveUsage.ts.
             let buckets = live?["buckets"] as? [[String: Any]]
-            let primary = buckets?.first
+            let primary = buckets?.first(where: { ($0["label"] as? String) == "All models" }) ?? buckets?.first
             let session = primary?["session"] as? [String: Any]
             let weekly = primary?["weekly"] as? [String: Any]
             let u5h = session?["utilization"] as? Double ?? 0

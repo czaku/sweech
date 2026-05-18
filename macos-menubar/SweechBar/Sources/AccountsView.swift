@@ -920,6 +920,8 @@ struct AccountCard: View {
                 .help("Tap to copy: sweech use \(account.commandName)")
 
                 Spacer(minLength: 4)
+                StalenessChip(freshness: account.live?.freshness() ?? .never,
+                              missing: account.live?.fetchedAt == nil)
                 StatusPill(account: account)
 
                 if onManage != nil || onRenameProfile != nil || onRemoveProfile != nil {
@@ -1229,8 +1231,8 @@ struct AccountCard: View {
         .overlay(
             RoundedRectangle(cornerRadius: 12)
                 .strokeBorder(
-                    tier.borderColor.opacity(isHovered ? 1.0 : 0.85),
-                    lineWidth: tier.borderWidth
+                    cardBorderColor.opacity(isHovered ? 1.0 : 0.85),
+                    lineWidth: cardBorderWidth
                 )
         )
         .shadow(color: tier.glowColor, radius: isHovered ? tier.glowRadius + 2 : tier.glowRadius, x: 0, y: 0)
@@ -1250,7 +1252,99 @@ struct AccountCard: View {
         let tierLabel = tier.badgeLabel.map { ", \($0)" } ?? ""
         return "\(account.name), \(status)\(tierLabel), \(weekly), \(session)"
     }
+
+    /// Border colour: amber when the live cache is very stale (≥15min),
+    /// red when the cache has never been refreshed (no `fetchedAt`), else
+    /// the tier-driven default. Hovers keep the same hue.
+    private var cardBorderColor: Color {
+        let fresh = account.live?.freshness() ?? .never
+        if account.live?.fetchedAt == nil && account.live != nil {
+            return Sweech.Color.danger
+        }
+        if case .veryStale = fresh { return Sweech.Color.warning }
+        return tier.borderColor
+    }
+
+    private var cardBorderWidth: CGFloat {
+        let fresh = account.live?.freshness() ?? .never
+        if account.live?.fetchedAt == nil && account.live != nil { return 1.0 }
+        if case .veryStale = fresh { return 1.0 }
+        return tier.borderWidth
+    }
 }
+
+/// Renders the cache-freshness chip next to the account name.
+/// - `< 5min`         no chip (assume fresh).
+/// - `5–15min`        muted "Xm ago" timestamp text.
+/// - `≥ 15min`        amber chip "stale Xm" with a clock icon.
+/// - `fetchedAt nil`  red chip "never refreshed" (legacy cache entry).
+struct StalenessChip: View {
+    let freshness: LiveFreshness
+    /// True when the underlying `LiveData.fetchedAt` was nil/absent — the
+    /// strongest "this cache has never been refreshed" signal.
+    let missing: Bool
+
+    var body: some View {
+        if missing {
+            HStack(spacing: 3) {
+                Image(systemName: "clock.arrow.circlepath")
+                    .font(.system(size: 9))
+                Text("never refreshed")
+                    .font(.system(size: 9, weight: .semibold))
+            }
+            .foregroundStyle(Sweech.Color.danger)
+            .padding(.horizontal, 5).padding(.vertical, 1)
+            .background(Sweech.Color.danger.opacity(0.12))
+            .clipShape(Capsule())
+            .fixedSize()
+            .help("Live rate-limit data is missing a fetch timestamp — the cache has never been refreshed for this account.")
+        } else {
+            switch freshness {
+            case .fresh, .never:
+                EmptyView()
+            case .stale:
+                Text("\(freshness.ageLabel) ago")
+                    .font(.system(size: 9))
+                    .foregroundStyle(Sweech.Color.textMuted)
+                    .lineLimit(1)
+                    .fixedSize()
+                    .help("Rate-limit cache last refreshed \(freshness.ageLabel) ago.")
+            case .veryStale:
+                HStack(spacing: 3) {
+                    Image(systemName: "clock.arrow.circlepath")
+                        .font(.system(size: 9))
+                    Text("stale \(freshness.ageLabel)")
+                        .font(.system(size: 9, weight: .semibold))
+                }
+                .foregroundStyle(Sweech.Color.warning)
+                .padding(.horizontal, 5).padding(.vertical, 1)
+                .background(Sweech.Color.warning.opacity(0.12))
+                .clipShape(Capsule())
+                .fixedSize()
+                .help("Rate-limit cache hasn't refreshed in \(freshness.ageLabel) — tap ↻ to retry.")
+            }
+        }
+    }
+}
+
+#if DEBUG
+struct StalenessChip_Previews: PreviewProvider {
+    static var previews: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Group {
+                HStack { Text("fresh:"); StalenessChip(freshness: .fresh, missing: false); Spacer() }
+                HStack { Text("stale 8m:"); StalenessChip(freshness: .stale(ageMs: 8 * 60 * 1000), missing: false); Spacer() }
+                HStack { Text("veryStale 22m:"); StalenessChip(freshness: .veryStale(ageMs: 22 * 60 * 1000), missing: false); Spacer() }
+                HStack { Text("never:"); StalenessChip(freshness: .never, missing: true); Spacer() }
+            }
+            .font(.system(size: 11))
+        }
+        .padding()
+        .frame(width: 320)
+        .background(Sweech.Color.surface)
+    }
+}
+#endif
 
 enum ProfileQuickManageMode {
     case manage

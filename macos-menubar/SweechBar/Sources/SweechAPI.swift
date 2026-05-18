@@ -13,6 +13,49 @@ struct LiveBucket: Codable {
     }
 }
 
+/// Prefer the "All models" bucket; fall back to the first one. Mirror of the
+/// TypeScript `pickPrimaryBucket()` in `src/liveUsage.ts`. Codex returns
+/// buckets in arbitrary order across accounts — `[Spark, All models]` for
+/// some, `[All models, Spark]` for others — so blindly reading `buckets[0]`
+/// surfaced Spark's 0% utilization on non-Spark plans (the user-visible
+/// regression that made codex-pole display 0% while All-models was at 34%).
+func pickPrimaryBucket(buckets: [LiveBucket]?) -> LiveBucket? {
+    guard let buckets, !buckets.isEmpty else { return nil }
+    return buckets.first(where: { $0.label == "All models" }) ?? buckets.first
+}
+
+/// Tri-state freshness classification of the on-disk rate-limit cache,
+/// mirroring `src/freshness.ts`. `< 5min → fresh`, `5–15min → stale`,
+/// `> 15min → veryStale`, missing/zero `fetchedAt → never`.
+enum LiveFreshness {
+    case fresh
+    case stale(ageMs: Double)
+    case veryStale(ageMs: Double)
+    case never
+
+    static let freshThresholdMs: Double = 5 * 60 * 1000
+    static let staleThresholdMs: Double = 15 * 60 * 1000
+
+    /// True when the chip should be rendered (anything but fresh).
+    var shouldRender: Bool {
+        switch self {
+        case .fresh: return false
+        default: return true
+        }
+    }
+
+    /// Short label like "5m", "22m", "1h" — empty for `.never`/`.fresh`.
+    var ageLabel: String {
+        switch self {
+        case .fresh, .never: return ""
+        case .stale(let ms), .veryStale(let ms):
+            let mins = Int(ms / 60_000)
+            if mins < 60 { return "\(mins)m" }
+            return "\(mins / 60)h"
+        }
+    }
+}
+
 struct LiveData: Codable {
     let buckets: [LiveBucket]?
     let status: String?
@@ -22,10 +65,15 @@ struct LiveData: Codable {
     let tokenStatus: String?
     let tokenRefreshedAt: Double?
     let tokenExpiresAt: Double?
+    /// Unix-ms when the rate-limit cache was last successfully refreshed
+    /// from upstream. CLI commit 1554355 guarantees every cache entry now
+    /// stamps this; older entries arrive as nil → renders as
+    /// "never refreshed".
+    let fetchedAt: Double?
 
-    /// Canonical first bucket — "All models" or whatever the API marks primary.
+    /// Canonical bucket — "All models" when present, else first.
     /// SwiftBar always renders from this; deprecated top-level mirrors are gone (T-057).
-    var primaryBucket: LiveBucket? { buckets?.first }
+    var primaryBucket: LiveBucket? { pickPrimaryBucket(buckets: buckets) }
 
     /// 5h session utilization from the canonical bucket. 0 when absent.
     var utilization5h: Double? { primaryBucket?.session?.utilization }
@@ -35,6 +83,16 @@ struct LiveData: Codable {
     var reset5hAt: Double? { primaryBucket?.session?.resetsAt }
     /// 7d weekly reset epoch (seconds) from the canonical bucket.
     var reset7dAt: Double? { primaryBucket?.weekly?.resetsAt }
+
+    /// Classify the cache entry's freshness. Pass `now` for tests; production
+    /// callers leave it at the real clock.
+    func freshness(now: Date = Date()) -> LiveFreshness {
+        guard let ts = fetchedAt, ts > 0, ts.isFinite else { return .never }
+        let ageMs = max(0, now.timeIntervalSince1970 * 1000 - ts)
+        if ageMs < LiveFreshness.freshThresholdMs { return .fresh }
+        if ageMs < LiveFreshness.staleThresholdMs { return .stale(ageMs: ageMs) }
+        return .veryStale(ageMs: ageMs)
+    }
 }
 
 /// Burn-rate forecast emitted by the CLI (`projection5h` / `projection7d` on
@@ -537,6 +595,64 @@ struct SweechInfo: Codable {
     let updateAvailable: Bool?
 }
 
+/// Watches one or more files for write events and invokes `onChange`
+/// when they're modified. Used to react to the sweech CLI writing
+/// `~/.sweech/rate-limit-cache.json` (e.g. after a fresh fetch) or
+/// `~/.sweech/failover-cooldowns.json` (after a 429 hits) without
+/// waiting for the next 30s poll tick.
+///
+/// `onChange` is throttled to fire at most once every 500ms so a single
+/// CLI write that touches multiple files (or a flurry of writes during
+/// a refresh) doesn't trigger a stampede of `fetch()` calls.
+final class CacheFileWatcher {
+    private var sources: [DispatchSourceFileSystemObject] = []
+    private var fds: [Int32] = []
+    private var lastFireAt: TimeInterval = 0
+    private let throttleSeconds: TimeInterval = 0.5
+    private let queue = DispatchQueue(label: "ai.sweech.bar.cachewatcher")
+    private let onChange: () -> Void
+
+    init(paths: [String], onChange: @escaping () -> Void) {
+        self.onChange = onChange
+        for path in paths {
+            // The file may not exist yet on first install — touch it so
+            // we can attach a watcher. The CLI will rewrite it later.
+            if !FileManager.default.fileExists(atPath: path) {
+                let parent = (path as NSString).deletingLastPathComponent
+                try? FileManager.default.createDirectory(
+                    atPath: parent, withIntermediateDirectories: true)
+                FileManager.default.createFile(atPath: path, contents: nil)
+            }
+            let fd = open(path, O_EVTONLY)
+            guard fd >= 0 else {
+                NSLog("CacheFileWatcher: open() failed for %@", path)
+                continue
+            }
+            let src = DispatchSource.makeFileSystemObjectSource(
+                fileDescriptor: fd,
+                eventMask: [.write, .delete, .rename, .extend],
+                queue: queue
+            )
+            src.setEventHandler { [weak self] in self?.fire() }
+            src.setCancelHandler { close(fd) }
+            src.resume()
+            sources.append(src)
+            fds.append(fd)
+        }
+    }
+
+    deinit {
+        for src in sources { src.cancel() }
+    }
+
+    private func fire() {
+        let now = Date().timeIntervalSince1970
+        if now - lastFireAt < throttleSeconds { return }
+        lastFireAt = now
+        DispatchQueue.main.async { [weak self] in self?.onChange() }
+    }
+}
+
 class SweechService: ObservableObject {
     @Published var accounts: [SweechAccount] = []
     /// Per-vendor balance / rate-limit info from `sweech providers quota`.
@@ -585,13 +701,30 @@ class SweechService: ObservableObject {
     }
 
     private var timer: Timer?
+    private var cacheWatcher: CacheFileWatcher?
 
     init() {
         loadOrder()
         requestNotificationPermission()
         setupTimer()
+        setupCacheWatcher()
         fetch()
         fetchInfo()
+    }
+
+    /// Push-style notify path: when the CLI writes either the rate-limit
+    /// cache or the failover-cooldowns file (e.g. after a 429), kick an
+    /// immediate `fetch()` so the menu bar reflects the new state without
+    /// waiting for the next 30s timer tick.
+    private func setupCacheWatcher() {
+        let home = NSHomeDirectory()
+        let paths = [
+            "\(home)/.sweech/rate-limit-cache.json",
+            "\(home)/.sweech/failover-cooldowns.json",
+        ]
+        cacheWatcher = CacheFileWatcher(paths: paths) { [weak self] in
+            self?.fetch()
+        }
     }
 
     func applyRefreshInterval() {
