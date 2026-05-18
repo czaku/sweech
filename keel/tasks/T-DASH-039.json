@@ -1,0 +1,34 @@
+{
+  "id": "T-DASH-039",
+  "title": "Federation peer version-compatibility check",
+  "wave": "wave-7",
+  "space": "space-cli",
+  "status": "todo",
+  "priority": "medium",
+  "platform": null,
+  "assignee": null,
+  "description": "User has stated Mac Studio runs an older sweech that must NOT be updated. The dashboard's federation panel must gracefully degrade when peers don't expose /fed/dashboard/state. Add a `version` field to /fed/announce + /fed/dashboard/state responses. Dashboard renders peer cards with: green check + version when compatible, yellow chip + 'older' when peer version < this version, red + 'unreachable' when no response. Tooltip explains what's missing per version gap. 8+ tests.",
+  "createdAt": "2026-05-18T15:30:00Z",
+  "updatedAt": "2026-05-18T15:30:00Z",
+  "product": null,
+  "lane": null,
+  "stage": null,
+  "stageHistory": [],
+  "recurring": null,
+  "attachments": [],
+  "validationOverrides": null,
+  "executionMode": null,
+  "statusHistory": [],
+  "dependsOn": [
+    "T-DASH-009"
+  ],
+  "runStatus": null,
+  "size": "S",
+  "context": [
+    {
+      "at": "2026-05-18T15:30:00Z",
+      "by": "luke",
+      "text": "Filed via /vy-backlog final-pass 2026-05-18. Gap surfaced in 48h-conversation audit."
+    }
+  ]
+}

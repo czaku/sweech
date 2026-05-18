@@ -1,0 +1,34 @@
+{
+  "id": "T-DASH-037",
+  "title": "sweech tmux on|off|status CLI subcommand",
+  "wave": "wave-7",
+  "space": "space-cli",
+  "status": "todo",
+  "priority": "low",
+  "platform": null,
+  "assignee": null,
+  "description": "Add `sweech tmux on|off|status` so users can toggle tmux-wrapping from the CLI (not just the dashboard settings drawer). Reads/writes the same `dashboard.tmux.enabled` setting from config.json. `status` prints current state + tmux availability + per-profile overrides. 5+ tests. Surfaced in setup wizard step too.",
+  "createdAt": "2026-05-18T15:30:00Z",
+  "updatedAt": "2026-05-18T15:30:00Z",
+  "product": null,
+  "lane": null,
+  "stage": null,
+  "stageHistory": [],
+  "recurring": null,
+  "attachments": [],
+  "validationOverrides": null,
+  "executionMode": null,
+  "statusHistory": [],
+  "dependsOn": [
+    "T-DASH-004"
+  ],
+  "runStatus": null,
+  "size": "S",
+  "context": [
+    {
+      "at": "2026-05-18T15:30:00Z",
+      "by": "luke",
+      "text": "Filed via /vy-backlog final-pass 2026-05-18. Gap surfaced in 48h-conversation audit."
+    }
+  ]
+}

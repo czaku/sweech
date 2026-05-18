@@ -368,6 +368,33 @@ Backend `fetchedAt` infrastructure already landed in commit 1554355.
 - Settings panel: per-provider override of detected tier.
 - 20+ tests: classification, tier overrides, manual marker read/write.
 
+### T-DASH-037 · `sweech tmux on|off|status` CLI subcommand
+**Files:** `src/cli.ts`, tests, README.
+**Depends:** T-DASH-004.
+**Tasks:**
+- Add `sweech tmux on|off|status` reading/writing `dashboard.tmux.enabled` in config.
+- `status` prints current state + tmux availability + per-profile overrides.
+- Setup wizard surfaces the same toggle.
+- 5+ tests.
+
+### T-DASH-038 · Include sessions.db in sweech backup/restore
+**Files:** `src/backup.ts`, tests, CHANGELOG.
+**Depends:** T-DASH-002.
+**Tasks:**
+- Extend AES-256 backup of `~/.sweech/` to include `sessions.db`.
+- Round-trip test: backup → wipe → restore → assert session rows survive.
+- Update CHANGELOG + backup README.
+
+### T-DASH-039 · Federation peer version-compatibility check
+**Files:** `src/federation.ts`, dashboard `Federation.tsx` panel, tests.
+**Depends:** T-DASH-009.
+**Tasks:**
+- Add `version` field to `/fed/announce` + `/fed/dashboard/state` responses.
+- Peer cards render: green check + version (compatible), yellow chip + "older" (peer < this), red + "unreachable" (no response).
+- Tooltip explains what is missing per version gap (Mac Studio runs older sweech that must NOT be force-upgraded).
+- Dashboard gracefully degrades when peer lacks `/fed/dashboard/state`.
+- 8+ tests.
+
 ### T-DASH-023 · goose cliType support
 **Files:** `src/clis.ts`, `src/config.ts` createWrapperScript, goose YAML config writer.
 **Depends:** T-DASH-021.
@@ -429,7 +456,7 @@ PARALLEL Wave 2 (4 agents):
   ┣━ T-DASH-008 (sessionSummarizer)
   ┗━ T-DASH-009 (federation routes)
                 ↓ merge
-PARALLEL Wave 3 (24 agents):
+PARALLEL Wave 3 (27 agents):
   ┣━ T-DASH-010..015 (panels — 6 agents)
   ┣━ T-DASH-019 (Balance backend + panel)
   ┣━ T-DASH-020 (Daily briefing)
@@ -444,7 +471,10 @@ PARALLEL Wave 3 (24 agents):
   ┣━ T-DASH-032 (sweech upgrade migration runner)
   ┣━ T-DASH-033 (orphan claude-process audit + reaper)
   ┣━ T-DASH-035 (codex active-profile-hang warning)
-  ┗━ T-DASH-036 (briefing & summary cost line items)
+  ┣━ T-DASH-036 (briefing & summary cost line items)
+  ┣━ T-DASH-037 (sweech tmux on|off|status CLI)
+  ┣━ T-DASH-038 (sessions.db in backup/restore)
+  ┗━ T-DASH-039 (federation peer version check)
                 ↓ merge
 SEQUENTIAL Wave 4:
   ┣━ T-DASH-016 (E2E)
@@ -453,7 +483,7 @@ SEQUENTIAL Wave 4:
   ┗━ T-DASH-018 (ship)
 ```
 
-Total: **36 tasks across 4 waves**, ~21 unique agents in parallel at peak.
+Total: **39 tasks across 4 waves**, ~24 unique agents in parallel at peak.
 
 Acceptance criteria for "done with backlog":
 - `sweech dashboard` opens new React app in default browser

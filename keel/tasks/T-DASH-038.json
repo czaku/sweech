@@ -1,0 +1,34 @@
+{
+  "id": "T-DASH-038",
+  "title": "Include sessions.db in sweech backup/restore",
+  "wave": "wave-7",
+  "space": "space-cli",
+  "status": "todo",
+  "priority": "medium",
+  "platform": null,
+  "assignee": null,
+  "description": "Existing `sweech backup` (src/backup.ts) creates AES-256 backups of ~/.sweech/. Extend to include the new sessions.db. Round-trip test: backup \u2192 wipe \u2192 restore \u2192 assert sessions rows survive. Update CHANGELOG and the backup-claude README.",
+  "createdAt": "2026-05-18T15:30:00Z",
+  "updatedAt": "2026-05-18T15:30:00Z",
+  "product": null,
+  "lane": null,
+  "stage": null,
+  "stageHistory": [],
+  "recurring": null,
+  "attachments": [],
+  "validationOverrides": null,
+  "executionMode": null,
+  "statusHistory": [],
+  "dependsOn": [
+    "T-DASH-002"
+  ],
+  "runStatus": null,
+  "size": "S",
+  "context": [
+    {
+      "at": "2026-05-18T15:30:00Z",
+      "by": "luke",
+      "text": "Filed via /vy-backlog final-pass 2026-05-18. Gap surfaced in 48h-conversation audit."
+    }
+  ]
+}
