@@ -12,7 +12,8 @@ type DashboardSession = {
   cwd: string;
   machine: string;
   status: SessionStatus;
-  lastActiveAt: number;
+  lastActiveAt?: number;
+  last_active_at?: number;
 };
 
 type DashboardState = {
@@ -21,6 +22,7 @@ type DashboardState = {
   panels: Record<string, 'idle' | 'loading' | 'ready'>;
   setConnected: (connected: boolean) => void;
   applySessions: (sessions: DashboardSession[]) => void;
+  upsertSession: (session: DashboardSession) => void;
 };
 
 const useDashboardStore = create<DashboardState>((set) => ({
@@ -36,10 +38,32 @@ const useDashboardStore = create<DashboardState>((set) => ({
   },
   setConnected: (connected) => set({ connected }),
   applySessions: (sessions) => set({ sessions, panels: { sessions: 'ready' } }),
+  upsertSession: (session) => set((state) => ({
+    sessions: [session, ...state.sessions.filter((item) => item.id !== session.id)],
+    panels: { ...state.panels, sessions: 'ready' },
+  })),
 }));
+
+function useInitialState(url: string) {
+  const applySessions = useDashboardStore((state) => state.applySessions);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    fetch(url)
+      .then((res) => res.ok ? res.json() : null)
+      .then((data) => {
+        if (!cancelled && Array.isArray(data?.sessions)) applySessions(data.sessions);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [applySessions, url]);
+}
 
 function useSSE(url: string) {
   const setConnected = useDashboardStore((state) => state.setConnected);
+  const upsertSession = useDashboardStore((state) => state.upsertSession);
 
   React.useEffect(() => {
     let retry = 500;
@@ -53,6 +77,17 @@ function useSSE(url: string) {
       source.onopen = () => {
         retry = 500;
         setConnected(true);
+      };
+      source.onmessage = (event) => {
+        try {
+          const payload = JSON.parse(event.data);
+          const session = payload.session ?? payload.data?.session;
+          if ((payload.type === 'session.changed' || event.type === 'message') && session?.id) {
+            upsertSession(session);
+          }
+        } catch {
+          return;
+        }
       };
       source.onerror = () => {
         setConnected(false);
@@ -69,7 +104,7 @@ function useSSE(url: string) {
       source?.close();
       if (timer) clearTimeout(timer);
     };
-  }, [setConnected, url]);
+  }, [setConnected, upsertSession, url]);
 }
 
 function Metric({ label, value }: { label: string; value: string }) {
@@ -91,6 +126,7 @@ function PlaceholderPanel({ title, detail }: { title: string; detail: string }) 
 }
 
 function App() {
+  useInitialState('/dashboard/state');
   useSSE('/dashboard/events');
   const { connected, sessions } = useDashboardStore();
   const liveCount = sessions.filter((session) => session.status === 'live').length;
@@ -115,11 +151,24 @@ function App() {
             <h2>Sessions</h2>
             <span>{connected ? 'SSE connected' : 'SSE reconnecting'}</span>
           </div>
-          <div className="empty-state">
-            <strong>No sessions yet</strong>
-            <p>Launch a workspace to create the first durable session tile.</p>
-            <button type="button">Setup</button>
-          </div>
+          {sessions.length === 0 ? (
+            <div className="empty-state">
+              <strong>No sessions yet</strong>
+              <p>Launch a workspace to create the first durable session tile.</p>
+              <button type="button">Setup</button>
+            </div>
+          ) : (
+            <div className="session-grid">
+              {sessions.map((session) => (
+                <article className="session-tile" key={session.id}>
+                  <span className={`status-dot status-${session.status}`} />
+                  <strong>{session.workspace}</strong>
+                  <p>{session.cwd}</p>
+                  <span>{session.machine}</span>
+                </article>
+              ))}
+            </div>
+          )}
         </Card>
 
         <section className="mid-grid" aria-label="Dashboard panels">

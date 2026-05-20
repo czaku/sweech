@@ -48,6 +48,10 @@ function shellQuote(s: string): string {
   return `'${s.replace(/'/g, "'\\''")}'`;
 }
 
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 export function nameForSession(workspace: string, cwd: string, sid?: string | null): string {
   const project = safeSegment(path.basename(cwd), 'workspace');
   const commandName = safeSegment(workspace, 'default');
@@ -163,26 +167,27 @@ export function launchInTmux(opts: TmuxLaunchOpts): number {
     hasResume = false,
   } = opts;
 
-  const strippedProfile = profileName.replace(new RegExp(`^${command}-?`, 'i'), '') || null;
+  const strippedProfile = profileName.replace(new RegExp(`^${escapeRegex(command)}-?`, 'i'), '') || null;
   const safeProfile = strippedProfile
     ? strippedProfile.replace(/[^a-zA-Z0-9_-]/g, '-').slice(0, 30)
     : null;
+  const safeCommand = command.replace(/[^a-zA-Z0-9_-]/g, '-').slice(0, 30) || 'cli';
   const safeDir = path.basename(process.cwd()).replace(/[^a-zA-Z0-9_-]/g, '-').slice(0, 20);
   const sessionName = safeProfile
-    ? `sweech-${command}-${safeProfile}-${safeDir}`
-    : `sweech-${command}-${safeDir}`;
+    ? `sweech-${safeCommand}-${safeProfile}-${safeDir}`
+    : `sweech-${safeCommand}-${safeDir}`;
 
   const envParts: string[] = [];
   if (configDirEnvVar && configDir) {
     envParts.push(`${configDirEnvVar}=${shellQuote(configDir)}`);
   }
 
-  const cmdParts = [...envParts, command, ...args.map(shellQuote)].join(' ');
+  const cmdParts = [...envParts, shellQuote(command), ...args.map(shellQuote)].join(' ');
 
   let shellCmd: string;
   if (hasResume && resumeArgs.length > 0) {
     const freshArgs = args.filter(a => !resumeArgs.includes(a));
-    const freshCmd = [...envParts, command, ...freshArgs.map(shellQuote)].join(' ');
+    const freshCmd = [...envParts, shellQuote(command), ...freshArgs.map(shellQuote)].join(' ');
     shellCmd =
       `unset CLAUDECODE CLAUDE_CODE_ENTRYPOINT; ` +
       `${cmdParts} || (echo 'No conversation to resume — starting fresh session'; ${freshCmd})`;

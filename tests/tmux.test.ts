@@ -95,6 +95,15 @@ describe('tmux integration', () => {
     expect(wrapped.args[wrapped.args.length - 1]).toBe("cd '/tmp/my project' && unset CLAUDECODE CLAUDE_CODE_ENTRYPOINT; CODEX_HOME='/tmp/codex home' claude 'a;b' 'it'\\''s'");
   });
 
+  test('wrapCommand quotes unsafe command names', () => {
+    mockChildProcess(jest.fn());
+    const { wrapCommand } = require('../src/tmux');
+
+    const wrapped = wrapCommand('bad;touch /tmp/pwned', ['ok'], 'name');
+
+    expect(wrapped.args[wrapped.args.length - 1]).toBe("unset CLAUDECODE CLAUDE_CODE_ENTRYPOINT; 'bad;touch /tmp/pwned' ok");
+  });
+
   test('wrapCommand drops unsafe env keys', () => {
     mockChildProcess(jest.fn());
     const { wrapCommand } = require('../src/tmux');
@@ -144,5 +153,18 @@ describe('tmux integration', () => {
     const { attachClients } = require('../src/tmux');
 
     expect(attachClients('session')).toBe(0);
+  });
+
+  test('launchInTmux quotes unsafe command names in shell payload', () => {
+    const spawnSync = jest.fn(() => ({ status: 0 }));
+    const execFileSync = jest.fn(() => { throw new Error('missing'); });
+    mockChildProcess(execFileSync, spawnSync);
+    const { launchInTmux } = require('../src/tmux');
+
+    launchInTmux({ command: 'bad;touch /tmp/pwned', args: ['--continue'], profileName: 'bad-work' });
+
+    const calls = spawnSync.mock.calls as unknown as Array<[string, string[]]>;
+    const newSession = calls.find(call => call[1]?.[0] === 'new-session');
+    expect(newSession?.[1]?.[newSession[1].length - 1]).toBe("unset CLAUDECODE CLAUDE_CODE_ENTRYPOINT; 'bad;touch /tmp/pwned' --continue");
   });
 });

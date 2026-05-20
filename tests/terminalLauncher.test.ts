@@ -1,4 +1,4 @@
-import { execFile } from 'child_process';
+import { execFile, spawn } from 'child_process';
 import {
   detectInstalledTerminals,
   launchTerminal,
@@ -7,6 +7,7 @@ import {
 jest.mock('child_process');
 
 const mockExecFile = execFile as unknown as jest.Mock;
+const mockSpawn = spawn as unknown as jest.Mock;
 
 function execFileOk(stdout = ''): void {
   mockExecFile.mockImplementation((_cmd: string, _args: string[], _opts: unknown, cb: Function) => {
@@ -24,6 +25,8 @@ function execFileByCall(handler: (cmd: string, args: string[]) => string | Error
 
 beforeEach(() => {
   mockExecFile.mockReset();
+  mockSpawn.mockReset();
+  mockSpawn.mockReturnValue({ unref: jest.fn() });
 });
 
 describe('detectInstalledTerminals', () => {
@@ -82,6 +85,11 @@ describe('launchTerminal', () => {
       command: '/opt/homebrew/bin/ghostty',
       args: ['-e', 'tmux', 'attach', '-t', 's1'],
     });
+    expect(mockSpawn).toHaveBeenCalledWith('/opt/homebrew/bin/ghostty', ['-e', 'tmux', 'attach', '-t', 's1'], {
+      cwd: undefined,
+      detached: true,
+      stdio: 'ignore',
+    });
   });
 
   test('launches iTerm2 via AppleScript', async () => {
@@ -124,7 +132,11 @@ describe('launchTerminal', () => {
       command: '/usr/local/bin/kitty',
       args: ['-e', 'echo', '$(touch hacked)'],
     });
-    expect(mockExecFile).toHaveBeenLastCalledWith('/usr/local/bin/kitty', ['-e', 'echo', '$(touch hacked)'], { cwd: '/repo', timeout: 5000 }, expect.any(Function));
+    expect(mockSpawn).toHaveBeenCalledWith('/usr/local/bin/kitty', ['-e', 'echo', '$(touch hacked)'], {
+      cwd: '/repo',
+      detached: true,
+      stdio: 'ignore',
+    });
   });
 
   test('refuses with actionable hint when binary is missing', async () => {
@@ -142,6 +154,9 @@ describe('launchTerminal', () => {
     await launchTerminal({ terminal: 'alacritty', command: ['echo', 'x; touch /tmp/pwned'] });
 
     for (const call of mockExecFile.mock.calls) {
+      expect(call[2]).not.toHaveProperty('shell');
+    }
+    for (const call of mockSpawn.mock.calls) {
       expect(call[2]).not.toHaveProperty('shell');
     }
   });

@@ -1,4 +1,4 @@
-import { execFile } from 'child_process';
+import { execFile, spawn } from 'child_process';
 
 export type TerminalName = 'ghostty' | 'iterm2' | 'terminal' | 'alacritty' | 'kitty' | 'wezterm';
 
@@ -85,7 +85,7 @@ async function launchGhostty(options: LaunchTerminalOptions): Promise<LaunchTerm
   }
 
   const args = ['-e', ...options.command];
-  await execFileAsync(binary || 'ghostty', args, { cwd: options.cwd, timeout: 5000 });
+  spawnDetached(binary || 'ghostty', args, options.cwd);
   return launched(binary || 'ghostty', args);
 }
 
@@ -123,7 +123,7 @@ async function launchGeneric(options: LaunchTerminalOptions): Promise<LaunchTerm
     return missing(terminal.label, `Install ${terminal.label} or choose an installed terminal.`);
   }
   const args = ['-e', ...options.command];
-  await execFileAsync(binary, args, { cwd: options.cwd, timeout: 5000 });
+  spawnDetached(binary, args, options.cwd);
   return launched(binary, args);
 }
 
@@ -192,4 +192,13 @@ function execFileAsync(
       else resolve({ stdout, stderr });
     });
   });
+}
+
+function spawnDetached(file: string, args: string[], cwd?: string): void {
+  const child = spawn(file, args, {
+    cwd,
+    detached: true,
+    stdio: 'ignore',
+  });
+  child.unref();
 }

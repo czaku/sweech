@@ -128,6 +128,48 @@ h2 {
   font-size: 20px;
 }
 
+.session-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  margin-top: 18px;
+}
+
+.session-tile {
+  border: 1px solid var(--vysual-border);
+  border-radius: 8px;
+  min-height: 126px;
+  padding: 14px;
+  position: relative;
+}
+
+.session-tile p {
+  color: var(--vysual-muted);
+  margin-bottom: 14px;
+  overflow-wrap: anywhere;
+}
+
+.status-dot {
+  border-radius: 999px;
+  display: inline-block;
+  height: 9px;
+  margin-right: 8px;
+  width: 9px;
+}
+
+.status-live {
+  background: var(--vysual-success);
+}
+
+.status-tmux-detached,
+.status-crash-recoverable {
+  background: var(--vysual-warning);
+}
+
+.status-closed {
+  background: var(--vysual-muted);
+}
+
 .mid-grid {
   display: grid;
   gap: 16px;

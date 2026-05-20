@@ -312,7 +312,11 @@ export class SessionsDb {
         nextStatus = 'crash-recoverable';
       }
 
-      this.updateStatus(row.id, nextStatus, input.now ?? Date.now());
+      this.db.prepare(`
+        UPDATE sessions
+        SET status = ?, closed_at = NULL
+        WHERE id = ?
+      `).run(nextStatus, row.id);
       if (nextStatus === 'live') result.live++;
       if (nextStatus === 'tmux-detached') result.tmuxDetached++;
       if (nextStatus === 'crash-recoverable') result.crashRecoverable++;

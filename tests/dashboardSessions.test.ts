@@ -277,10 +277,10 @@ describe('SessionsDb', () => {
   });
 
   test('reconcile keeps live pid sessions live', () => {
-    insert('s1', { pid: 123, status: 'crash-recoverable' });
+    insert('s1', { pid: 123, status: 'crash-recoverable', lastActiveAt: 1234 });
     const result = db.reconcileOnDaemonStartup({ livePids: [123], now: 5000 });
     expect(result).toEqual({ checked: 1, live: 1, tmuxDetached: 0, crashRecoverable: 0 });
-    expect(db.byId('s1')).toMatchObject({ status: 'live', lastActiveAt: 5000 });
+    expect(db.byId('s1')).toMatchObject({ status: 'live', lastActiveAt: 1234 });
   });
 
   test('reconcile keeps attached tmux sessions live', () => {
@@ -296,9 +296,9 @@ describe('SessionsDb', () => {
   });
 
   test('reconcile marks missing process and tmux crash recoverable', () => {
-    insert('s1', { pid: 999, tmuxName: 'gone', status: 'live' });
+    insert('s1', { pid: 999, tmuxName: 'gone', status: 'live', lastActiveAt: 1234 });
     db.reconcileOnDaemonStartup({ livePids: [], existingTmuxNames: [], now: 5000 });
-    expect(db.byId('s1')).toMatchObject({ status: 'crash-recoverable', lastActiveAt: 5000 });
+    expect(db.byId('s1')).toMatchObject({ status: 'crash-recoverable', lastActiveAt: 1234 });
   });
 
   test('reconcile skips already closed sessions', () => {
