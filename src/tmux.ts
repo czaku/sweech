@@ -210,7 +210,19 @@ export function launchInTmux(opts: TmuxLaunchOpts): number {
     return result.status ?? 0;
   }
 
-  spawnSync('tmux', ['new-session', '-d', '-s', sessionName, shellCmd], { stdio: 'pipe' });
+  const createResult = spawnSync('tmux', ['new-session', '-d', '-s', sessionName, shellCmd], {
+    encoding: 'utf8',
+    stdio: 'pipe',
+  });
+  if (createResult.error) {
+    process.stderr.write(`sweech: failed to create tmux session '${sessionName}': ${createResult.error.message}\n`);
+    return 1;
+  }
+  if ((createResult.status ?? 0) !== 0) {
+    const stderr = String(createResult.stderr || '').trim();
+    process.stderr.write(`sweech: failed to create tmux session '${sessionName}'${stderr ? `: ${stderr}` : ''}\n`);
+    return createResult.status ?? 1;
+  }
   const result = spawnSync('tmux', ['attach-session', '-t', sessionName], { stdio: 'inherit' });
   return result.status ?? 0;
 }

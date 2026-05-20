@@ -62,7 +62,7 @@ describe('dashboard server', () => {
 
   function request(path: string): Promise<{ status: number; body: string; headers: http.IncomingHttpHeaders }> {
     return new Promise((resolve, reject) => {
-      http.get({ hostname: '127.0.0.1', port, path }, (res) => {
+      http.get({ hostname: '127.0.0.1', port, path, headers: path.startsWith('/dashboard/') ? { Origin: 'http://127.0.0.1' } : {} }, (res) => {
         let body = '';
         res.on('data', (chunk) => { body += chunk; });
         res.on('end', () => resolve({ status: res.statusCode ?? 0, body, headers: res.headers }));
@@ -89,7 +89,7 @@ describe('dashboard server', () => {
 
   test('opens an SSE stream for dashboard events', async () => {
     await new Promise<void>((resolve, reject) => {
-      const req = http.get({ hostname: '127.0.0.1', port, path: '/dashboard/events' }, (res) => {
+      const req = http.get({ hostname: '127.0.0.1', port, path: '/dashboard/events', headers: { Origin: 'http://127.0.0.1' } }, (res) => {
         let body = '';
         res.on('data', (chunk) => {
           body += chunk;

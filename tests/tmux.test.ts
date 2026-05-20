@@ -158,7 +158,7 @@ describe('tmux integration', () => {
   test('launchInTmux quotes unsafe command names in shell payload', () => {
     const spawnSync = jest.fn(() => ({ status: 0 }));
     const execFileSync = jest.fn(() => { throw new Error('missing'); });
-    mockChildProcess(execFileSync, spawnSync);
+    mockChildProcess(execFileSync, spawnSync as jest.Mock);
     const { launchInTmux } = require('../src/tmux');
 
     launchInTmux({ command: 'bad;touch /tmp/pwned', args: ['--continue'], profileName: 'bad-work' });
@@ -166,5 +166,21 @@ describe('tmux integration', () => {
     const calls = spawnSync.mock.calls as unknown as Array<[string, string[]]>;
     const newSession = calls.find(call => call[1]?.[0] === 'new-session');
     expect(newSession?.[1]?.[newSession[1].length - 1]).toBe("unset CLAUDECODE CLAUDE_CODE_ENTRYPOINT; 'bad;touch /tmp/pwned' --continue");
+  });
+
+  test('launchInTmux returns new-session failure before attach', () => {
+    const spawnSync = jest.fn((cmd: string, args: string[]) => {
+      if (cmd === 'tmux' && args[0] === 'new-session') {
+        return { status: 2, stderr: 'duplicate session: sweech-claude-work' };
+      }
+      return { status: 0 };
+    });
+    const execFileSync = jest.fn(() => { throw new Error('missing'); });
+    mockChildProcess(execFileSync, spawnSync as jest.Mock);
+    const { launchInTmux } = require('../src/tmux');
+
+    expect(launchInTmux({ command: 'claude', args: [], profileName: 'work' })).toBe(2);
+    expect(spawnSync).toHaveBeenCalledTimes(1);
+    expect(spawnSync.mock.calls[0][1][0]).toBe('new-session');
   });
 });

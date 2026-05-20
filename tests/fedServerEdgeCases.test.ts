@@ -185,10 +185,10 @@ describe('Fed Server Edge Cases', () => {
       expect(body.error).toBe('Not found');
     });
 
-    test('returns 404 for root /', async () => {
+    test('root / is reserved for the built dashboard', async () => {
       const { status, body } = await doFetch('/');
-      expect(status).toBe(404);
-      expect(body.error).toBe('Not found');
+      expect(status).toBe(503);
+      expect(body.error).toBe('Dashboard assets not built. Run npm run build.');
     });
 
     test('returns JSON content-type for 404', async () => {

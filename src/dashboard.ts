@@ -21,7 +21,7 @@ import { UsageTracker } from './usage'
 import { ConfigManager } from './config'
 import { getAccountInfo, getKnownAccounts, type AccountInfo } from './subscriptions'
 import { isMacOS, isWindows } from './platform'
-import { SessionsDb, type DashboardSession } from './sessionsDb'
+import { createDashboardRequestHandler } from './dashboardServer'
 
 // ── Data collection ──────────────────────────────────────────────────────────
 
@@ -30,11 +30,6 @@ interface DashboardData {
   history: HistoryEntry[]
   launchStats: Array<{ commandName: string; totalUses: number; lastUsed: string }>
   accounts: AccountInfo[]
-}
-
-interface ReactDashboardState {
-  generatedAt: string
-  sessions: DashboardSession[]
 }
 
 async function collectDashboardData(): Promise<DashboardData> {
@@ -446,8 +441,14 @@ export async function startDashboard(options?: { port?: number; open?: boolean }
   const assetsDir = path.join(__dirname, 'dashboard')
 
   return new Promise((resolve, reject) => {
+    const handleDashboardRequest = createDashboardRequestHandler({ assetsDir, catchAllAssets: true })
     const server = http.createServer((req, res) => {
-      void handleDashboardRequest(req, res, assetsDir)
+      void handleDashboardRequest(req, res).then((handled) => {
+        if (!handled) {
+          res.writeHead(404, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ error: 'Not found' }))
+        }
+      })
     })
 
     server.listen(requestedPort, '127.0.0.1', () => {
@@ -468,123 +469,6 @@ export async function startDashboard(options?: { port?: number; open?: boolean }
 
     server.on('error', reject)
   })
-}
-
-async function collectReactDashboardState(): Promise<ReactDashboardState> {
-  const db = new SessionsDb()
-  try {
-    return {
-      generatedAt: new Date().toISOString(),
-      sessions: db.list({ limit: 200 }),
-    }
-  } finally {
-    db.close()
-  }
-}
-
-async function handleDashboardRequest(req: http.IncomingMessage, res: http.ServerResponse, assetsDir: string): Promise<void> {
-  let url: URL
-  try {
-    url = new URL(req.url ?? '/', 'http://127.0.0.1')
-  } catch {
-    sendDashboardJson(res, 400, { error: 'Bad path encoding' })
-    return
-  }
-  if (req.method !== 'GET' && req.method !== 'HEAD') {
-    sendDashboardJson(res, 405, { error: 'Method not allowed' })
-    return
-  }
-
-  if (url.pathname === '/dashboard/state' || url.pathname === '/dashboard/sessions') {
-    sendDashboardJson(res, 200, await collectReactDashboardState())
-    return
-  }
-
-  if (url.pathname === '/dashboard/events') {
-    sendDashboardEvents(req, res)
-    return
-  }
-
-  serveDashboardAsset(req, res, assetsDir, url.pathname)
-}
-
-function sendDashboardJson(res: http.ServerResponse, status: number, body: unknown): void {
-  res.writeHead(status, {
-    'Content-Type': 'application/json',
-    'Cache-Control': 'no-store',
-    'Access-Control-Allow-Origin': 'http://127.0.0.1',
-  })
-  res.end(JSON.stringify(body))
-}
-
-function sendDashboardEvents(req: http.IncomingMessage, res: http.ServerResponse): void {
-  res.writeHead(200, {
-    'Content-Type': 'text/event-stream; charset=utf-8',
-    'Cache-Control': 'no-cache, no-transform',
-    Connection: 'keep-alive',
-    'X-Accel-Buffering': 'no',
-  })
-  res.write(': connected\n\n')
-  void emitSessionChanges(res, 0).catch(() => undefined)
-  let since = Date.now()
-  const timer = setInterval(() => {
-    void emitSessionChanges(res, since).then((latest) => {
-      since = Math.max(since, latest)
-      res.write(`event: heartbeat\ndata: ${JSON.stringify({ at: Date.now() })}\n\n`)
-    }).catch(() => undefined)
-  }, 2000)
-  timer.unref()
-  req.on('close', () => clearInterval(timer))
-}
-
-async function emitSessionChanges(res: http.ServerResponse, since: number): Promise<number> {
-  let latest = since
-  const state = await collectReactDashboardState()
-  for (const session of state.sessions) {
-    if (session.lastActiveAt <= since) continue
-    latest = Math.max(latest, session.lastActiveAt)
-    res.write(`event: session.changed\ndata: ${JSON.stringify({ session })}\n\n`)
-  }
-  return latest
-}
-
-function serveDashboardAsset(req: http.IncomingMessage, res: http.ServerResponse, assetsDir: string, pathname: string): void {
-  let relative: string
-  try {
-    relative = pathname === '/' ? 'index.html' : decodeURIComponent(pathname.replace(/^\/+/, ''))
-  } catch {
-    sendDashboardJson(res, 400, { error: 'Bad path encoding' })
-    return
-  }
-  const root = path.resolve(assetsDir)
-  const requestedPath = path.resolve(root, relative)
-  const filePath = requestedPath === root || requestedPath.startsWith(root + path.sep)
-    ? requestedPath
-    : path.join(root, 'index.html')
-  const finalPath = fs.existsSync(filePath) && fs.statSync(filePath).isFile()
-    ? filePath
-    : path.join(root, 'index.html')
-
-  fs.readFile(finalPath, (error, data) => {
-    if (error) {
-      sendDashboardJson(res, 503, { error: 'Dashboard assets not built. Run npm run build.' })
-      return
-    }
-    res.writeHead(200, {
-      'Content-Type': contentTypeFor(finalPath),
-      'Cache-Control': finalPath.endsWith('index.html') ? 'no-cache' : 'public, max-age=31536000, immutable',
-    })
-    if (req.method === 'HEAD') res.end()
-    else res.end(data)
-  })
-}
-
-function contentTypeFor(filePath: string): string {
-  if (filePath.endsWith('.html')) return 'text/html; charset=utf-8'
-  if (filePath.endsWith('.js')) return 'text/javascript; charset=utf-8'
-  if (filePath.endsWith('.css')) return 'text/css; charset=utf-8'
-  if (filePath.endsWith('.svg')) return 'image/svg+xml'
-  return 'application/octet-stream'
 }
 
 function openBrowser(url: string): void {

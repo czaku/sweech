@@ -120,6 +120,32 @@ describe('launchTerminal', () => {
     });
   });
 
+  test('returns actionable failure when iTerm2 AppleScript launch fails', async () => {
+    execFileByCall((cmd) => {
+      if (cmd === 'mdfind') return '/Applications/iTerm.app\n';
+      if (cmd === 'osascript') return new Error('Not authorized to send Apple events');
+      return new Error(`unexpected ${cmd}`);
+    });
+
+    await expect(launchTerminal({ terminal: 'iterm2', command: ['tmux', 'attach', '-t', 's1'] })).resolves.toEqual({
+      ok: false,
+      reason: 'iTerm2 launch failed: Not authorized to send Apple events. Grant Automation permission for Terminal/iTerm control or choose another installed terminal.',
+    });
+  });
+
+  test('returns actionable failure when Terminal.app AppleScript launch fails', async () => {
+    execFileByCall((cmd) => {
+      if (cmd === 'mdfind') return '/System/Applications/Utilities/Terminal.app\n';
+      if (cmd === 'osascript') return new Error('execution error');
+      return new Error(`unexpected ${cmd}`);
+    });
+
+    await expect(launchTerminal({ terminal: 'terminal', command: ['echo', 'hello'] })).resolves.toEqual({
+      ok: false,
+      reason: 'Terminal.app launch failed: execution error. Grant Automation permission for Terminal control or choose another installed terminal.',
+    });
+  });
+
   test('launches generic terminals with -e argv and no shell', async () => {
     execFileByCall((cmd, args) => {
       if (cmd === 'which' && args[0] === 'kitty') return '/usr/local/bin/kitty\n';

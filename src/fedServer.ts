@@ -22,6 +22,7 @@ import { summarizeAccountsForTelemetry } from './usage'
 import { readAuditLog } from './auditLog'
 import { LogRotator, getServeLogPath } from './logRotator'
 import { scrubSecrets } from './scrubSecrets'
+import { createDashboardRequestHandler } from './dashboardServer'
 // `tokenRefresh` (via `oauth`) transitively pulls in `inquirer`, which is
 // an ESM-only package that jest can't load when test suites simply import
 // fedServer. The daemon-only callsite below uses a lazy require so the
@@ -111,9 +112,20 @@ rateLimitCleanupInterval.unref()
 const startTime = Date.now()
 
 export function createSweechFedServer(port: number): http.Server {
+  const handleDashboardRequest = createDashboardRequestHandler()
   const server = http.createServer(async (req, res) => {
-    const url = new URL(req.url ?? '/', 'http://localhost')
+    let url: URL
+    try {
+      url = new URL(req.url ?? '/', 'http://localhost')
+    } catch {
+      sendJson(res, 400, { error: 'Bad request target' })
+      return
+    }
     const pathname = url.pathname
+
+    if (await handleDashboardRequest(req, res)) {
+      return
+    }
 
     if (req.method === 'OPTIONS') {
       res.writeHead(204, { 'Access-Control-Allow-Origin': '*' })

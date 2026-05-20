@@ -2833,7 +2833,7 @@ program
 // ── sweech serve ───────────────────────────────────────────────────────────────
 program
   .command('serve')
-  .description('Start the fed integration server (exposes /healthz, /fed/info, /fed/runs, /fed/widget)')
+  .description('Start the fed integration server and local dashboard')
   .option('--port <number>', 'Port to listen on', '7854')
   .option('--install', 'Install as launchd daemon (macOS)')
   .option('--uninstall', 'Uninstall launchd daemon (macOS)')
@@ -2883,6 +2883,7 @@ program
     try {
       await startSweechFedServerWithShutdown(port);
       console.log(chalk.green(`sweech federation server running on :${port}`));
+      console.log(chalk.dim(`  /dashboard/ — local dashboard`));
       console.log(chalk.dim(`  /healthz    — health check`));
       console.log(chalk.dim(`  /fed/info   — metadata`));
       console.log(chalk.dim(`  /fed/runs   — account list`));
@@ -4111,7 +4112,7 @@ program
 // ── sweech dashboard ────────────────────────────────────────────────────────────
 program
   .command('dashboard')
-  .description('Open a local usage analytics dashboard in the browser')
+  .description('Open the local sweech dashboard in the browser')
   .option('--port <number>', 'Port to listen on (default: random available)')
   .option('--no-open', 'Do not auto-open the browser')
   .action(async (opts: { port?: string; open?: boolean }) => {

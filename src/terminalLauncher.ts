@@ -98,8 +98,12 @@ async function launchIterm2(options: LaunchTerminalOptions): Promise<LaunchTermi
     ? `tell application "iTerm2" to tell current window to create tab with default profile command "${appleScriptString(shellCommand(options))}"`
     : `tell application "iTerm2" to create window with default profile command "${appleScriptString(shellCommand(options))}"`;
   const args = ['-e', script];
-  await execFileAsync('osascript', args, { timeout: 5000 });
-  return launched('osascript', args);
+  try {
+    await execFileAsync('osascript', args, { timeout: 5000 });
+    return launched('osascript', args);
+  } catch (error) {
+    return failed('iTerm2', error, 'Grant Automation permission for Terminal/iTerm control or choose another installed terminal.');
+  }
 }
 
 async function launchTerminalApp(options: LaunchTerminalOptions): Promise<LaunchTerminalResult> {
@@ -109,8 +113,12 @@ async function launchTerminalApp(options: LaunchTerminalOptions): Promise<Launch
   }
   const script = `tell application "Terminal" to do script "${appleScriptString(shellCommand(options))}"`;
   const args = ['-e', script];
-  await execFileAsync('osascript', args, { timeout: 5000 });
-  return launched('osascript', args);
+  try {
+    await execFileAsync('osascript', args, { timeout: 5000 });
+    return launched('osascript', args);
+  } catch (error) {
+    return failed('Terminal.app', error, 'Grant Automation permission for Terminal control or choose another installed terminal.');
+  }
 }
 
 async function launchGeneric(options: LaunchTerminalOptions): Promise<LaunchTerminalResult> {
@@ -175,6 +183,11 @@ function appleScriptString(value: string): string {
 
 function missing(name: string, hint: string): LaunchTerminalResult {
   return { ok: false, reason: `${name} not found. ${hint}` };
+}
+
+function failed(name: string, error: unknown, hint: string): LaunchTerminalResult {
+  const message = error instanceof Error ? error.message : String(error);
+  return { ok: false, reason: `${name} launch failed: ${message}. ${hint}` };
 }
 
 function launched(command: string, args: string[]): LaunchTerminalResult {

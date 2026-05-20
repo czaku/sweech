@@ -3,13 +3,13 @@
   "title": "dashboardServer.ts + SSE event stream",
   "wave": "wave-7",
   "space": "space-cli",
-  "status": "todo",
+  "status": "done",
   "priority": "critical",
   "platform": null,
-  "assignee": null,
+  "assignee": "codex",
   "description": "Extend fedServer with /dashboard/* routes per spec §API. SSE handler at /dashboard/events with typed events (session.changed, audit.flagged, doctor.tick, peer.online/offline, cost.tick, summary.updated). Heartbeat every 15s. Static serve dist/dashboard/. Localhost-only refuses external.",
   "createdAt": "2026-05-18T11:00:00Z",
-  "updatedAt": "2026-05-18T11:00:00Z",
+  "updatedAt": "2026-05-20T20:22:31.000Z",
   "product": null,
   "lane": null,
   "stage": null,
@@ -18,7 +18,16 @@
   "attachments": [],
   "validationOverrides": null,
   "executionMode": null,
-  "statusHistory": [],
+  "statusHistory": [
+    {
+      "status": "active",
+      "ts": "2026-05-20T20:12:09.000Z"
+    },
+    {
+      "status": "done",
+      "ts": "2026-05-20T20:22:31.000Z"
+    }
+  ],
   "dependsOn": [],
   "runStatus": null,
   "size": "M",
@@ -32,6 +41,16 @@
       "at": "2026-05-20T19:56:31.535Z",
       "by": "codex",
       "text": "Partial prerequisite landed during T-DASH-001 hardening: sweech dashboard now serves dist/dashboard, /dashboard/state, /dashboard/sessions, and /dashboard/events with session.changed + heartbeat from 127.0.0.1. Full fedServer /dashboard/* typed events from spec remain open."
+    },
+    {
+      "ts": "2026-05-20T20:22:41.000Z",
+      "text": "Implemented dashboardServer.ts and wired sweech serve/startDashboard to serve React dashboard assets plus /dashboard/state, /dashboard/sessions filters, and /dashboard/events SSE. Proof: npm test -- --runInBand = 95 suites passed, 2341 passed, 5 skipped; npm run build passed; npx tsc --noEmit passed; npm audit found 0 vulnerabilities; Swift build passed; E2E daemon curl passed; screenshot saved at ~/Desktop/screenshots/sweech/dashboard-fedserver-T-DASH-005-2026-05-20.png.",
+      "by": "human"
+    },
+    {
+      "ts": "2026-05-20T20:32:52.000Z",
+      "text": "Final review proof after amended fixes: code/security/integration reviews completed; fixed SSE cleanup idempotency, invalid status 400s, unserializable SSE payload handling, and browser fetch-metadata origin behavior. Codex adversarial review via CODEX_HOME=/Users/luke/.codex-pole codex exec reported no blocking findings. Final gates: npm test -- --runInBand = 95 suites passed, 2345 tests passed, 5 skipped, 2350 total; npm run build passed; npx tsc --noEmit passed; npm audit --audit-level=moderate found 0 vulnerabilities; cd macos-menubar/SweechBar && swift build passed; git diff --check passed. E2E: live dist/cli.js serve returned dashboard state/session/SSE 200, bad Host 403, raw no-Origin API 403. Screenshot: ~/Desktop/screenshots/sweech/dashboard-fedserver-T-DASH-005-final-2026-05-20.png.",
+      "by": "human"
     }
   ]
 }
