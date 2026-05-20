@@ -331,11 +331,16 @@ export function createSweechFedServer(port: number): http.Server {
   return server
 }
 
-export async function startSweechFedServer(port: number): Promise<http.Server> {
+export interface SweechFedServerOptions {
+  host?: string;
+}
+
+export async function startSweechFedServer(port: number, options: SweechFedServerOptions = {}): Promise<http.Server> {
   const server = createSweechFedServer(port)
+  const host = options.host ?? '0.0.0.0'
   await new Promise<void>((resolve, reject) => {
     server.on('error', reject)
-    server.listen(port, '0.0.0.0', resolve)
+    server.listen(port, host, resolve)
   })
   return server
 }
@@ -350,8 +355,8 @@ export async function startSweechFedServer(port: number): Promise<http.Server> {
  * rotator runs immediately on start, then hourly, capped at 5 historical
  * files. Timer is unref'd, so it never blocks shutdown.
  */
-export async function startSweechFedServerWithShutdown(port: number): Promise<http.Server> {
-  const server = await startSweechFedServer(port)
+export async function startSweechFedServerWithShutdown(port: number, options: SweechFedServerOptions = {}): Promise<http.Server> {
+  const server = await startSweechFedServer(port, options)
 
   let logRotator: LogRotator | null = null
   try {

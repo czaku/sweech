@@ -42,6 +42,7 @@ claude-deep         # DeepSeek via Claude Code - $0.28/M tokens (cheapest!)
 
 - **Smart Sort** — Profiles with expiring weekly quota automatically rank first. Never waste what resets soonest.
 - **SweechBar** — macOS menu bar app with live usage, smart sort, launch buttons, and Cmd+Shift+S global hotkey.
+- **React dashboard** — `sweech dashboard` starts or attaches to the local fed server and opens the control panel served from `dist/dashboard/`.
 - **Federation API** — `sweech serve` exposes `/fed/widget`, `/fed/alerts`, `/fed/status` for integration with routing tools.
 - **733 tests** — Comprehensive coverage including integration tests, edge cases, and OAuth flows.
 - **AES-256 backups** — Encrypted backup/restore of all profile configurations and chat history.
@@ -367,6 +368,7 @@ sweech usage --history         # 24h sparkline trends
 sweech usage --json            # Machine-readable output
 sweech stats [name] [--json]   # Launch statistics with visual bars
 sweech serve [--port]          # Start federation HTTP server
+sweech dashboard [--port]      # Start/open the local React dashboard
 ```
 
 ### Provider Management

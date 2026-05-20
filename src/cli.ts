@@ -10,7 +10,7 @@ process.title = 'sweech'
 
 import { Command } from 'commander';
 import chalk from 'chalk';
-import { DEFAULT_DAEMON_PORT, envOrDefaultDaemonPort } from './constants';
+import { DEFAULT_DAEMON_PORT, DEFAULT_FED_PORT, envOrDefaultDaemonPort } from './constants';
 import { ConfigManager, resolveApiKey, type ProfileConfig } from './config';
 import { getProvider, getProviderList, PROVIDERS, displayGroup, isExternalProvider, parseCliType, type CLIType } from './providers';
 import { interactiveAddProvider, confirmRemoveProvider } from './interactive';
@@ -65,11 +65,59 @@ import { formatExpiry } from './expiryFormat';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
+import http from 'http';
 
 type DashboardSessionLifecycle = typeof import('./dashboardSessionLifecycle');
 
 function dashboardSessionLifecycle(): DashboardSessionLifecycle {
   return require('./dashboardSessionLifecycle') as DashboardSessionLifecycle;
+}
+
+function openDashboardBrowser(url: string): void {
+  const { execFile } = require('child_process') as typeof import('child_process');
+  const command = process.platform === 'darwin'
+    ? 'open'
+    : process.platform === 'win32'
+      ? 'cmd'
+      : 'xdg-open';
+  const args = process.platform === 'win32' ? ['/c', 'start', '', url] : [url];
+  execFile(command, args, () => { /* best effort; user can open the printed URL */ });
+}
+
+async function resolveFedDashboardPort(): Promise<number> {
+  try {
+    const cfgPath = path.join(os.homedir(), '.fed', 'config.json');
+    const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf-8')) as {
+      tools?: Record<string, { dash?: number; port?: number }>;
+    };
+    const configured = cfg?.tools?.sweech?.dash ?? cfg?.tools?.sweech?.port;
+    return typeof configured === 'number' && Number.isFinite(configured) && configured > 0
+      ? configured
+      : DEFAULT_FED_PORT;
+  } catch {
+    return DEFAULT_FED_PORT;
+  }
+}
+
+async function isDashboardAlreadyRunning(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const req = http.get({
+      host: '127.0.0.1',
+      port,
+      path: '/dashboard/state',
+      timeout: 800,
+      headers: { 'Sec-Fetch-Site': 'same-origin' },
+    }, (res) => {
+      const contentType = String(res.headers['content-type'] ?? '');
+      res.resume();
+      resolve(res.statusCode === 200 && contentType.includes('application/json'));
+    });
+    req.on('timeout', () => {
+      req.destroy();
+      resolve(false);
+    });
+    req.on('error', () => resolve(false));
+  });
 }
 
 // Read version from package.json
@@ -3015,7 +3063,7 @@ program
 program
   .command('serve')
   .description('Start the fed integration server and local dashboard')
-  .option('--port <number>', 'Port to listen on', '7854')
+  .option('--port <number>', 'Port to listen on', String(DEFAULT_FED_PORT))
   .option('--install', 'Install as launchd daemon (macOS)')
   .option('--uninstall', 'Uninstall launchd daemon (macOS)')
   .option('--status', 'Print launchd daemon status (macOS) and exit (0=running, 1=installed-not-running, 2=not installed)')
@@ -4294,19 +4342,31 @@ program
 // ── sweech dashboard ────────────────────────────────────────────────────────────
 program
   .command('dashboard')
-  .description('Open the local sweech dashboard in the browser')
-  .option('--port <number>', 'Port to listen on (default: random available)')
+  .description('Start the local fed server and open the React dashboard')
+  .option('--port <number>', 'Port to listen on (default: configured fed dashboard port)')
   .option('--no-open', 'Do not auto-open the browser')
   .action(async (opts: { port?: string; open?: boolean }) => {
+    const port = opts.port ? parseInt(opts.port, 10) : await resolveFedDashboardPort();
+    const url = `http://127.0.0.1:${port}/`;
     try {
-      const { startDashboard } = await import('./dashboard');
-      const portNum = opts.port ? parseInt(opts.port, 10) : undefined;
-      const { port } = await startDashboard({ port: portNum, open: opts.open });
-      console.log(chalk.green(`\n  sweech dashboard running at http://127.0.0.1:${port}\n`));
+      const { startSweechFedServerWithShutdown } = await import('./fedServer');
+      await startSweechFedServerWithShutdown(port, { host: '127.0.0.1' });
+      if (opts.open !== false) openDashboardBrowser(url);
+      console.log(chalk.green(`\n  sweech dashboard running at ${url}\n`));
       console.log(chalk.dim('  Press Ctrl+C to stop\n'));
       // Keep alive
       await new Promise(() => {});
     } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (/EADDRINUSE|address already in use/i.test(message)) {
+        if (await isDashboardAlreadyRunning(port)) {
+          if (opts.open !== false) openDashboardBrowser(url);
+          console.log(chalk.green(`\n  sweech dashboard already running at ${url}\n`));
+          return;
+        }
+        console.error(chalk.red('Dashboard failed:'), `port ${port} is already in use by a non-dashboard service`);
+        process.exit(1);
+      }
       const msg = scrubSecrets(error instanceof Error ? error.message : String(error));
       console.error(chalk.red('Dashboard failed:'), msg);
       process.exit(1);

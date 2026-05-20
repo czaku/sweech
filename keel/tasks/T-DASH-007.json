@@ -3,13 +3,13 @@
   "title": "Nuke old dashboard.ts + retarget sweech dashboard command",
   "wave": "wave-7",
   "space": "space-cli",
-  "status": "todo",
+  "status": "done",
   "priority": "high",
   "platform": null,
-  "assignee": null,
+  "assignee": "codex",
   "description": "Delete src/dashboard.ts. sweech dashboard now starts fed daemon + opens browser to new React app. Update README and AGENTS.md mentions.",
   "createdAt": "2026-05-18T11:00:00Z",
-  "updatedAt": "2026-05-18T11:00:00Z",
+  "updatedAt": "2026-05-20T22:43:42.000Z",
   "product": null,
   "lane": null,
   "stage": null,
@@ -18,7 +18,16 @@
   "attachments": [],
   "validationOverrides": null,
   "executionMode": null,
-  "statusHistory": [],
+  "statusHistory": [
+    {
+      "status": "active",
+      "ts": "2026-05-20T22:23:18.000Z"
+    },
+    {
+      "status": "done",
+      "ts": "2026-05-20T22:43:42.000Z"
+    }
+  ],
   "dependsOn": [
     "T-DASH-001",
     "T-DASH-005"
@@ -30,6 +39,11 @@
       "at": "2026-05-18T11:00:00Z",
       "by": "luke",
       "text": "Filed via /vy-backlog 2026-05-18. Spec: docs/specs/dashboard-2026-05-18.md, backlog: docs/specs/dashboard-2026-05-18-backlog.md"
+    },
+    {
+      "ts": "2026-05-20T22:43:42.000Z",
+      "text": "Done via /vy-go 2026-05-20. Deleted src/dashboard.ts and retargeted sweech dashboard to the React dashboard served by the fed server on localhost-only startup. Attach path now probes /dashboard/state before treating EADDRINUSE as an existing dashboard; non-dashboard port collisions exit non-zero. Updated README and product docs. Proof: npm test -- --runInBand = 97 suites passed, 2358 passed, 5 skipped; npm run build passed; npx tsc --noEmit passed; npm audit --audit-level=moderate found 0 vulnerabilities; cd macos-menubar/SweechBar && swift build passed; git diff --check passed. E2E: dist/cli.js dashboard served http://127.0.0.1:47921/, /dashboard/state returned JSON, screenshot saved at ~/Desktop/screenshots/sweech/dashboard-retarget-T-DASH-007-2026-05-20.png. Reviews: code review blocker fixed; Codex adversarial review reported no blocking findings.",
+      "by": "human"
     }
   ]
 }

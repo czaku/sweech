@@ -7,6 +7,7 @@
  */
 
 export const DEFAULT_DAEMON_PORT = 7801;
+export const DEFAULT_FED_PORT = 7854;
 
 /**
  * Resolve the daemon port honouring only the `SWEECH_PORT` env override.

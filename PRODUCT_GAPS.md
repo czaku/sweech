@@ -1,4 +1,4 @@
-# Product Gaps — sweech — 2026-05-18
+# Product Gaps — sweech — 2026-05-20
 
 ## Summary
 
@@ -21,14 +21,14 @@
 | Auto/failover/project pin routing | `src/autoCommand.ts`, `src/failover.ts`, `src/projectConfig.ts`, tests |
 | Federation base API | `src/fedServer.ts` exposes `/healthz`, `/fed/info`, `/fed/runs`, `/fed/widget`, `/fed/recommendation`, `/fed/route-recommendation`, `/fed/alerts` |
 | macOS SweechBar | `macos-menubar/SweechBar` builds successfully |
-| Legacy dashboard | `src/dashboard.ts` serves a usage analytics HTML page; screenshot captured |
+| React dashboard shell | `apps/dashboard` builds into `dist/dashboard`; `sweech dashboard` opens the fed-server-backed React app |
 
 ## Half-Built
 
 | Feature | What exists | What's missing |
 |---------|-------------|----------------|
-| Dashboard | Single HTML analytics page | React control panel, panels, SSE, settings, restore actions, federation state |
-| Session management | `sweech agents`, `sweech sessions`, test coverage | Durable `sessions.db`, tmux lifecycle, reboot recovery, terminal restore |
+| Dashboard | React shell, `/dashboard/state`, `/dashboard/sessions`, `/dashboard/events`, SSE, localhost-only asset serving | Production panels, settings, restore actions, federation state |
+| Session management | `sweech agents`, `sweech sessions`, durable `sessions.db`, tmux lifecycle, terminal launcher, wrapper writes | Full reboot recovery and one-click restore UX |
 | Federation | Base fed endpoints | LAN dashboard peer state, remote restore, compatibility handling |
 | Provider/account/workspace model | v2 vault and account list shipped | Deferred JSON schema v3 and full provider-tree UI |
 | SweechBar | Native app builds with account/workspace UI | v0.4 balance, briefing, daemon-backed dashboard parity |
@@ -38,7 +38,7 @@
 
 | Feature | Where promised | Reality |
 |---------|----------------|---------|
-| New React dashboard | Wave 7, dashboard spec | `apps/dashboard` does not exist yet |
+| Production dashboard panels | Wave 7, dashboard spec | Shell exists; workspaces/accounts/cost/audit/failover/billing panels still need real implementations |
 | AI session tile summaries | Wave 7 | No `sessionSummarizer.ts`, no summary columns in a sessions DB |
 | Daily briefing | Wave 7 | No `briefing.ts`, no dashboard/SweechBar briefing surface |
 
@@ -46,11 +46,10 @@
 
 | Finding | Evidence | Impact |
 |---------|----------|--------|
-| Test gate exits non-zero | `npm test -- --runInBand` reports 89/89 suites passing, 2,237/2,242 tests passing/skipped, then exits `2` | CI/local gates will treat a green-looking test run as failed |
+| Remaining dashboard scope is large | Shell and local state routes exist; many panels and restore workflows remain open | Risk of shipping a partially useful control panel if restore and real panel data lag |
 | Keel generated views are stale/thin | `views/roadmap.md` is empty; `views/tasks.md` shows only 3 tasks while task JSON has 120 files | Operators may work from an incomplete backlog if they trust generated views |
 | Wave 7 tasks lack acceptance criteria in JSON | All `T-DASH-*` tasks inspected report missing `acceptanceCriteria` | The spec is strong, but the executable task tracker is not delivery-ready |
-| New dashboard scope is oversized | 39 tasks, many cross-cutting, with several "critical" tasks depending on unbuilt foundations | High risk of half-shipping a UI shell without durable session recovery |
-| Legacy dashboard promise is mismatched | Help says "local usage analytics dashboard"; Wave 7 says "replace dashboard entirely" | Users expecting the new operator console will only get analytics today |
+| New dashboard scope is oversized | 39 tasks, many cross-cutting, with several "critical" tasks depending on unbuilt foundations | High risk of half-shipping a UI shell without durable recovery workflows |
 
 ## Conceptual Gaps
 
@@ -61,8 +60,8 @@
 
 ## Recommendations
 
-1. Fix the Jest exit-code bug first. A green summary with exit code 2 invalidates every delivery gate.
+1. Keep the full local gate green: `npm test -- --runInBand`, `npm run build`, `npx tsc --noEmit`, Swift build, audit, and diff check.
 2. Regenerate or repair Keel views, then add 3-5 binary acceptance criteria to every Wave 7 task before implementation.
-3. Ship v0.4 foundation in this order: `sessions.db`, tmux integration, terminal launcher, dashboard server/SSE, wrapper writes, then React UI.
+3. Continue v0.4 foundation in this order: AI summaries, federation routes, restore UX, real panels, balance/briefing, release gate.
 4. Do not build the dashboard as a decorative shell. The flagship feature is one-click recovery into the right terminal/tmux session.
-5. Keep the legacy dashboard until the new dashboard passes an end-to-end restore flow, then delete it in the retarget task.
+5. Treat the removed legacy dashboard as gone; do not recreate an inline HTML fallback unless Keel explicitly reopens that decision.

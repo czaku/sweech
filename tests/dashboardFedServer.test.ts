@@ -3,7 +3,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { createDashboardRequestHandler, isLocalDashboardClient, publishDashboardEvent } from '../src/dashboardServer';
-import { createSweechFedServer } from '../src/fedServer';
+import { createSweechFedServer, startSweechFedServer } from '../src/fedServer';
 
 const mockList = jest.fn();
 const mockClose = jest.fn();
@@ -62,6 +62,14 @@ describe('fed dashboard routes', () => {
     expect(body.sessions).toHaveLength(1);
     expect(body.sessions[0]).toMatchObject({ id: 's1', workspace: 'sweech', status: 'live' });
     expect(mockClose).toHaveBeenCalledTimes(1);
+  });
+
+  test('fed server can be constrained to localhost for dashboard startup', async () => {
+    server = await startSweechFedServer(0, { host: '127.0.0.1' });
+
+    const address = server.address();
+    expect(typeof address).toBe('object');
+    expect(address && typeof address === 'object' ? address.address : '').toBe('127.0.0.1');
   });
 
   test('dashboard sessions endpoint forwards documented filters to sessions.db', async () => {
