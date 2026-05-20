@@ -813,6 +813,7 @@ export class ConfigManager {
     const files = isCodex ? [...CODEX_SHAREABLE_FILES, ...CODEX_SHAREABLE_DBS]
       : isKimi ? KIMI_SHAREABLE_FILES
       : SHAREABLE_FILES;
+    const sqliteFiles = isCodex ? CODEX_SHAREABLE_DBS : [];
 
     let repaired = 0;
     for (const item of [...dirs, ...files]) {
@@ -822,7 +823,21 @@ export class ConfigManager {
       // Fast path: already the correct symlink → skip.
       try {
         const stat = fs.lstatSync(linkPath);
-        if (stat.isSymbolicLink() && fs.readlinkSync(linkPath) === targetPath) continue;
+        if (stat.isSymbolicLink() && fs.readlinkSync(linkPath) === targetPath) {
+          if (fs.existsSync(targetPath)) continue;
+          if ((dirs as readonly string[]).includes(item)) {
+            try {
+              fs.mkdirSync(targetPath, { recursive: true, mode: 0o700 });
+              repaired++;
+            } catch { /* skip */ }
+          } else if ((files as readonly string[]).includes(item) && !(sqliteFiles as readonly string[]).includes(item)) {
+            try {
+              fs.writeFileSync(targetPath, '');
+              repaired++;
+            } catch { /* skip */ }
+          }
+          continue;
+        }
       } catch { /* missing — repair below */ }
 
       // Target must exist before we link. For dirs we can create the
@@ -831,6 +846,9 @@ export class ConfigManager {
       if (!fs.existsSync(targetPath)) {
         if ((dirs as readonly string[]).includes(item)) {
           try { fs.mkdirSync(targetPath, { recursive: true, mode: 0o700 }); }
+          catch { continue; }
+        } else if ((files as readonly string[]).includes(item) && !(sqliteFiles as readonly string[]).includes(item)) {
+          try { fs.writeFileSync(targetPath, ''); }
           catch { continue; }
         } else {
           continue;
@@ -861,6 +879,65 @@ export class ConfigManager {
     }
 
     return repaired;
+  }
+
+  public previewProfileSharedDirRepairs(commandName: string): Array<{ profile: string; name: string; target: string; reason: string }> {
+    const profile = this.getProfiles().find(p => p.commandName === commandName);
+    if (!profile || !profile.sharedWith) return [];
+
+    const profileDir = this.getProfileDir(commandName);
+    if (!fs.existsSync(profileDir)) return [];
+
+    const isCodex = profile.cliType === 'codex'
+      || profile.sharedWith === 'codex'
+      || commandName.startsWith('codex');
+    const isKimi = profile.cliType === 'kimi'
+      || profile.sharedWith === 'kimi'
+      || commandName.startsWith('kimi');
+
+    const defaultDirs = ['claude', 'codex', 'kimi'];
+    const masterDir = defaultDirs.includes(profile.sharedWith)
+      ? path.join(os.homedir(), `.${profile.sharedWith}`)
+      : this.getProfileDir(profile.sharedWith);
+    if (!fs.existsSync(masterDir)) return [];
+
+    const dirs = isCodex ? CODEX_SHAREABLE_DIRS
+      : isKimi ? KIMI_SHAREABLE_DIRS
+      : SHAREABLE_DIRS;
+    const files = isCodex ? [...CODEX_SHAREABLE_FILES, ...CODEX_SHAREABLE_DBS]
+      : isKimi ? KIMI_SHAREABLE_FILES
+      : SHAREABLE_FILES;
+    const sqliteFiles = isCodex ? CODEX_SHAREABLE_DBS : [];
+
+    const planned: Array<{ profile: string; name: string; target: string; reason: string }> = [];
+    for (const item of [...dirs, ...files]) {
+      const linkPath = path.join(profileDir, item);
+      const targetPath = path.join(masterDir, item);
+      const isDir = (dirs as readonly string[]).includes(item);
+
+      try {
+        const stat = fs.lstatSync(linkPath);
+        if (stat.isSymbolicLink()) {
+          const actual = fs.readlinkSync(linkPath);
+          if (actual === targetPath) {
+            const fixableFile = (files as readonly string[]).includes(item) && !(sqliteFiles as readonly string[]).includes(item);
+            if (!fs.existsSync(targetPath) && (isDir || fixableFile)) {
+              planned.push({ profile: commandName, name: item, target: targetPath, reason: 'dangling-target-create' });
+            }
+            continue;
+          }
+          planned.push({ profile: commandName, name: item, target: targetPath, reason: fs.existsSync(linkPath) ? 'wrong-target' : 'dangling' });
+          continue;
+        }
+        planned.push({ profile: commandName, name: item, target: targetPath, reason: 'real-entry' });
+      } catch {
+        const fixableFile = (files as readonly string[]).includes(item) && !(sqliteFiles as readonly string[]).includes(item);
+        if (fs.existsSync(targetPath) || isDir || fixableFile) {
+          planned.push({ profile: commandName, name: item, target: targetPath, reason: fs.existsSync(targetPath) ? 'missing' : 'target-create' });
+        }
+      }
+    }
+    return planned;
   }
 
   /**

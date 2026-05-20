@@ -68,6 +68,14 @@ sweech profile audit [--json] [--prune]  # flag dormant + identity cross-bleed +
 sweech serve --status                    # launchd daemon health (exit 0=running, 1=installed-not-running, 2=not installed)
 ```
 
+## Recovery
+
+```bash
+sweech doctor                            # reports shared workspace symlinks as OK / MISSING / DANGLING / REAL_FILE / WRONG_TARGET
+sweech doctor --fix                      # repairs missing, dangling, and wrong-target shared symlinks idempotently
+sweech doctor --heal-dry-run --json      # machine-readable repair preview
+```
+
 ### `sweech auto --json` shape
 
 When run in a project with `./.sweech.json`, the output gains a `pinApplied` field:

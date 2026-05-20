@@ -25,6 +25,13 @@ import { findProjectPin, PIN_FILENAME } from './projectConfig';
 
 const execFileAsync = promisify(execFile);
 
+function displayPath(value: string): string {
+  return value.replace(/[\x00-\x1F\x7F-\x9F]/g, ch => {
+    const code = ch.charCodeAt(0).toString(16).padStart(2, '0');
+    return `\\x${code}`;
+  });
+}
+
 /**
  * Check if sweetch bin directory is in PATH
  */
@@ -342,15 +349,14 @@ export async function runHeal(opts: { dryRun?: boolean; json?: boolean } = {}): 
   // a new dir/file got added to the shareable list" case).
   const sweepResult: {
     repairs: Array<{ profile: string; repaired: number }>;
+    planned: Array<{ profile: string; name: string; target: string; reason: string }>;
     skipped: Array<{ profile: string; reason: string }>;
-  } = { repairs: [], skipped: [] };
+  } = { repairs: [], planned: [], skipped: [] };
 
   for (const profile of profiles) {
     if (!profile.sharedWith) continue;
     if (dryRun) {
-      // Dry-run sweep is informational only; the snapshot pass already
-      // reported what's missing for snapshot-known profiles.
-      sweepResult.skipped.push({ profile: profile.commandName, reason: 'dry-run' });
+      sweepResult.planned.push(...config.previewProfileSharedDirRepairs(profile.commandName));
       continue;
     }
     try {
@@ -381,16 +387,17 @@ export async function runHeal(opts: { dryRun?: boolean; json?: boolean } = {}): 
   const totalCreated = snapResult.linksCreated.length;
   const totalHealed = snapResult.collisionsHealed.length;
   const totalSweepRepairs = sweepResult.repairs.reduce((sum, r) => sum + r.repaired, 0);
+  const totalPlanned = sweepResult.planned.length;
   const totalSkipped = snapResult.collisionsSkipped.length;
 
-  if (totalCreated === 0 && totalHealed === 0 && totalSweepRepairs === 0 && totalSkipped === 0) {
+  if (totalCreated === 0 && totalHealed === 0 && totalSweepRepairs === 0 && totalPlanned === 0 && totalSkipped === 0) {
     console.log(chalk.green('  ✓ Nothing to heal — all share topology intact.'));
   }
 
   if (snapResult.linksCreated.length > 0) {
     console.log(chalk.bold('Symlinks recreated from snapshot:'));
     for (const item of snapResult.linksCreated) {
-      console.log(chalk.green(`  ✓ ${item.profile}/${item.name} → ${item.target}`));
+      console.log(chalk.green(`  ✓ ${item.profile}/${item.name} → ${displayPath(item.target)}`));
     }
     console.log();
   }
@@ -399,8 +406,8 @@ export async function runHeal(opts: { dryRun?: boolean; json?: boolean } = {}): 
     console.log(chalk.bold('Collisions resolved (backup + master-wins merge + symlink):'));
     for (const item of snapResult.collisionsHealed) {
       console.log(chalk.yellow(`  ✓ ${item.profile}/${item.name}`));
-      console.log(chalk.gray(`      backup: ${item.backupPath}`));
-      console.log(chalk.gray(`      merged ${item.merged} file(s) into ${item.target}`));
+      console.log(chalk.gray(`      backup: ${displayPath(item.backupPath)}`));
+      console.log(chalk.gray(`      merged ${item.merged} file(s) into ${displayPath(item.target)}`));
     }
     console.log();
   }
@@ -409,6 +416,15 @@ export async function runHeal(opts: { dryRun?: boolean; json?: boolean } = {}): 
     console.log(chalk.bold('Steady-state sweep repairs:'));
     for (const item of sweepResult.repairs) {
       console.log(chalk.green(`  ✓ ${item.profile}: ${item.repaired} entr${item.repaired === 1 ? 'y' : 'ies'} repaired`));
+    }
+    console.log();
+  }
+
+  if (sweepResult.planned.length > 0) {
+    console.log(chalk.bold('Steady-state sweep would repair:'));
+    for (const item of sweepResult.planned) {
+      console.log(chalk.yellow(`  · ${item.profile}/${item.name} — ${item.reason}`));
+      console.log(chalk.gray(`      target: ${displayPath(item.target)}`));
     }
     console.log();
   }
@@ -853,52 +869,60 @@ export async function runDoctor(): Promise<void> {
         for (const item of [...expectedDirs, ...expectedFiles]) {
           const linkPath = path.join(profileDir, item);
           const expectedTarget = path.join(masterDir, item);
-          let status: 'ok' | 'missing' | 'not-symlink' | 'wrong-target' = 'ok';
+          let status: 'OK' | 'MISSING' | 'DANGLING' | 'REAL_FILE' | 'WRONG_TARGET' = 'OK';
+          let actualTarget: string | null = null;
 
           try {
             const stat = fs.lstatSync(linkPath);
             if (stat.isSymbolicLink()) {
-              const actual = fs.readlinkSync(linkPath);
-              if (actual !== expectedTarget) {
+              actualTarget = fs.readlinkSync(linkPath);
+              if (actualTarget === expectedTarget && !fs.existsSync(expectedTarget)) {
+                status = 'DANGLING';
+              } else if (actualTarget !== expectedTarget) {
                 try {
                   if (fs.realpathSync(linkPath) !== fs.realpathSync(expectedTarget)) {
-                    status = 'wrong-target';
+                    status = fs.existsSync(linkPath) ? 'WRONG_TARGET' : 'DANGLING';
                   }
                 } catch {
-                  status = 'wrong-target';
+                  status = fs.existsSync(linkPath) ? 'WRONG_TARGET' : 'DANGLING';
                 }
               }
             } else {
-              status = 'not-symlink';
+              status = 'REAL_FILE';
             }
           } catch {
-            status = 'missing';
+            status = 'MISSING';
           }
 
-          if (status === 'ok') {
-            console.log(chalk.green(`      ✓ ${item}`));
+          if (status === 'OK') {
+            console.log(chalk.green(`      OK ${item}`));
             severities.push('ok');
           } else {
             const isSqlite = item.endsWith('.sqlite');
             let problem = '';
             let fix = '';
 
-            if (status === 'missing') {
+            if (status === 'MISSING') {
               problem = 'missing';
               fix = isSqlite
                 ? `ln -s "${expectedTarget}" "${linkPath}" (ensure master DB exists first)`
                 : `ln -s "${expectedTarget}" "${linkPath}"`;
-            } else if (status === 'not-symlink') {
+            } else if (status === 'REAL_FILE') {
               problem = 'real file (not symlinked)';
               fix = isSqlite
                 ? `merge divergent data then replace with symlink (needs DB merge)`
                 : `rm "${linkPath}" && ln -s "${expectedTarget}" "${linkPath}"`;
+            } else if (status === 'DANGLING') {
+              problem = `dangling → ${actualTarget ? displayPath(actualTarget) : '(unreadable)'}`;
+              fix = isSqlite
+                ? `restore master DB "${expectedTarget}" before re-running sweech doctor --fix`
+                : `sweech doctor --fix`;
             } else {
-              problem = `wrong target → ${fs.readlinkSync(linkPath)}`;
-              fix = `rm "${linkPath}" && ln -s "${expectedTarget}" "${linkPath}"`;
+              problem = `wrong target → ${actualTarget ? displayPath(actualTarget) : '(unreadable)'}`;
+              fix = `sweech doctor --fix`;
             }
 
-            console.log(chalk.red(`      ✗ ${item}`) + chalk.gray(` — ${problem}`));
+            console.log(chalk.red(`      ${status} ${item}`) + chalk.gray(` — ${problem}`));
             symlinkIssues.push({ profile: profile.commandName, item, problem, fix });
             // Broken/missing share-links can silently desync session state — error, not warn.
             severities.push('error');
@@ -934,7 +958,7 @@ export async function runDoctor(): Promise<void> {
 
     for (const issue of simpleIssues) {
       console.log(chalk.gray(`# ${issue.profile}/${issue.item} — ${issue.problem}`));
-      console.log(`  ${issue.fix}`);
+      console.log(`  ${displayPath(issue.fix)}`);
     }
 
     if (sqliteIssues.length > 0) {

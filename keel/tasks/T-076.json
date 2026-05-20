@@ -3,13 +3,13 @@
   "title": "sweech doctor: heal stale/missing shared-dir symlinks on existing profiles",
   "wave": "wave-5",
   "space": "space-cli",
-  "status": "todo",
+  "status": "done",
   "priority": "critical",
   "platform": null,
-  "assignee": null,
+  "assignee": "codex",
   "description": "When SHAREABLE_DIRS or the share logic in setupSharedDirs evolves (e.g. `commands` and `agents` were added later), existing profiles with `sharedWith: <master>` set in ~/.sweech/config.json are NOT re-synced. The result: `~/.claude-pole/`, `~/.claude-ted/`, `~/.claude-headless/`, `~/.claude-xortron*/`, `~/.claude-heretic/` have NO `commands/` or `agents/` symlinks. When a user launches `claude-pole` and types `/vy-go`, Claude Code reports `Unknown command: /vy-go` because it reads from the empty profile dir.\n\nFix: add `sweech doctor` (or `sweech repair-symlinks`) that iterates every profile in config.json, checks `sharedWith`, and for each, re-runs the equivalent of `config.setupSharedDirs(commandName, sharedWith, cliType)` — but idempotent (skip if symlink already correct, repair if missing or broken).\n\nIn-scope:\n- Detect missing symlinks in every shared profile dir.\n- Detect dangling symlinks (target deleted).\n- Detect symlinks pointing at wrong master (sharedWith changed after profile creation).\n- Optionally rebuild from scratch with --force.\n\nOut-of-scope:\n- Migrating data from real-file states (already covered by setupSharedDirs).\n- Auto-running this on every sweech invocation (separate task: T-077).",
   "createdAt": "2026-05-17T22:00:00Z",
-  "updatedAt": "2026-05-17T22:00:00Z",
+  "updatedAt": "2026-05-20T11:25:00.931Z",
   "product": null,
   "lane": null,
   "stage": null,
@@ -18,7 +18,18 @@
   "attachments": [],
   "validationOverrides": null,
   "executionMode": null,
-  "statusHistory": [],
+  "statusHistory": [
+    {
+      "at": "2026-05-20T10:43:32.749Z",
+      "status": "active",
+      "by": "codex"
+    },
+    {
+      "at": "2026-05-20T11:25:00.931Z",
+      "status": "done",
+      "by": "codex"
+    }
+  ],
   "dependsOn": [],
   "runStatus": null,
   "size": "S",
@@ -27,6 +38,11 @@
       "at": "2026-05-17T22:00:00Z",
       "by": "luke",
       "text": "Surfaced in SENTI session 2026-05-17: claude-pole tab couldn't find /vy-go, /vy-product-gaps, /vy-backlog. ~/.claude/commands/ has 206 files (50 vy-); ~/.claude-pole/commands/ does not exist at all. setupSharedDirs in src/config.ts:795 has the right code path — it just never fires for profiles created before `commands` was added to SHAREABLE_DIRS."
+    },
+    {
+      "at": "2026-05-20T11:25:00.931Z",
+      "by": "codex",
+      "text": "Implemented doctor shared symlink repair polish: --fix alias, explicit OK/MISSING/DANGLING/REAL_FILE/WRONG_TARGET labels, E2E tests for missing/dangling/fix flows, and SWEECH_GUIDE recovery docs. Verified npm run build, npm test -- --runInBand, npx tsc --noEmit, SweechBar swift build, and isolated HOME doctor --fix smoke."
     }
   ],
   "acceptanceCriteria": [

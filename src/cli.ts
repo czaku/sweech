@@ -1968,12 +1968,13 @@ program
 program
   .command('doctor')
   .description('Check sweetch installation and configuration')
+  .option('--fix', 'Alias for --heal: repair share-topology drift across managed profiles.')
   .option('--heal', 'Repair share-topology drift: missing/wrong shareable symlinks across managed profiles. Auto-backs up real data before merging into the master target.')
   .option('--heal-dry-run', 'Same as --heal but reports actions without modifying disk.')
   .option('--json', 'Emit machine-readable output (only honored with --heal/--heal-dry-run).')
-  .action(async (opts: { heal?: boolean; healDryRun?: boolean; json?: boolean }) => {
+  .action(async (opts: { fix?: boolean; heal?: boolean; healDryRun?: boolean; json?: boolean }) => {
     try {
-      if (opts.heal || opts.healDryRun) {
+      if (opts.fix || opts.heal || opts.healDryRun) {
         const { runHeal } = await import('./utilityCommands');
         await runHeal({ dryRun: !!opts.healDryRun, json: !!opts.json });
         return;
