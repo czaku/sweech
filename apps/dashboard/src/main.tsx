@@ -2,6 +2,8 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { Card, ThemeProvider, themes } from '@vykeai/vysual-react';
 import { create } from 'zustand';
+import { FreshnessChip, HeroStrip, ViewerCountBadge } from './components/HeroStrip';
+import { type DoctorCheck, deriveHeroStats } from './components/heroStats';
 import './styles.css';
 
 type SessionStatus = 'live' | 'tmux-detached' | 'crash-recoverable' | 'closed';
@@ -14,19 +16,32 @@ type DashboardSession = {
   status: SessionStatus;
   lastActiveAt?: number;
   last_active_at?: number;
+  launchedAt?: number | null;
+  launched_at?: number | null;
+  summaryCostUsd?: number | null;
+  summary_cost_usd?: number | null;
+  summaryAt?: number | null;
+  summary_at?: number | null;
+  summaryStale?: boolean;
+  summary_stale?: boolean;
+  attachClients?: number;
+  attach_clients?: number;
 };
 
 type DashboardState = {
   sessions: DashboardSession[];
+  doctorChecks: DoctorCheck[];
   connected: boolean;
   panels: Record<string, 'idle' | 'loading' | 'ready'>;
   setConnected: (connected: boolean) => void;
   applySessions: (sessions: DashboardSession[]) => void;
   upsertSession: (session: DashboardSession) => void;
+  applyDoctorTick: (payload: unknown) => void;
 };
 
 const useDashboardStore = create<DashboardState>((set) => ({
   sessions: [],
+  doctorChecks: [],
   connected: false,
   panels: {
     sessions: 'idle',
@@ -41,6 +56,10 @@ const useDashboardStore = create<DashboardState>((set) => ({
   upsertSession: (session) => set((state) => ({
     sessions: [session, ...state.sessions.filter((item) => item.id !== session.id)],
     panels: { ...state.panels, sessions: 'ready' },
+  })),
+  applyDoctorTick: (payload) => set((state) => ({
+    doctorChecks: doctorChecksFromPayload(payload),
+    panels: { ...state.panels, audit: 'ready' },
   })),
 }));
 
@@ -64,6 +83,7 @@ function useInitialState(url: string) {
 function useSSE(url: string) {
   const setConnected = useDashboardStore((state) => state.setConnected);
   const upsertSession = useDashboardStore((state) => state.upsertSession);
+  const applyDoctorTick = useDashboardStore((state) => state.applyDoctorTick);
 
   React.useEffect(() => {
     let retry = 500;
@@ -89,6 +109,13 @@ function useSSE(url: string) {
           return;
         }
       };
+      const handleDoctorTick = (event: MessageEvent) => {
+        try {
+          applyDoctorTick(JSON.parse(event.data));
+        } catch {
+          return;
+        }
+      };
       source.onmessage = (event) => {
         try {
           const payload = JSON.parse(event.data);
@@ -101,6 +128,7 @@ function useSSE(url: string) {
         }
       };
       source.addEventListener('session.changed', handleSessionChanged);
+      source.addEventListener('doctor.tick', handleDoctorTick);
       source.onerror = () => {
         setConnected(false);
         source?.close();
@@ -116,16 +144,7 @@ function useSSE(url: string) {
       source?.close();
       if (timer) clearTimeout(timer);
     };
-  }, [setConnected, upsertSession, url]);
-}
-
-function Metric({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="metric">
-      <span>{label}</span>
-      <strong>{value}</strong>
-    </div>
-  );
+  }, [applyDoctorTick, setConnected, upsertSession, url]);
 }
 
 function PlaceholderPanel({ title, detail }: { title: string; detail: string }) {
@@ -140,23 +159,19 @@ function PlaceholderPanel({ title, detail }: { title: string; detail: string }) 
 function App() {
   useInitialState('/dashboard/state');
   useSSE('/dashboard/events');
-  const { connected, sessions } = useDashboardStore();
-  const liveCount = sessions.filter((session) => session.status === 'live').length;
-  const recoverableCount = sessions.filter((session) => session.status === 'crash-recoverable').length;
+  const { connected, sessions, doctorChecks } = useDashboardStore();
+  const heroSessions = sessions.map((session) => ({
+    ...session,
+    summaryCostUsd: session.summaryCostUsd ?? session.summary_cost_usd ?? null,
+    summaryAt: session.summaryAt ?? session.summary_at ?? null,
+    launchedAt: session.launchedAt ?? session.launched_at ?? null,
+  }));
+  const heroStats = deriveHeroStats(heroSessions, doctorChecks);
 
   return (
     <ThemeProvider theme={themes.sweech}>
       <main className="dashboard-shell">
-        <section className="hero-strip" aria-label="Dashboard summary">
-          <div>
-            <p className="eyebrow">sweech control panel</p>
-            <h1>Sessions, accounts, routing, and recovery</h1>
-          </div>
-          <Metric label="Doctor" value={connected ? 'streaming' : 'waiting'} />
-          <Metric label="Live" value={String(liveCount)} />
-          <Metric label="Recoverable" value={String(recoverableCount)} />
-          <Metric label="Cost MTD" value="$0.00" />
-        </section>
+        <HeroStrip connected={connected} stats={heroStats} />
 
         <Card className="sessions-panel">
           <div className="panel-heading">
@@ -176,7 +191,11 @@ function App() {
                   <span className={`status-dot status-${session.status}`} />
                   <strong>{session.workspace}</strong>
                   <p>{session.cwd}</p>
-                  <span>{session.machine}</span>
+                  <div className="session-meta">
+                    <span>{session.machine}</span>
+                    <FreshnessChip state={session.summaryStale ?? session.summary_stale ? 'stale' : 'fresh'} />
+                    <ViewerCountBadge count={session.attachClients ?? session.attach_clients ?? 0} />
+                  </div>
                 </article>
               ))}
             </div>
@@ -194,6 +213,18 @@ function App() {
       </main>
     </ThemeProvider>
   );
+}
+
+function doctorChecksFromPayload(payload: unknown): DoctorCheck[] {
+  if (!payload || typeof payload !== 'object') return [];
+  const source = payload as { checks?: unknown; data?: { checks?: unknown }; ok?: boolean; status?: DoctorCheck['status'] };
+  const checks = Array.isArray(source.checks)
+    ? source.checks
+    : Array.isArray(source.data?.checks)
+      ? source.data.checks
+      : undefined;
+  if (checks) return checks.filter((check): check is DoctorCheck => Boolean(check && typeof check === 'object'));
+  return [{ ok: source.ok, status: source.status }];
 }
 
 createRoot(document.getElementById('root')!).render(<App />);
