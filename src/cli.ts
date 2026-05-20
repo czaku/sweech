@@ -29,10 +29,8 @@ import { runReset } from './reset';
 import { runInit, isFirstRun } from './init';
 import { createProfile } from './profileCreation';
 import { createManagedProfile, getManageableProviders, removeManagedProfile, renameManagedProfile } from './profileManagement';
-import { runLauncher } from './launcher';
 import { baseNameForSession, isTmuxAvailable, launchInTmux } from './tmux';
 import { buildLaunchArgs, shouldUseTmux, SWEECH_LAUNCH_FLAGS } from './launchCommand';
-import { closeDashboardSession, createDashboardLaunchId, recordDashboardSessionLaunch } from './dashboardSessionLifecycle';
 import { getAccountInfo, getKnownAccounts, setMeta } from './subscriptions';
 import { kickBackgroundRefresh } from './backgroundRefresh';
 import { recommendRoute, suggestBestAccount } from './accountSelector';
@@ -57,7 +55,6 @@ import {
 } from './failover';
 import { appendSnapshot, allAccountSparklines } from './usageHistory';
 import { recordProjectionSamples, getAccountProjection, formatEta } from './quotaProjection';
-import { startSweechFedServerWithShutdown } from './fedServer';
 import { scrubSecrets } from './scrubSecrets';
 import { checkForUpdate, fetchChangelog, shouldSkipUpdateCheck } from './updateChecker';
 import { asciiBar, barColor } from './charts';
@@ -68,6 +65,12 @@ import { formatExpiry } from './expiryFormat';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
+
+type DashboardSessionLifecycle = typeof import('./dashboardSessionLifecycle');
+
+function dashboardSessionLifecycle(): DashboardSessionLifecycle {
+  return require('./dashboardSessionLifecycle') as DashboardSessionLifecycle;
+}
 
 // Read version from package.json
 const packageJsonPath = path.join(__dirname, '../package.json');
@@ -1204,6 +1207,7 @@ program
     delete env.CLAUDECODE;
     delete env.CLAUDE_CODE_ENTRYPOINT;
 
+    const { closeDashboardSession, createDashboardLaunchId, recordDashboardSessionLaunch } = dashboardSessionLifecycle();
     const launchedAfterMs = Date.now();
     const launchId = createDashboardLaunchId(profile?.commandName ?? cli.command, process.cwd());
     const tmuxName = isTmuxAvailable()
@@ -1570,6 +1574,7 @@ program
       forced: !!opts.force,
     });
 
+    const { closeDashboardSession, createDashboardLaunchId, recordDashboardSessionLaunch } = dashboardSessionLifecycle();
     const launchedAfterMs = Date.now();
     const launchId = createDashboardLaunchId(profileName, process.cwd());
     const tmuxName = useTmux ? baseNameForSession(profileName, process.cwd()) : null;
@@ -2029,6 +2034,7 @@ program
     quiet?: boolean;
   }) => {
     try {
+      const { recordDashboardSessionLaunch } = dashboardSessionLifecycle();
       const jsonlAfterMs = opts.jsonlAfterMs ? Number.parseInt(opts.jsonlAfterMs, 10) : undefined;
       const session = recordDashboardSessionLaunch({
         id: opts.id,
@@ -2059,6 +2065,7 @@ program
   .option('--quiet', 'Suppress output')
   .action((opts: { id?: string; tmuxName?: string; quiet?: boolean }) => {
     try {
+      const { closeDashboardSession } = dashboardSessionLifecycle();
       const session = closeDashboardSession({ id: opts.id, tmuxName: opts.tmuxName });
       if (!opts.quiet) console.log(JSON.stringify({ id: session?.id ?? null, status: session?.status ?? null }));
       process.exit(0);
@@ -3055,6 +3062,7 @@ program
     }
     const port = parseInt(opts.port, 10);
     try {
+      const { startSweechFedServerWithShutdown } = await import('./fedServer');
       await startSweechFedServerWithShutdown(port);
       console.log(chalk.green(`sweech federation server running on :${port}`));
       console.log(chalk.dim(`  /dashboard/ — local dashboard`));
@@ -6573,7 +6581,7 @@ if (process.argv.length <= 2) {
       process.exit(1);
     });
   } else {
-    runLauncher().catch(err => {
+    import('./launcher').then(({ runLauncher }) => runLauncher()).catch(err => {
       console.error(chalk.red('Error:'), err.message);
       process.exit(1);
     });

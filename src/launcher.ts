@@ -18,9 +18,14 @@ import { recordProjectionSamples, getAccountProjection, formatEta } from './quot
 import { sweechEvents } from './events';
 import { runHook } from './plugins';
 import { baseNameForSession, isTmuxAvailable, launchInTmux } from './tmux';
-import { closeDashboardSession, createDashboardLaunchId, recordDashboardSessionLaunch } from './dashboardSessionLifecycle';
 import { scrubSecrets } from './scrubSecrets';
 import { formatExpiry } from './expiryFormat';
+
+type DashboardSessionLifecycle = typeof import('./dashboardSessionLifecycle');
+
+function dashboardSessionLifecycle(): DashboardSessionLifecycle {
+  return require('./dashboardSessionLifecycle') as DashboardSessionLifecycle;
+}
 
 interface UsageBar {
   label: string;
@@ -1024,6 +1029,7 @@ export async function runLauncher(): Promise<void> {
         tmux: useTmuxNow,
       });
 
+      const { closeDashboardSession, createDashboardLaunchId, recordDashboardSessionLaunch } = dashboardSessionLifecycle();
       const launchedAfterMs = Date.now();
       const launchId = createDashboardLaunchId(entry.name, process.cwd());
       const tmuxName = useTmuxNow ? baseNameForSession(entry.name, process.cwd()) : null;
