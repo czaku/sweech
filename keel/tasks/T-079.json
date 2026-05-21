@@ -3,13 +3,13 @@
   "title": "Audit + correct cliType=codex misconfig on claude-* profiles",
   "wave": "wave-5",
   "space": "space-cli",
-  "status": "todo",
+  "status": "done",
   "priority": "medium",
   "platform": null,
-  "assignee": null,
+  "assignee": "codex",
   "description": "Two profiles in ~/.sweech/config.json have inconsistent cliType: `claude-or-pole` and `claude-mm-pro` both have `cliType: codex` despite the `claude-` name prefix. The on-disk dirs `~/.claude-or-pole/` and `~/.claude-mm-pro/` look like Claude profile dirs (218 commands each, including vy-*) — not Codex ones.\n\nThe wrong cliType means `setupSharedDirs` would pick `CODEX_SHAREABLE_DIRS` instead of `SHAREABLE_DIRS` — which is why these profiles never got the standard Claude shared layout but instead accumulated their own copies.\n\nFix:\n1. Add a `sweech validate-config` check that flags name-prefix vs cliType mismatches\n2. Offer `--fix-cli-type` to correct config entries based on the name prefix when on-disk evidence agrees (e.g. dir has claude-shaped contents)\n3. After correction, T-076's doctor should pick them up and convert their bespoke commands/agents into proper shared symlinks (or warn that the divergent content needs manual review first)",
   "createdAt": "2026-05-17T22:00:00Z",
-  "updatedAt": "2026-05-17T22:00:00Z",
+  "updatedAt": "2026-05-21T00:09:29.000Z",
   "product": null,
   "lane": null,
   "stage": null,
@@ -18,7 +18,16 @@
   "attachments": [],
   "validationOverrides": null,
   "executionMode": null,
-  "statusHistory": [],
+  "statusHistory": [
+    {
+      "status": "active",
+      "ts": "2026-05-20T23:59:27.000Z"
+    },
+    {
+      "status": "done",
+      "ts": "2026-05-21T00:09:29.000Z"
+    }
+  ],
   "dependsOn": [],
   "runStatus": null,
   "size": "XS",
@@ -27,6 +36,11 @@
       "at": "2026-05-17T22:00:00Z",
       "by": "luke",
       "text": "Surfaced while investigating /vy-go Unknown command in claude-pole. Side-effect of the same investigation: noticed claude-or-pole + claude-mm-pro have cliType=codex sharedWith=None, contradicting the name and the dir contents."
+    },
+    {
+      "ts": "2026-05-21T00:09:40.000Z",
+      "text": "Done via /vy-go 2026-05-21. Added sweech validate-config with JSON output, line-numbered cliType mismatch findings, Claude disk-shape confirmation via ~/.<profile>/projects, --fix-cli-type dry-run/confirmation semantics, and loud non-auto-fix warnings for disk evidence that disagrees with both prefix and config. Proof: npm test -- --runInBand tests/postinstallHeal.test.ts tests/cliTypeAudit.test.ts passed 24 tests; npm test -- --runInBand passed 99 suites, 2387 tests, 5 skipped; npm run build passed; npx tsc --noEmit passed; npm audit --audit-level=moderate found 0 vulnerabilities; cd macos-menubar/SweechBar && swift build passed; git diff --check passed. E2E: isolated HOME validate-config --json reported a mismatch with a config line number, and validate-config --fix-cli-type --yes --json corrected cliType from codex to claude.",
+      "by": "human"
     }
   ],
   "acceptanceCriteria": [

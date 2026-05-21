@@ -3,13 +3,13 @@
   "title": "Postinstall migration: resync all sharedWith profiles on sweech upgrade",
   "wave": "wave-5",
   "space": "space-cli",
-  "status": "todo",
+  "status": "done",
   "priority": "high",
   "platform": null,
-  "assignee": null,
+  "assignee": "codex",
   "description": "When users `npm i -g sweech@latest` (or brew upgrade), the postinstall script should detect profile-config schema drift and proactively resync all profiles with `sharedWith` set. Right now upgrades leave existing profiles in whatever symlink state they were in at creation time, even if SHAREABLE_DIRS has grown.\n\nFix: add a `scripts/postinstall.js` that:\n1. Reads ~/.sweech/config.json (skip if missing — fresh install)\n2. Compares `lastResyncedSweechVersion` field (new) against current package.json version\n3. If different (or absent), runs `sweech doctor --fix --quiet` and writes the new version back\n4. Prints a single line: 'sweech: resynced N profiles after upgrade to vX.Y.Z' (don't block, don't prompt)\n\nThis is the install-time companion to T-076 (manual heal) and T-077 (invocation-time heal). Together they form a 3-layer recovery: postinstall (eager) → invocation (lazy) → doctor (manual).",
   "createdAt": "2026-05-17T22:00:00Z",
-  "updatedAt": "2026-05-17T22:00:00Z",
+  "updatedAt": "2026-05-21T00:09:29.000Z",
   "product": null,
   "lane": null,
   "stage": null,
@@ -18,8 +18,19 @@
   "attachments": [],
   "validationOverrides": null,
   "executionMode": null,
-  "statusHistory": [],
-  "dependsOn": ["T-076"],
+  "statusHistory": [
+    {
+      "status": "active",
+      "ts": "2026-05-20T23:59:27.000Z"
+    },
+    {
+      "status": "done",
+      "ts": "2026-05-21T00:09:29.000Z"
+    }
+  ],
+  "dependsOn": [
+    "T-076"
+  ],
   "runStatus": null,
   "size": "S",
   "context": [
@@ -27,6 +38,11 @@
       "at": "2026-05-17T22:00:00Z",
       "by": "luke",
       "text": "The user discovered this when /vy-* skills were Unknown in a claude-pole session. Root cause traced to sweech profile dirs missing the commands/ + agents/ symlinks. The user has 16 sweech profiles — manually re-running doctor on each is a pit."
+    },
+    {
+      "ts": "2026-05-21T00:09:40.000Z",
+      "text": "Done via /vy-go 2026-05-21. Added package-shipped scripts/postinstall.js, switched npm postinstall to that script, moved the upgrade marker into config.json as lastResyncedSweechVersion, kept install failures non-blocking with audit/lifecycle logging, and added focused postinstall tests. Proof: npm test -- --runInBand tests/postinstallHeal.test.ts tests/cliTypeAudit.test.ts passed 24 tests; npm test -- --runInBand passed 99 suites, 2387 tests, 5 skipped; npm run build passed; npx tsc --noEmit passed; npm audit --audit-level=moderate found 0 vulnerabilities; cd macos-menubar/SweechBar && swift build passed; git diff --check passed. E2E: isolated HOME postinstall smoke repaired a drifted sharedWith profile and printed the one-line resync message.",
+      "by": "human"
     }
   ],
   "acceptanceCriteria": [
