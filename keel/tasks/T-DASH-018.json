@@ -3,13 +3,13 @@
   "title": "Ship 0.4.0",
   "wave": "wave-7",
   "space": "space-cli",
-  "status": "active",
+  "status": "blocked",
   "priority": "critical",
   "platform": null,
   "assignee": "codex",
   "description": "Bump package.json to 0.4.0. Run npm test, npm run build, commit, push. Verify sweech dashboard works end-to-end. Manual: real cross-machine restore.",
   "createdAt": "2026-05-18T11:00:00Z",
-  "updatedAt": "2026-05-21T10:36:54.000Z",
+  "updatedAt": "2026-05-21T10:51:44.000Z",
   "product": null,
   "lane": null,
   "stage": null,
@@ -22,6 +22,14 @@
     {
       "status": "active",
       "ts": "2026-05-21T10:36:54.000Z"
+    },
+    {
+      "status": "done",
+      "ts": "2026-05-21T10:49:33.000Z"
+    },
+    {
+      "status": "blocked",
+      "ts": "2026-05-21T10:51:44.000Z"
     }
   ],
   "dependsOn": [
@@ -35,6 +43,16 @@
       "at": "2026-05-18T11:00:00Z",
       "by": "luke",
       "text": "Filed via /vy-backlog 2026-05-18. Spec: docs/specs/dashboard-2026-05-18.md, backlog: docs/specs/dashboard-2026-05-18-backlog.md"
+    },
+    {
+      "ts": "2026-05-21T10:49:33.000Z",
+      "text": "Shipped 0.4.0 release metadata: package.json/package-lock.json now 0.4.0 and CHANGELOG v0.4.0 dated 2026-05-21. Release commit a2e9abd pushed to main. Gates passed: npm run build; npm test -- --runInBand (102 suites, 2469 passed, 5 skipped); PROJECT_SCREENSHOT_DIR=~/Desktop/screenshots/sweech npm run test:e2e:dashboard (6 Playwright tests); npm run typecheck:dashboard; npm audit --audit-level=moderate; swift build --package-path macos-menubar/SweechBar; git diff --check; node dist/cli.js --version returned 0.4.0; CLI help sanity; npm pack --dry-run --json produced sweech-0.4.0.tgz with README assets. UI proof screenshots reviewed in ~/Desktop/screenshots/sweech, including T-DASH-016-sse-filter-sort.png, T-DASH-010-sessions-panel-grid.png, T-DASH-010-sessions-panel-mobile.png, T-DASH-013-doctor-logs-plugins-templates-desktop.png, and T-DASH-014-settings-drawer-desktop.png. Cross-machine: mac-studio fast-forwarded to a2e9abd, built 0.4.0, /healthz reported version 0.4.0, signed MacBook -> mac-studio /fed/dashboard/state saw the seeded session, and signed /fed/dashboard/restore returned 200 with remote launcher proof for tmux attach. Direct Terminal.app launch from an SSH-started daemon returned 422 due macOS GUI automation, so the success proof used a Studio-hosted launcher stub while exercising real HMAC/state/restore over LAN. Initial Codex adversarial review only found the expected active-task procedural blocker before this writeback and a stale-count false positive; focused final re-review will run after this note.",
+      "by": "human"
+    },
+    {
+      "ts": "2026-05-21T10:51:44.000Z",
+      "text": "Release metadata and automated/local gates are complete and pushed, but final manual real cross-machine restore remains blocked: mac-studio is upgraded to 0.4.0 and built successfully; signed MacBook -> mac-studio /fed/dashboard/state worked; signed /fed/dashboard/restore worked through a Studio-hosted proof launcher and produced the expected tmux attach command; however the real Terminal.app launch path from an SSH-started daemon returned 422/hung due macOS GUI automation permissions. T-DASH-018 remains blocked until the fed daemon is started in the logged-in macOS GUI session on Studio, or Terminal/Automation permission is granted and a real visible terminal restore succeeds. Also removed old tracked repo-root sweech-0.1.0.tgz artifact flagged by final adversarial review.",
+      "by": "human"
     }
   ]
 }
