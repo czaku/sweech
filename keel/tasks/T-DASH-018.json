@@ -3,13 +3,13 @@
   "title": "Ship 0.4.0",
   "wave": "wave-7",
   "space": "space-cli",
-  "status": "todo",
+  "status": "active",
   "priority": "critical",
   "platform": null,
-  "assignee": null,
+  "assignee": "codex",
   "description": "Bump package.json to 0.4.0. Run npm test, npm run build, commit, push. Verify sweech dashboard works end-to-end. Manual: real cross-machine restore.",
   "createdAt": "2026-05-18T11:00:00Z",
-  "updatedAt": "2026-05-18T11:00:00Z",
+  "updatedAt": "2026-05-21T10:36:54.000Z",
   "product": null,
   "lane": null,
   "stage": null,
@@ -18,7 +18,12 @@
   "attachments": [],
   "validationOverrides": null,
   "executionMode": null,
-  "statusHistory": [],
+  "statusHistory": [
+    {
+      "status": "active",
+      "ts": "2026-05-21T10:36:54.000Z"
+    }
+  ],
   "dependsOn": [
     "T-DASH-017",
     "T-DASH-034"
