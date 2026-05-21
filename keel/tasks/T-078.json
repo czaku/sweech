@@ -43,6 +43,11 @@
       "ts": "2026-05-21T00:09:40.000Z",
       "text": "Done via /vy-go 2026-05-21. Added package-shipped scripts/postinstall.js, switched npm postinstall to that script, moved the upgrade marker into config.json as lastResyncedSweechVersion, kept install failures non-blocking with audit/lifecycle logging, and added focused postinstall tests. Proof: npm test -- --runInBand tests/postinstallHeal.test.ts tests/cliTypeAudit.test.ts passed 24 tests; npm test -- --runInBand passed 99 suites, 2387 tests, 5 skipped; npm run build passed; npx tsc --noEmit passed; npm audit --audit-level=moderate found 0 vulnerabilities; cd macos-menubar/SweechBar && swift build passed; git diff --check passed. E2E: isolated HOME postinstall smoke repaired a drifted sharedWith profile and printed the one-line resync message.",
       "by": "human"
+    },
+    {
+      "ts": "2026-05-21T00:18:36.000Z",
+      "text": "Adversarial follow-up: postinstall upgrade marker now writes ~/.sweech/config.json via atomicWriteFileSync instead of a direct write, preserving config integrity if the process is interrupted. Focused postinstall/cli-type tests, typecheck, build, and final Codex adversarial review passed.",
+      "by": "human"
     }
   ],
   "acceptanceCriteria": [
