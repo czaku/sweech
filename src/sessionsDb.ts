@@ -90,6 +90,17 @@ export interface StartupReconcileResult {
   crashRecoverable: number;
 }
 
+export interface UpdateDashboardSessionSummaryInput {
+  summaryOne?: string | null;
+  summaryBullets?: string[] | string | null;
+  summaryProvider?: string | null;
+  summaryModel?: string | null;
+  summaryCostUsd?: number | null;
+  summaryAt?: number | null;
+  summaryMsgAt?: number | null;
+  messageCount?: number | null;
+}
+
 interface SessionRow {
   id: string;
   workspace: string;
@@ -289,6 +300,44 @@ export class SessionsDb {
           summary_stale = CASE WHEN summary_msg_at IS NULL OR summary_msg_at < ? THEN 1 ELSE summary_stale END
       WHERE id = ?
     `).run(at, messageCount, msgCountFirst, messageCount, messageCount, id);
+
+    return this.byId(id);
+  }
+
+  updateSummary(id: string, input: UpdateDashboardSessionSummaryInput): DashboardSession | null {
+    const current = this.byId(id);
+    if (!current) return null;
+    const summaryBullets = Array.isArray(input.summaryBullets)
+      ? JSON.stringify(input.summaryBullets)
+      : input.summaryBullets ?? current.summaryBullets;
+    const summaryMsgAt = input.summaryMsgAt ?? input.messageCount ?? current.messageCount;
+    const messageCount = input.messageCount ?? current.messageCount;
+
+    this.db.prepare(`
+      UPDATE sessions
+      SET summary_one = ?,
+          summary_bullets = ?,
+          summary_provider = ?,
+          summary_model = ?,
+          summary_cost_usd = ?,
+          summary_at = ?,
+          summary_msg_at = ?,
+          summary_stale = 0,
+          message_count = MAX(message_count, ?),
+          msg_count_last = MAX(msg_count_last, ?)
+      WHERE id = ?
+    `).run(
+      input.summaryOne ?? current.summaryOne,
+      summaryBullets,
+      input.summaryProvider ?? current.summaryProvider,
+      input.summaryModel ?? current.summaryModel,
+      input.summaryCostUsd ?? current.summaryCostUsd,
+      input.summaryAt ?? Date.now(),
+      summaryMsgAt,
+      messageCount,
+      messageCount,
+      id,
+    );
 
     return this.byId(id);
   }
