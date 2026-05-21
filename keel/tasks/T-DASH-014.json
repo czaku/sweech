@@ -3,13 +3,13 @@
   "title": "Federation panel + Settings drawer + Setup wizard",
   "wave": "wave-7",
   "space": "space-cli",
-  "status": "active",
+  "status": "done",
   "priority": "high",
   "platform": null,
   "assignee": "codex",
   "description": "Federation: peer cards, last-seen, capabilities. Settings drawer (Q1): sections General/tmux/Terminal/Summaries/Federation/Retention/Refresh. Setup wizard: multi-step modal for first-launch (Q4).",
   "createdAt": "2026-05-18T11:00:00Z",
-  "updatedAt": "2026-05-21T06:56:29.000Z",
+  "updatedAt": "2026-05-21T07:13:29.000Z",
   "product": null,
   "lane": null,
   "stage": null,
@@ -22,6 +22,10 @@
     {
       "status": "active",
       "ts": "2026-05-21T06:56:29.000Z"
+    },
+    {
+      "status": "done",
+      "ts": "2026-05-21T07:13:29.000Z"
     }
   ],
   "dependsOn": [
@@ -36,6 +40,11 @@
       "at": "2026-05-18T11:00:00Z",
       "by": "luke",
       "text": "Filed via /vy-backlog 2026-05-18. Spec: docs/specs/dashboard-2026-05-18.md, backlog: docs/specs/dashboard-2026-05-18-backlog.md"
+    },
+    {
+      "ts": "2026-05-21T07:13:29.000Z",
+      "text": "Implemented dashboard federation peer panel, settings sidecar GET/PATCH + drawer, and first-launch setup wizard. Verified with npm build, full Jest (102 suites, 2468 passed, 5 skipped), dashboard typecheck, npm audit, Swift build, dashboard Playwright E2E, screenshot review in ~/Desktop/screenshots/sweech/T-DASH-014-settings-drawer-desktop.png, T-DASH-014-settings-drawer-mobile.png, and T-DASH-014-setup-wizard-mobile.png. Commit a525042 pushed to main.",
+      "by": "human"
     }
   ]
 }
