@@ -2,6 +2,7 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { ThemeProvider, themes } from '@vykeai/vysual-react';
 import { create } from 'zustand';
+import { CommandPalette } from './components/CommandPalette';
 import { HeroStrip } from './components/HeroStrip';
 import { type DoctorCheck, deriveHeroStats } from './components/heroStats';
 import { SettingsDrawer } from './components/SettingsDrawer';
@@ -434,6 +435,14 @@ function App() {
     <ThemeProvider theme={themes.sweech}>
       <main className="dashboard-shell">
         <HeroStrip connected={connected} stats={heroStats} />
+        <CommandPalette
+          sessions={sessions}
+          workspaces={workspaces}
+          accounts={accounts}
+          auditFindings={audit.findings}
+          settings={settings}
+          onOpenSettings={() => setSettingsOpen(true)}
+        />
 
         <SessionsPanel sessions={sessions} connected={connected} localMachine={localMachine} onOpenSetupWizard={() => setSetupOpen(true)} />
 

@@ -35,6 +35,33 @@ test('workspaces accounts and cost panels render real dashboard state', async ({
   });
   await page.goto(fixture.url, { waitUntil: 'domcontentloaded' });
 
+  await page.getByTestId('command-palette-trigger').click();
+  await expect(page.getByRole('dialog', { name: 'Command palette' })).toBeVisible();
+  await expect(page.getByTestId('command-result-workspace-claude-main')).toBeVisible();
+  await page.getByTestId('command-palette-search').fill('codex wrong');
+  await expect(page.getByTestId('command-result-audit-codex-wrong-provider_misconfig')).toBeVisible();
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('dialog', { name: 'Command palette' })).toHaveCount(0);
+  await expect(page.getByTestId('audit-fix-codex-wrong-provider_misconfig')).toBeFocused();
+  await page.getByTestId('command-palette-trigger').click();
+  await page.getByTestId('command-palette-search').fill('terminal');
+  await expect(page.getByTestId('command-result-settings-terminal')).toContainText('Current terminal');
+  await page.screenshot({
+    path: path.join(screenshotDir, 'T-DASH-028-command-palette-desktop.png'),
+    fullPage: false,
+  });
+  await page.getByTestId('command-result-settings-terminal').click();
+  await expect(page.getByRole('dialog', { name: 'Settings' })).toBeVisible();
+  await page.getByLabel('Close settings drawer').click();
+  await page.getByTestId('command-palette-trigger').click();
+  await expect(page.getByTestId('command-result-recent-settings-terminal')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog', { name: 'Command palette' })).toHaveCount(0);
+  await page.locator('body').press('ControlOrMeta+K');
+  await expect(page.getByRole('dialog', { name: 'Command palette' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog', { name: 'Command palette' })).toHaveCount(0);
+
   await expect(page.getByTestId('workspace-card-claude-main')).toBeVisible();
   await expect(page.getByTestId('workspace-status-claude-main')).toHaveText('Active');
   await expect(page.getByText('claude-shared')).toBeVisible();

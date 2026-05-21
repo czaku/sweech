@@ -3,13 +3,13 @@
   "title": "cmd+K global command palette",
   "wave": "wave-7",
   "space": "space-cli",
-  "status": "todo",
+  "status": "done",
   "priority": "high",
   "platform": null,
-  "assignee": null,
-  "description": "Keyboard shortcut cmd+K opens centered modal. Fuzzy search: sessions/workspaces/accounts/audit/settings. Default action per result type. Recent-commands ring buffer. \u2191\u2193 enter + ESC keyboard nav. 12+ tests.",
+  "assignee": "codex",
+  "description": "Keyboard shortcut cmd+K opens centered modal. Fuzzy search: sessions/workspaces/accounts/audit/settings. Default action per result type. Recent-commands ring buffer. ↑↓ enter + ESC keyboard nav. 12+ tests.",
   "createdAt": "2026-05-18T11:00:00Z",
-  "updatedAt": "2026-05-18T11:00:00Z",
+  "updatedAt": "2026-05-21T17:43:06.000Z",
   "product": null,
   "lane": null,
   "stage": null,
@@ -18,7 +18,16 @@
   "attachments": [],
   "validationOverrides": null,
   "executionMode": null,
-  "statusHistory": [],
+  "statusHistory": [
+    {
+      "status": "active",
+      "ts": "2026-05-21T17:25:52.000Z"
+    },
+    {
+      "status": "done",
+      "ts": "2026-05-21T17:43:06.000Z"
+    }
+  ],
   "dependsOn": [
     "T-DASH-001"
   ],
@@ -29,6 +38,11 @@
       "at": "2026-05-18T11:00:00Z",
       "by": "luke",
       "text": "Filed via /vy-backlog 2026-05-18. Spec: docs/specs/dashboard-2026-05-18.md, backlog: docs/specs/dashboard-2026-05-18-backlog.md"
+    },
+    {
+      "ts": "2026-05-21T17:43:06.000Z",
+      "text": "Implemented dashboard Cmd/Ctrl+K command palette over real dashboard state. Added fuzzy search for sessions, workspaces, accounts, audit findings, settings, recent-result persistence, keyboard navigation, and E2E screenshot coverage. Verification: npm run typecheck:dashboard; npm run build; npm test -- --runInBand tests/dashboardComponents.test.ts; npm test -- --runInBand; PROJECT_SCREENSHOT_DIR=/Users/luke/Desktop/screenshots/sweech npm run test:e2e:dashboard. Screenshot proof: ~/Desktop/screenshots/sweech/T-DASH-028-command-palette-desktop.png.",
+      "by": "human"
     }
   ]
 }

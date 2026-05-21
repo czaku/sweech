@@ -405,6 +405,10 @@ async function startMutableDashboardFixture() {
 async function startTwoDaemonFederationFixture() {
   const { createSweechFedServer, DashboardPeerCache, startDashboardPeerPolling } = require('../../dist/fedServer');
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'sweech-dashboard-fed-e2e-'));
+  const previousSweechHome = process.env.SWEECH_HOME;
+  process.env.SWEECH_HOME = tmp;
+  fs.mkdirSync(path.join(tmp, '.sweech'), { recursive: true });
+  fs.writeFileSync(path.join(tmp, '.sweech', 'config.json'), JSON.stringify({ profiles: [] }, null, 2));
   const secret = 'playwright-dashboard-fed-secret';
   const secretPath = path.join(tmp, 'daemon.secret');
   fs.writeFileSync(secretPath, secret, { mode: 0o600 });
@@ -459,6 +463,8 @@ async function startTwoDaemonFederationFixture() {
     close: async () => {
       stopPeerPolling();
       await Promise.all([closeServer(localServer), closeServer(remoteServer)]);
+      if (previousSweechHome === undefined) delete process.env.SWEECH_HOME;
+      else process.env.SWEECH_HOME = previousSweechHome;
       fs.rmSync(tmp, { recursive: true, force: true });
     },
   };

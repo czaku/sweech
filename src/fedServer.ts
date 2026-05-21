@@ -126,12 +126,19 @@ export function startDashboardPeerPolling(options: DashboardPeerPollingOptions):
   const isDashboardOpen = options.isDashboardOpen ?? (() => true)
   const peersProvider = options.peersProvider ?? loadFedPeers
   let stopped = false
+  let inFlight = false
 
   const tick = async () => {
     if (stopped || !isDashboardOpen()) return
-    const secret = await loadDaemonSecret(options.secretPath)
-    if (!secret) return
-    await Promise.all(peersProvider().map((peer) => refreshDashboardPeer(peer, secret, options.cache)))
+    if (inFlight) return
+    inFlight = true
+    try {
+      const secret = await loadDaemonSecret(options.secretPath)
+      if (!secret) return
+      await Promise.all(peersProvider().map((peer) => refreshDashboardPeer(peer, secret, options.cache)))
+    } finally {
+      inFlight = false
+    }
   }
 
   const timer = setInterval(() => { void tick() }, intervalMs)

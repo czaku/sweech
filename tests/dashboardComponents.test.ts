@@ -1,6 +1,14 @@
 /// <reference path="../apps/dashboard/src/types/react-shim.d.ts" />
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
+import {
+  buildPaletteResults,
+  fuzzyScore,
+  normalizeRecentPaletteResults,
+  scorePaletteResult,
+  type BuildPaletteInput,
+  type PaletteResult,
+} from '../apps/dashboard/src/components/CommandPalette';
 import { FreshnessChip, HeroStrip, ViewerCountBadge } from '../apps/dashboard/src/components/HeroStrip';
 import { SessionTile } from '../apps/dashboard/src/components/SessionTile';
 import {
@@ -29,6 +37,7 @@ import {
   routeTone,
   utilizationPercent,
   workspaceStatus,
+  type DashboardSettingsState,
 } from '../apps/dashboard/src/components/panelViewModel';
 import { AccountsPanel } from '../apps/dashboard/src/panels/Accounts';
 import { AuditPanel } from '../apps/dashboard/src/panels/Audit';
@@ -40,6 +49,16 @@ import { RoutingPanel } from '../apps/dashboard/src/panels/Routing';
 import { SettingsPanel } from '../apps/dashboard/src/panels/Settings';
 import { SessionsPanel } from '../apps/dashboard/src/panels/Sessions';
 import { WorkspacesPanel } from '../apps/dashboard/src/panels/Workspaces';
+
+const dashboardSettingsFixture: DashboardSettingsState = {
+  general: { machine: 'studio' },
+  tmux: { enabled: true, namingScheme: 'workspace-cwd', suffix: 'sweech' },
+  terminal: { preferred: 'kitty' },
+  summaries: { enabled: true, providerOrder: ['anthropic'], budgetPerSummaryUsd: 0.15, budgetPerDayUsd: 5, model: 'auto' },
+  federation: { enabled: true, discoveryMethod: 'peers-file' },
+  retention: { autoWipe: false, wipeOlderThanDays: 30 },
+  refresh: { sessionsMs: 2000, peersMs: 30000, doctorNetworkMs: 60000 },
+};
 
 describe('dashboard hero components', () => {
   const now = Date.UTC(2026, 4, 20, 12);
@@ -257,6 +276,112 @@ describe('dashboard workspace account cost panels', () => {
     expect(federationHtml).toContain('dashboard-v1');
     expect(settingsHtml).toContain('settings-open');
     expect(settingsHtml).toContain('kitty terminal');
+  });
+});
+
+describe('dashboard command palette', () => {
+  const input: BuildPaletteInput = {
+    sessions: [{
+      id: 'session-1',
+      workspace: 'claude-main',
+      cwd: '/repo/sweech',
+      cwdBasename: 'sweech',
+      machine: 'studio',
+      tmuxName: 'sweech-claude-main',
+      status: 'live',
+      messageCount: 12,
+      launchedAt: Date.UTC(2026, 4, 21, 10),
+      lastActiveAt: Date.UTC(2026, 4, 21, 11),
+      summaryOne: 'Working on command palette',
+      summaryBullets: ['Search sessions'],
+    } as DashboardSession],
+    workspaces: [{
+      commandName: 'codex-pole',
+      cliType: 'codex',
+      provider: 'openai',
+      profileDirExists: true,
+    }],
+    accounts: [{
+      commandName: 'claude-pro',
+      cliType: 'claude',
+      provider: 'anthropic',
+      plan: 'Max 20x',
+    }],
+    auditFindings: [{
+      profile: 'codex-wrong',
+      cliType: 'codex',
+      provider: 'openai',
+      severity: 'warn',
+      kind: 'provider_misconfig',
+      detail: 'Codex profile routes to a local backend but is still tagged as OpenAI.',
+      fixAction: 'fix_provider',
+    }],
+    settings: dashboardSettingsFixture,
+  };
+
+  test('buildPaletteResults includes sessions, workspaces, accounts, audit, and settings', () => {
+    const results = buildPaletteResults(input);
+
+    expect(results.map((result) => result.type)).toEqual(expect.arrayContaining(['session', 'workspace', 'account', 'audit', 'settings']));
+    expect(results.find((result) => result.id === 'session-session-1')?.target).toBe('session-tile-session-1');
+    expect(results.find((result) => result.id === 'workspace-codex-pole')?.actionLabel).toBe('Edit');
+    expect(results.find((result) => result.id === 'account-claude-pro')?.subtitle).toContain('Max 20x');
+    expect(results.find((result) => result.id === 'audit-codex-wrong-provider_misconfig')?.target).toBe('audit-fix-codex-wrong-provider_misconfig');
+    expect(results.find((result) => result.id === 'settings-terminal')?.subtitle).toContain('kitty');
+  });
+
+  test('buildPaletteResults ranks exact query matches above unrelated settings', () => {
+    const results = buildPaletteResults({ ...input, query: 'edit codex' });
+
+    expect(results[0]).toMatchObject({ id: 'workspace-codex-pole', type: 'workspace' });
+    expect(results.some((result) => result.id === 'account-claude-pro')).toBe(false);
+  });
+
+  test('buildPaletteResults supports fuzzy session lookup', () => {
+    const results = buildPaletteResults({ ...input, query: 'clmn' });
+
+    expect(results[0].id).toBe('session-session-1');
+  });
+
+  test('buildPaletteResults shows recent commands before normal commands with empty query', () => {
+    const recent: PaletteResult = {
+      id: 'workspace-codex-pole',
+      type: 'workspace',
+      title: 'Edit codex-pole',
+      subtitle: 'openai · codex',
+      actionLabel: 'Edit',
+      target: 'workspace-card-codex-pole',
+    };
+    const results = buildPaletteResults({ ...input, recents: [recent] });
+
+    expect(results[0]).toMatchObject({ id: 'recent-workspace-codex-pole', type: 'recent' });
+  });
+
+  test('normalizeRecentPaletteResults dedupes and caps the ring buffer', () => {
+    const recents = Array.from({ length: 8 }, (_, index) => ({
+      id: index % 2 === 0 ? 'same' : `item-${index}`,
+      type: 'workspace' as const,
+      title: `Item ${index}`,
+      subtitle: 'workspace',
+      actionLabel: 'Open',
+    }));
+
+    const normalized = normalizeRecentPaletteResults(recents);
+
+    expect(normalized).toHaveLength(5);
+    expect(normalized[0]).toMatchObject({ id: 'same', type: 'recent' });
+    expect(new Set(normalized.map((result) => result.id)).size).toBe(normalized.length);
+  });
+
+  test('scorePaletteResult rewards exact matches and rejects non-matches', () => {
+    const result: PaletteResult = { id: 'settings-terminal', type: 'settings', title: 'Terminal preference', subtitle: 'Current terminal: kitty', actionLabel: 'Open' };
+
+    expect(scorePaletteResult(result, 'terminal')).toBeGreaterThan(100);
+    expect(scorePaletteResult(result, 'zzzz')).toBe(0);
+  });
+
+  test('fuzzyScore rewards contiguous characters more strongly', () => {
+    expect(fuzzyScore('command palette', 'comm')).toBeGreaterThan(fuzzyScore('command palette', 'cpe'));
   });
 });
 
