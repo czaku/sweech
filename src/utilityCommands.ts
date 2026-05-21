@@ -225,8 +225,17 @@ export async function probeDaemonHealthz(opts: {
  * but never surfaced to stdout/stderr — postinstall noise breaks
  * `npm install -g sweech` for users.
  */
-export async function runPostinstallHeal(): Promise<void> {
-  const config = new ConfigManager();
+export interface PostinstallHealResult {
+  skipped: boolean;
+  reason?: 'missing-config' | 'same-version' | 'failed';
+  sweechVersion: string | null;
+  previousVersion: string | null;
+  totalRepaired: number;
+  profilesScanned: number;
+}
+
+export async function runPostinstallHeal(): Promise<PostinstallHealResult> {
+  const configPath = path.join(os.homedir(), '.sweech', 'config.json');
   const sweechVersion = (() => {
     try {
       const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf-8'));
@@ -234,28 +243,50 @@ export async function runPostinstallHeal(): Promise<void> {
     } catch { return null; }
   })();
 
-  const markerPath = path.join(config.getConfigDir(), 'last-postinstall.json');
-  let lastSeen: { version?: string; ranAt?: string } = {};
-  try {
-    if (fs.existsSync(markerPath)) {
-      lastSeen = JSON.parse(fs.readFileSync(markerPath, 'utf-8'));
-    }
-  } catch { /* ignore corrupt marker */ }
+  if (!fs.existsSync(configPath)) {
+    return {
+      skipped: true,
+      reason: 'missing-config',
+      sweechVersion,
+      previousVersion: null,
+      totalRepaired: 0,
+      profilesScanned: 0,
+    };
+  }
 
-  if (sweechVersion && lastSeen.version === sweechVersion) {
+  const rawBefore = readPostinstallConfig(configPath);
+  const previousVersion = typeof rawBefore?.lastResyncedSweechVersion === 'string'
+    ? rawBefore.lastResyncedSweechVersion
+    : null;
+  const priorConstructorHeal = ConfigManager.disableConstructorHeal;
+  ConfigManager.disableConstructorHeal = true;
+  let config: ConfigManager;
+  try {
+    config = new ConfigManager();
+  } finally {
+    ConfigManager.disableConstructorHeal = priorConstructorHeal;
+  }
+
+  if (sweechVersion && previousVersion === sweechVersion) {
     // Same version we've already run heal for. No-op so `npm install`
     // re-runs (e.g. via `npm rebuild`) don't churn the disk.
     config.logLifecycle({
       event: 'postinstall.skipped_same_version',
       sweechVersion,
-      lastRanAt: lastSeen.ranAt ?? null,
     });
-    return;
+    return {
+      skipped: true,
+      reason: 'same-version',
+      sweechVersion,
+      previousVersion,
+      totalRepaired: 0,
+      profilesScanned: 0,
+    };
   }
 
   config.logLifecycle({
     event: 'postinstall.starting',
-    fromVersion: lastSeen.version ?? null,
+    fromVersion: previousVersion,
     toVersion: sweechVersion,
   });
 
@@ -267,11 +298,15 @@ export async function runPostinstallHeal(): Promise<void> {
     totalRepaired += snapResult.linksCreated.length + snapResult.collisionsHealed.length;
 
     // Steady-state sweep — covers new shareables added in this version.
-    for (const profile of config.getProfiles()) {
+    for (const profile of readPostinstallProfiles(configPath)) {
       if (!profile.sharedWith) continue;
       profilesScanned++;
       try {
-        totalRepaired += config.healProfileSharedDirs(profile.commandName);
+        let repaired = config.healProfileSharedDirs(profile.commandName);
+        if (repaired === 0 && postinstallProfileNeedsLinks(profile)) {
+          repaired = createMissingSharedLinks(profile);
+        }
+        totalRepaired += repaired;
       } catch (err) {
         config.logLifecycle({
           event: 'postinstall.profile_heal_failed',
@@ -281,27 +316,28 @@ export async function runPostinstallHeal(): Promise<void> {
       }
     }
   } catch (err) {
+    logPostinstallAuditFailure(config.getConfigDir(), err);
     config.logLifecycle({
       event: 'postinstall.failed',
       error: err instanceof Error ? err.message : String(err),
     });
-    return;
+    return {
+      skipped: true,
+      reason: 'failed',
+      sweechVersion,
+      previousVersion,
+      totalRepaired,
+      profilesScanned,
+    };
   }
 
   // Stamp the marker AFTER a successful run so a crash mid-heal will
   // be retried on the next install.
   try {
-    fs.writeFileSync(
-      markerPath,
-      JSON.stringify({
-        version: sweechVersion,
-        ranAt: new Date().toISOString(),
-        totalRepaired,
-        profilesScanned,
-      }, null, 2),
-      { mode: 0o600 },
-    );
-  } catch { /* ignore */ }
+    writePostinstallConfigMarker(configPath, sweechVersion);
+  } catch (err) {
+    logPostinstallAuditFailure(config.getConfigDir(), err);
+  }
 
   config.logLifecycle({
     event: 'postinstall.completed',
@@ -309,6 +345,107 @@ export async function runPostinstallHeal(): Promise<void> {
     totalRepaired,
     profilesScanned,
   });
+
+  return {
+    skipped: false,
+    sweechVersion,
+    previousVersion,
+    totalRepaired,
+    profilesScanned,
+  };
+}
+
+function readPostinstallConfig(configPath: string): Record<string, unknown> | null {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+    return parsed as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+function readPostinstallProfiles(configPath: string): ProfileConfig[] {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+    const profiles = Array.isArray(parsed)
+      ? parsed
+      : parsed && typeof parsed === 'object' && Array.isArray((parsed as { profiles?: unknown }).profiles)
+        ? (parsed as { profiles: unknown[] }).profiles
+        : [];
+    return profiles.filter((profile): profile is ProfileConfig =>
+      !!profile &&
+      typeof profile === 'object' &&
+      typeof (profile as Partial<ProfileConfig>).commandName === 'string'
+    ) as ProfileConfig[];
+  } catch {
+    return [];
+  }
+}
+
+function postinstallProfileNeedsLinks(profile: ProfileConfig): boolean {
+  if (!profile.sharedWith || !/^[A-Za-z0-9_-]+$/.test(profile.commandName) || !/^[A-Za-z0-9_-]+$/.test(profile.sharedWith)) {
+    return false;
+  }
+  const profileDir = path.join(os.homedir(), `.${profile.commandName}`);
+  const masterDir = ['claude', 'codex', 'kimi'].includes(profile.sharedWith)
+    ? path.join(os.homedir(), `.${profile.sharedWith}`)
+    : path.join(os.homedir(), `.${profile.sharedWith}`);
+  return fs.existsSync(profileDir) && fs.existsSync(masterDir);
+}
+
+function createMissingSharedLinks(profile: ProfileConfig): number {
+  const profileDir = path.join(os.homedir(), `.${profile.commandName}`);
+  const masterDir = profile.sharedWith
+    ? path.join(os.homedir(), `.${profile.sharedWith}`)
+    : '';
+  const isCodex = profile.cliType === 'codex' || profile.sharedWith === 'codex' || profile.commandName.startsWith('codex');
+  const isKimi = profile.cliType === 'kimi' || profile.sharedWith === 'kimi' || profile.commandName.startsWith('kimi');
+  const dirs = isCodex ? CODEX_SHAREABLE_DIRS : isKimi ? KIMI_SHAREABLE_DIRS : SHAREABLE_DIRS;
+  const files = isCodex ? [...CODEX_SHAREABLE_FILES, ...CODEX_SHAREABLE_DBS] : isKimi ? KIMI_SHAREABLE_FILES : SHAREABLE_FILES;
+  let count = 0;
+  for (const item of [...dirs, ...files]) {
+    const linkPath = path.join(profileDir, item);
+    const targetPath = path.join(masterDir, item);
+    if (!fs.existsSync(targetPath) || fs.existsSync(linkPath)) continue;
+    try {
+      fs.symlinkSync(targetPath, linkPath);
+      count++;
+    } catch { /* skip best-effort postinstall repair */ }
+  }
+  return count;
+}
+
+function writePostinstallConfigMarker(configPath: string, sweechVersion: string | null): void {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+  } catch {
+    return;
+  }
+  const next = Array.isArray(parsed)
+    ? { profiles: parsed, lastResyncedSweechVersion: sweechVersion }
+    : parsed && typeof parsed === 'object'
+      ? { ...(parsed as Record<string, unknown>), lastResyncedSweechVersion: sweechVersion }
+      : null;
+  if (!next) return;
+  fs.writeFileSync(
+    configPath,
+    JSON.stringify(next, null, 2) + '\n',
+    { mode: 0o600 },
+  );
+}
+
+function logPostinstallAuditFailure(configDir: string, err: unknown): void {
+  try {
+    const auditPath = path.join(configDir, 'audit.log');
+    fs.appendFileSync(
+      auditPath,
+      `${new Date().toISOString()} postinstall-heal failed=${JSON.stringify(err instanceof Error ? err.message : String(err))}\n`,
+      { mode: 0o600 },
+    );
+    try { fs.chmodSync(auditPath, 0o600); } catch { /* ignore */ }
+  } catch { /* ignore */ }
 }
 
 /**

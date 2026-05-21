@@ -1,7 +1,7 @@
 /**
  * Tests for T-078 postinstall heal — runPostinstallHeal() must:
  *   - Skip on same-version re-run (idempotent under npm rebuild)
- *   - Stamp last-postinstall.json after success
+ *   - Stamp config.json lastResyncedSweechVersion after success
  *   - Re-link drifted sharedWith profiles
  *   - Log every state transition to lifecycle.jsonl
  */
@@ -49,36 +49,53 @@ function readSweechVersion(): string {
 }
 
 describe('runPostinstallHeal', () => {
-  test('stamps last-postinstall.json with current version after first run', async () => {
+  test('skips fresh installs with no config.json', async () => {
+    const home = isolateHome();
+    fs.mkdirSync(path.join(home, '.sweech'), { recursive: true });
+    expect(fs.existsSync(path.join(home, '.sweech', 'config.json'))).toBe(false);
+
+    const result = await runPostinstallHeal();
+
+    expect(result).toMatchObject({
+      skipped: true,
+      reason: 'missing-config',
+      totalRepaired: 0,
+      profilesScanned: 0,
+    });
+    expect(fs.existsSync(path.join(home, '.sweech', 'config.json'))).toBe(false);
+  });
+
+  test('stamps config.json lastResyncedSweechVersion with current version after first run', async () => {
     isolateHome();
     const cfg = new ConfigManager();
-    const markerPath = path.join(cfg.getConfigDir(), 'last-postinstall.json');
-    expect(fs.existsSync(markerPath)).toBe(false);
+    cfg.writeProfiles([]);
 
-    await runPostinstallHeal();
+    const result = await runPostinstallHeal();
 
-    expect(fs.existsSync(markerPath)).toBe(true);
-    const marker = JSON.parse(fs.readFileSync(markerPath, 'utf-8'));
-    expect(marker.version).toBe(readSweechVersion());
-    expect(typeof marker.ranAt).toBe('string');
+    expect(result.skipped).toBe(false);
+    const configJson = JSON.parse(fs.readFileSync(cfg.getConfigFile(), 'utf-8'));
+    expect(configJson.lastResyncedSweechVersion).toBe(readSweechVersion());
   });
 
   test('skips silently on same-version re-run', async () => {
     isolateHome();
     const cfg = new ConfigManager();
-    const markerPath = path.join(cfg.getConfigDir(), 'last-postinstall.json');
+    cfg.writeProfiles([]);
+    const configPath = cfg.getConfigFile();
 
     // Pre-stamp marker with current version.
-    fs.writeFileSync(markerPath, JSON.stringify({
-      version: readSweechVersion(),
-      ranAt: '2026-05-17T00:00:00Z',
-    }));
+    const configJson = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+    fs.writeFileSync(configPath, JSON.stringify({
+      ...configJson,
+      lastResyncedSweechVersion: readSweechVersion(),
+    }, null, 2));
 
-    await runPostinstallHeal();
+    const result = await runPostinstallHeal();
 
     // Lifecycle log must contain a 'skipped' entry rather than a 'completed' one.
     const logFile = path.join(cfg.getLogsDir(), 'lifecycle.jsonl');
     const lines = fs.readFileSync(logFile, 'utf-8').trim().split('\n').map(l => JSON.parse(l));
+    expect(result).toMatchObject({ skipped: true, reason: 'same-version' });
     expect(lines.some(l => l.event === 'postinstall.skipped_same_version')).toBe(true);
     expect(lines.some(l => l.event === 'postinstall.completed')).toBe(false);
   });
@@ -106,15 +123,27 @@ describe('runPostinstallHeal', () => {
       sharedWith: 'claude',
     } as any]);
 
-    // Stamp marker with a DIFFERENT version so the heal runs.
-    fs.writeFileSync(
-      path.join(cfg.getConfigDir(), 'last-postinstall.json'),
-      JSON.stringify({ version: '0.0.0-old', ranAt: '2026-01-01T00:00:00Z' }),
-    );
+    const configPath = cfg.getConfigFile();
+    const configJson = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+    const profiles = Array.isArray(configJson) ? configJson : configJson.profiles;
+    fs.writeFileSync(configPath, JSON.stringify({
+      ...(Array.isArray(configJson) ? {} : configJson),
+      profiles,
+      lastResyncedSweechVersion: '0.0.0-old',
+    }, null, 2));
 
-    await runPostinstallHeal();
+    const result = await runPostinstallHeal();
 
+    expect(result.skipped).toBe(false);
     expect(fs.lstatSync(path.join(siblingDir, 'projects')).isSymbolicLink()).toBe(true);
     expect(fs.lstatSync(path.join(siblingDir, 'sessions')).isSymbolicLink()).toBe(true);
+  });
+
+  test('package postinstall ships the shared script entrypoint', () => {
+    const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf-8'));
+    expect(pkg.scripts.postinstall).toBe('node scripts/postinstall.js || true');
+    expect(pkg.files).toContain('scripts/postinstall.js');
+    expect(fs.readFileSync(path.join(__dirname, '..', 'scripts', 'postinstall.js'), 'utf-8'))
+      .toContain('sweech: resynced');
   });
 });

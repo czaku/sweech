@@ -16,7 +16,7 @@
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
     "prepare": "npm run build",
-    "postinstall": "node dist/cli.js _postinstall-heal 2>/dev/null || true",
+    "postinstall": "node scripts/postinstall.js || true",
     "prepublishOnly": "npm run build && npm test",
     "install-hooks": "bash scripts/install-hooks.sh"
   },
@@ -51,6 +51,7 @@
   ],
   "files": [
     "dist/",
+    "scripts/postinstall.js",
     "README.md",
     "LICENSE"
   ],
