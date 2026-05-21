@@ -3,13 +3,13 @@
   "title": "Audit / Failover / Routing / Billing panels",
   "wave": "wave-7",
   "space": "space-cli",
-  "status": "todo",
+  "status": "done",
   "priority": "high",
   "platform": null,
-  "assignee": null,
-  "description": "Audit: findings list + one-click [fix\u2192] for cli_type/provider/orphan. Failover: cooldowns + clear. Routing: project pins. Billing: 30-day calendar.",
+  "assignee": "codex",
+  "description": "Audit: findings list + one-click [fix→] for cli_type/provider/orphan. Failover: cooldowns + clear. Routing: project pins. Billing: 30-day calendar.",
   "createdAt": "2026-05-18T11:00:00Z",
-  "updatedAt": "2026-05-18T11:00:00Z",
+  "updatedAt": "2026-05-21T05:08:21.000Z",
   "product": null,
   "lane": null,
   "stage": null,
@@ -18,7 +18,16 @@
   "attachments": [],
   "validationOverrides": null,
   "executionMode": null,
-  "statusHistory": [],
+  "statusHistory": [
+    {
+      "status": "active",
+      "ts": "2026-05-21T04:21:45.000Z"
+    },
+    {
+      "status": "done",
+      "ts": "2026-05-21T05:08:21.000Z"
+    }
+  ],
   "dependsOn": [
     "T-DASH-001",
     "T-DASH-005"
@@ -30,6 +39,11 @@
       "at": "2026-05-18T11:00:00Z",
       "by": "luke",
       "text": "Filed via /vy-backlog 2026-05-18. Spec: docs/specs/dashboard-2026-05-18.md, backlog: docs/specs/dashboard-2026-05-18-backlog.md"
+    },
+    {
+      "ts": "2026-05-21T05:08:20.000Z",
+      "text": "Implemented Audit, Failover, Routing, and Billing dashboard panels with real dashboard-state collectors, redacted/masked DTOs, audit fix and cooldown-clear actions, project-pin-aware routing with explicit searchRoot pin writes, cwd-to-pin mappings, non-mutating cooldown reads, browser-origin protection for mutating endpoints, focused unit/integration/E2E coverage, and screenshot proof. Gates passed: npm test -- --runInBand (102 suites, 2458 passed, 5 skipped), npm run build via E2E, npx tsc --noEmit, npm run typecheck:dashboard, npm audit --audit-level=moderate, Swift build, git diff --check, and dashboard Playwright E2E (4 passed). Screenshot proof: ~/Desktop/screenshots/sweech/T-DASH-012-audit-failover-routing-billing-desktop.png and ~/Desktop/screenshots/sweech/T-DASH-012-audit-failover-routing-billing-mobile.png. Parallel code/security/integration reviews found issues; all were fixed. Final Codex adversarial review reported no blocking findings.",
+      "by": "human"
     }
   ]
 }

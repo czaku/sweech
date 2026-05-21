@@ -1,15 +1,19 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
-import { Card, ThemeProvider, themes } from '@vykeai/vysual-react';
+import { ThemeProvider, themes } from '@vykeai/vysual-react';
 import { create } from 'zustand';
 import { HeroStrip } from './components/HeroStrip';
 import { type DoctorCheck, deriveHeroStats } from './components/heroStats';
 import { SessionsPanel } from './panels/Sessions';
 import { type DashboardSession } from './components/sessionViewModel';
 import { AccountsPanel } from './panels/Accounts';
+import { AuditPanel } from './panels/Audit';
+import { BillingPanel } from './panels/Billing';
 import { CostPanel } from './panels/Cost';
+import { FailoverPanel } from './panels/Failover';
+import { RoutingPanel } from './panels/Routing';
 import { WorkspacesPanel } from './panels/Workspaces';
-import { type DashboardAccount, type DashboardCostState, type DashboardWorkspace } from './components/panelViewModel';
+import { type DashboardAccount, type DashboardAuditFinding, type DashboardAuditState, type DashboardBillingState, type DashboardCostState, type DashboardFailoverState, type DashboardRouteCandidate, type DashboardRoutingState, type DashboardWorkspace } from './components/panelViewModel';
 import './styles.css';
 
 type DashboardState = {
@@ -17,13 +21,19 @@ type DashboardState = {
   workspaces: DashboardWorkspace[];
   accounts: DashboardAccount[];
   cost: DashboardCostState;
+  audit: DashboardAuditState;
+  failover: DashboardFailoverState;
+  routing: DashboardRoutingState;
+  billing: DashboardBillingState;
   doctorChecks: DoctorCheck[];
   connected: boolean;
   localMachine: string;
   panels: Record<string, 'idle' | 'loading' | 'ready'>;
   setConnected: (connected: boolean) => void;
-  applyInitialState: (state: { sessions?: DashboardSession[]; machine?: string; workspaces?: DashboardWorkspace[]; accounts?: DashboardAccount[]; cost?: DashboardCostState }) => void;
+  applyInitialState: (state: { sessions?: DashboardSession[]; machine?: string; workspaces?: DashboardWorkspace[]; accounts?: DashboardAccount[]; cost?: DashboardCostState; audit?: DashboardAuditState; failover?: DashboardFailoverState; routing?: DashboardRoutingState; billing?: DashboardBillingState }) => void;
   updateWorkspace: (workspace: DashboardWorkspace) => void;
+  applyAuditFix: (profile: string, action: NonNullable<DashboardAuditFinding['fixAction']>) => void;
+  clearCooldown: (commandName: string) => void;
   upsertSession: (session: DashboardSession) => void;
   applyDoctorTick: (payload: unknown) => void;
 };
@@ -34,6 +44,10 @@ type DashboardInitialPayload = {
   workspaces?: unknown;
   accounts?: unknown;
   cost?: unknown;
+  audit?: unknown;
+  failover?: unknown;
+  routing?: unknown;
+  billing?: unknown;
 };
 
 const emptyCost: DashboardCostState = {
@@ -42,12 +56,20 @@ const emptyCost: DashboardCostState = {
   providers: [],
   sparkline: [],
 };
+const emptyAudit: DashboardAuditState = { scanned: 0, totalIssues: 0, fixable: 0, findings: [] };
+const emptyFailover: DashboardFailoverState = { cooldowns: [] };
+const emptyRouting: DashboardRoutingState = { selected: null, rejectedCount: 0, pin: null, candidates: [] };
+const emptyBilling: DashboardBillingState = { days: [], entries: [] };
 
 const useDashboardStore = create<DashboardState>((set) => ({
   sessions: [],
   workspaces: [],
   accounts: [],
   cost: emptyCost,
+  audit: emptyAudit,
+  failover: emptyFailover,
+  routing: emptyRouting,
+  billing: emptyBilling,
   doctorChecks: [],
   connected: false,
   localMachine: '',
@@ -58,6 +80,8 @@ const useDashboardStore = create<DashboardState>((set) => ({
     cost: 'idle',
     audit: 'idle',
     failover: 'idle',
+    routing: 'idle',
+    billing: 'idle',
   },
   setConnected: (connected) => set({ connected }),
   applyInitialState: (state) => set((current) => ({
@@ -65,12 +89,29 @@ const useDashboardStore = create<DashboardState>((set) => ({
     workspaces: state.workspaces ?? current.workspaces,
     accounts: state.accounts ?? current.accounts,
     cost: state.cost ?? current.cost,
+    audit: state.audit ?? current.audit,
+    failover: state.failover ?? current.failover,
+    routing: state.routing ?? current.routing,
+    billing: state.billing ?? current.billing,
     localMachine: state.machine ?? current.localMachine,
-    panels: { ...current.panels, sessions: 'ready', workspaces: 'ready', accounts: 'ready', cost: 'ready' },
+    panels: { ...current.panels, sessions: 'ready', workspaces: 'ready', accounts: 'ready', cost: 'ready', audit: 'ready', failover: 'ready', routing: 'ready', billing: 'ready' },
   })),
   updateWorkspace: (workspace) => set((state) => ({
     workspaces: state.workspaces.map((item) => item.commandName === workspace.commandName ? { ...item, ...workspace } : item),
     panels: { ...state.panels, workspaces: 'ready' },
+  })),
+  applyAuditFix: (profile, action) => set((state) => ({
+    audit: {
+      ...state.audit,
+      findings: state.audit.findings.filter((finding) => !(finding.profile === profile && finding.fixAction === action)),
+      totalIssues: Math.max(0, state.audit.totalIssues - 1),
+      fixable: Math.max(0, state.audit.fixable - 1),
+    },
+    panels: { ...state.panels, audit: 'ready' },
+  })),
+  clearCooldown: (commandName) => set((state) => ({
+    failover: { ...state.failover, cooldowns: state.failover.cooldowns.filter((cooldown) => cooldown.commandName !== commandName) },
+    panels: { ...state.panels, failover: 'ready' },
   })),
   upsertSession: (session) => set((state) => ({
     sessions: [session, ...state.sessions.filter((item) => item.id !== session.id)],
@@ -98,6 +139,10 @@ function useInitialState(url: string) {
             workspaces: Array.isArray(payload.workspaces) ? payload.workspaces as DashboardWorkspace[] : undefined,
             accounts: Array.isArray(payload.accounts) ? payload.accounts as DashboardAccount[] : undefined,
             cost: payload.cost && typeof payload.cost === 'object' ? payload.cost as DashboardCostState : undefined,
+            audit: payload.audit && typeof payload.audit === 'object' ? payload.audit as DashboardAuditState : undefined,
+            failover: payload.failover && typeof payload.failover === 'object' ? payload.failover as DashboardFailoverState : undefined,
+            routing: payload.routing && typeof payload.routing === 'object' ? payload.routing as DashboardRoutingState : undefined,
+            billing: payload.billing && typeof payload.billing === 'object' ? payload.billing as DashboardBillingState : undefined,
           });
         }
       })
@@ -192,20 +237,47 @@ function useSummaryRequests(sessions: DashboardSession[]) {
   }, [sessions]);
 }
 
-function PlaceholderPanel({ title, detail }: { title: string; detail: string }) {
-  return (
-    <Card className="panel">
-      <h2>{title}</h2>
-      <p>{detail}</p>
-    </Card>
-  );
-}
-
 function App() {
   useInitialState('/dashboard/state');
   useSSE('/dashboard/events');
-  const { connected, sessions, doctorChecks, localMachine, workspaces, accounts, cost } = useDashboardStore();
+  const { connected, sessions, doctorChecks, localMachine, workspaces, accounts, cost, audit, failover, routing, billing } = useDashboardStore();
   const updateWorkspace = useDashboardStore((state) => state.updateWorkspace);
+  const applyAuditFix = useDashboardStore((state) => state.applyAuditFix);
+  const clearCooldown = useDashboardStore((state) => state.clearCooldown);
+  const applyInitialState = useDashboardStore((state) => state.applyInitialState);
+  const refreshDashboardState = React.useCallback(async () => {
+    const res = await fetch('/dashboard/state');
+    if (!res.ok) return;
+    const payload = await res.json() as DashboardInitialPayload;
+    applyInitialState({
+      sessions: Array.isArray(payload.sessions) ? payload.sessions as DashboardSession[] : undefined,
+      machine: typeof payload.machine === 'string' ? payload.machine : undefined,
+      workspaces: Array.isArray(payload.workspaces) ? payload.workspaces as DashboardWorkspace[] : undefined,
+      accounts: Array.isArray(payload.accounts) ? payload.accounts as DashboardAccount[] : undefined,
+      cost: payload.cost && typeof payload.cost === 'object' ? payload.cost as DashboardCostState : undefined,
+      audit: payload.audit && typeof payload.audit === 'object' ? payload.audit as DashboardAuditState : undefined,
+      failover: payload.failover && typeof payload.failover === 'object' ? payload.failover as DashboardFailoverState : undefined,
+      routing: payload.routing && typeof payload.routing === 'object' ? payload.routing as DashboardRoutingState : undefined,
+      billing: payload.billing && typeof payload.billing === 'object' ? payload.billing as DashboardBillingState : undefined,
+    });
+  }, [applyInitialState]);
+  const pinRoute = React.useCallback(async (candidate: DashboardRouteCandidate) => {
+    const res = await fetch('/dashboard/routing/pin', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        profile: candidate.commandName,
+        cliType: candidate.cliType,
+        model: candidate.model ?? undefined,
+        cwd: routing.searchRoot,
+      }),
+    });
+    if (res.ok) await refreshDashboardState();
+  }, [refreshDashboardState, routing.searchRoot]);
+  const unpinRoute = React.useCallback(async () => {
+    const res = await fetch('/dashboard/routing/pin', { method: 'DELETE' });
+    if (res.ok) await refreshDashboardState();
+  }, [refreshDashboardState]);
   useSummaryRequests(sessions);
   const heroSessions = sessions.map((session) => ({
     ...session,
@@ -226,9 +298,10 @@ function App() {
           <WorkspacesPanel workspaces={workspaces} onWorkspaceSaved={updateWorkspace} />
           <AccountsPanel accounts={accounts} />
           <CostPanel cost={cost} />
-          <PlaceholderPanel title="Audit" detail="Fixable profile findings land here." />
-          <PlaceholderPanel title="Failover" detail="Cooldowns and routing decisions land here." />
-          <PlaceholderPanel title="Billing" detail="Renewal calendar and balance gaps land here." />
+          <AuditPanel audit={audit} onAuditFixed={applyAuditFix} />
+          <FailoverPanel failover={failover} onCooldownCleared={clearCooldown} />
+          <RoutingPanel routing={routing} onPinSet={pinRoute} onPinUnset={unpinRoute} />
+          <BillingPanel billing={billing} />
         </section>
       </main>
     </ThemeProvider>

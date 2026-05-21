@@ -46,6 +46,86 @@ export type DashboardCostState = {
   sparkline: number[];
 };
 
+export type DashboardAuditFinding = {
+  profile: string;
+  cliType: string;
+  provider: string;
+  severity: 'info' | 'warn' | 'critical';
+  kind: string;
+  detail: string;
+  fixAction?: 'fix_cli_type' | 'fix_provider' | 'clear_orphan_env' | null;
+  expectedProvider?: string;
+  orphanEnvKeys?: string[];
+};
+
+export type DashboardAuditState = {
+  generatedAt?: string;
+  scanned: number;
+  totalIssues: number;
+  fixable: number;
+  findings: DashboardAuditFinding[];
+};
+
+export type DashboardCooldown = {
+  commandName: string;
+  reason: string;
+  recordedAt: string;
+  expiresAt: string;
+  minutesRemaining: number;
+};
+
+export type DashboardFailoverState = {
+  generatedAt?: string;
+  cooldowns: DashboardCooldown[];
+};
+
+export type DashboardRouteCandidate = {
+  commandName: string;
+  cliType: string;
+  provider: string;
+  model: string | null;
+  status: string;
+  score: number;
+  reasons: string[];
+  launchStatus: string;
+  quotaStatus: string | null;
+};
+
+export type DashboardRoutingState = {
+  generatedAt?: string;
+  searchRoot?: string;
+  selected: DashboardRouteCandidate | null;
+  rejectedCount: number;
+  pin: { source: string; projectRoot: string; profile?: string; cliType?: string; maxTier?: string; model?: string } | null;
+  pins?: Array<{
+    workspace: string;
+    cwd: string;
+    cwdBasename?: string;
+    pinned: boolean;
+    source: string | null;
+    projectRoot: string | null;
+    profile?: string;
+    cliType?: string;
+    maxTier?: string;
+    model?: string;
+  }>;
+  candidates: DashboardRouteCandidate[];
+};
+
+export type DashboardBillingEntry = {
+  vendor: string;
+  email: string;
+  billingDay: number | null;
+  nextBillingAt: string | null;
+  daysUntilNextBill: number | null;
+};
+
+export type DashboardBillingState = {
+  generatedAt?: string;
+  days: Array<{ date: string; count: number; entries: DashboardBillingEntry[] }>;
+  entries: DashboardBillingEntry[];
+};
+
 export function workspaceStatus(workspace: DashboardWorkspace): { label: string; tone: 'success' | 'warning' | 'muted' } {
   if (workspace.hidden) return { label: 'Hidden', tone: 'muted' };
   if (workspace.disabled) return { label: 'Disabled', tone: 'warning' };
@@ -91,6 +171,42 @@ export function costSparklineBars(cost: DashboardCostState): number[] {
   const bars = Array.isArray(cost.sparkline) ? cost.sparkline.slice(0, 7) : [];
   while (bars.length < 7) bars.unshift(4);
   return bars.map((bar) => Math.max(4, Math.min(36, Math.round(bar))));
+}
+
+export function auditTone(finding: DashboardAuditFinding): 'success' | 'warning' | 'danger' | 'muted' {
+  if (finding.severity === 'critical') return 'danger';
+  if (finding.severity === 'warn') return 'warning';
+  if (finding.fixAction) return 'success';
+  return 'muted';
+}
+
+export function auditFixLabel(action?: DashboardAuditFinding['fixAction']): string {
+  if (action === 'fix_cli_type') return 'Fix CLI';
+  if (action === 'fix_provider') return 'Fix provider';
+  if (action === 'clear_orphan_env') return 'Clear env';
+  return 'Review';
+}
+
+export function formatCooldownRemaining(cooldown: DashboardCooldown): string {
+  if (cooldown.minutesRemaining <= 0) return 'expires now';
+  if (cooldown.minutesRemaining < 60) return `${cooldown.minutesRemaining}m`;
+  const hours = Math.floor(cooldown.minutesRemaining / 60);
+  const minutes = cooldown.minutesRemaining % 60;
+  return minutes ? `${hours}h ${minutes}m` : `${hours}h`;
+}
+
+export function routeTone(candidate: DashboardRouteCandidate): 'success' | 'warning' | 'danger' | 'muted' {
+  if (candidate.launchStatus !== 'available' || candidate.status === 'unavailable') return 'danger';
+  if (candidate.status === 'degraded' || candidate.status === 'unknown') return 'warning';
+  return 'success';
+}
+
+export function billingDayTone(day: { count: number }): 'active' | 'empty' {
+  return day.count > 0 ? 'active' : 'empty';
+}
+
+export function safeTestId(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '') || 'item';
 }
 
 export { formatUsd };

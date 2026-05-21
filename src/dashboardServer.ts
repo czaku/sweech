@@ -3,9 +3,15 @@ import { EventEmitter } from 'node:events';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { readBillingFile, nextBillingDate, daysUntilNextBill, type BillingEntry } from './billing';
 import { ConfigManager } from './config';
 import { buildCostTable, type CostTable } from './costCommand';
+import { clearCooldown, peekActiveCooldowns, type CooldownEntry } from './failover';
 import { pickPrimaryBucket } from './liveUsage';
+import { findProjectPin, removeProjectPin, writeProjectPin, type ProjectPin } from './projectConfig';
+import { auditProfiles, fixCliTypeOnProfile, fixProviderOnProfile, type AuditFinding, type AuditReport } from './profileAudit';
+import { recommendRoute, type RouteCandidate, type RouteRecommendationResponse } from './accountSelector';
+import { scrubSecrets } from './scrubSecrets';
 import { SessionsDb, type DashboardSession, type DashboardSessionStatus, type ListDashboardSessionsFilter } from './sessionsDb';
 import { SessionSummarizer } from './sessionSummarizer';
 import { getAccountInfo, getKnownAccounts, type AccountInfo } from './subscriptions';
@@ -40,6 +46,10 @@ export interface DashboardState {
   workspaces: DashboardWorkspace[];
   accounts: DashboardAccount[];
   cost: DashboardCostState;
+  audit: DashboardAuditState;
+  failover: DashboardFailoverState;
+  routing: DashboardRoutingState;
+  billing: DashboardBillingState;
 }
 
 export interface DashboardRequestHandlerOptions {
@@ -84,6 +94,88 @@ export interface DashboardCostState {
   estCostPerCallUsd: number;
   providers: Array<{ provider: string; spent7dUsd: number; estCostPerCallUsd: number; profiles: number }>;
   sparkline: number[];
+}
+
+export interface DashboardAuditState {
+  generatedAt: string;
+  scanned: number;
+  totalIssues: number;
+  fixable: number;
+  findings: DashboardAuditFinding[];
+}
+
+export interface DashboardAuditFinding {
+  profile: string;
+  cliType: string;
+  provider: string;
+  severity: AuditFinding['severity'];
+  kind: AuditFinding['kind'];
+  detail: string;
+  fixAction: 'fix_cli_type' | 'fix_provider' | 'clear_orphan_env' | null;
+  expectedProvider?: string;
+  orphanEnvKeys?: string[];
+}
+
+export interface DashboardFailoverState {
+  generatedAt: string;
+  cooldowns: DashboardCooldown[];
+}
+
+export interface DashboardCooldown {
+  commandName: string;
+  reason: string;
+  recordedAt: string;
+  expiresAt: string;
+  minutesRemaining: number;
+}
+
+export interface DashboardRoutingState {
+  generatedAt: string;
+  searchRoot: string;
+  selected: DashboardRouteCandidate | null;
+  rejectedCount: number;
+  pin: { source: string; projectRoot: string; profile?: string; cliType?: string; maxTier?: string; model?: string } | null;
+  pins: DashboardProjectPinMapping[];
+  candidates: DashboardRouteCandidate[];
+}
+
+export interface DashboardProjectPinMapping {
+  workspace: string;
+  cwd: string;
+  cwdBasename?: string;
+  pinned: boolean;
+  source: string | null;
+  projectRoot: string | null;
+  profile?: string;
+  cliType?: string;
+  maxTier?: string;
+  model?: string;
+}
+
+export interface DashboardRouteCandidate {
+  commandName: string;
+  cliType: string;
+  provider: string;
+  model: string | null;
+  status: string;
+  score: number;
+  reasons: string[];
+  launchStatus: string;
+  quotaStatus: string | null;
+}
+
+export interface DashboardBillingState {
+  generatedAt: string;
+  days: Array<{ date: string; count: number; entries: DashboardBillingEntry[] }>;
+  entries: DashboardBillingEntry[];
+}
+
+export interface DashboardBillingEntry {
+  vendor: string;
+  email: string;
+  billingDay: number | null;
+  nextBillingAt: string | null;
+  daysUntilNextBill: number | null;
 }
 
 type DashboardEventListener = (event: DashboardEvent) => void;
@@ -258,6 +350,83 @@ export function createDashboardRequestHandler(options: DashboardRequestHandlerOp
       return true;
     }
 
+    if (url.pathname === '/dashboard/audit/fix') {
+      if (req.method !== 'POST') {
+        sendDashboardJson(res, 405, { error: 'Method not allowed' });
+        return true;
+      }
+      if (!isJsonRequest(req.headers['content-type'])) {
+        sendDashboardJson(res, 415, { error: 'Content-Type must be application/json' });
+        return true;
+      }
+      const body = await readDashboardBody(req, res);
+      if (body === null) return true;
+      try {
+        const payload = parseDashboardJsonObject(body);
+        const result = await fixDashboardAuditFinding(payload);
+        sendDashboardJson(res, result.ok ? 200 : 422, result);
+      } catch (error) {
+        if (error instanceof DashboardRequestError) {
+          sendDashboardJson(res, error.status, { error: error.message });
+          return true;
+        }
+        sendDashboardJson(res, 500, dashboardErrorBody(error));
+      }
+      return true;
+    }
+
+    const cooldownClearMatch = url.pathname.match(/^\/dashboard\/failover\/cooldowns\/([^/]+)$/);
+    if (cooldownClearMatch) {
+      if (req.method !== 'DELETE') {
+        sendDashboardJson(res, 405, { error: 'Method not allowed' });
+        return true;
+      }
+      try {
+        const commandName = decodeURIComponent(cooldownClearMatch[1]);
+        const cleared = clearCooldown(commandName);
+        sendDashboardJson(res, cleared ? 200 : 404, { ok: cleared, commandName });
+      } catch (error) {
+        sendDashboardJson(res, 500, dashboardErrorBody(error));
+      }
+      return true;
+    }
+
+    if (url.pathname === '/dashboard/routing/pin') {
+      if (req.method === 'POST') {
+        if (!isJsonRequest(req.headers['content-type'])) {
+          sendDashboardJson(res, 415, { error: 'Content-Type must be application/json' });
+          return true;
+        }
+        const body = await readDashboardBody(req, res);
+        if (body === null) return true;
+        try {
+          const payload = parseDashboardJsonObject(body);
+          sendDashboardJson(res, 200, pinDashboardRoute(payload));
+        } catch (error) {
+          if (error instanceof DashboardRequestError) {
+            sendDashboardJson(res, error.status, { error: error.message });
+            return true;
+          }
+          sendDashboardJson(res, 500, dashboardErrorBody(error));
+        }
+        return true;
+      }
+      if (req.method === 'DELETE') {
+        try {
+          sendDashboardJson(res, 200, unpinDashboardRoute());
+        } catch (error) {
+          if (error instanceof DashboardRequestError) {
+            sendDashboardJson(res, error.status, { error: error.message });
+            return true;
+          }
+          sendDashboardJson(res, 500, dashboardErrorBody(error));
+        }
+        return true;
+      }
+      sendDashboardJson(res, 405, { error: 'Method not allowed' });
+      return true;
+    }
+
     if (req.method !== 'GET' && req.method !== 'HEAD') {
       sendDashboardJson(res, 405, { error: 'Method not allowed' });
       return true;
@@ -304,7 +473,14 @@ export async function collectDashboardState(dbPath?: string): Promise<DashboardS
     collectDashboardSessions(undefined, dbPath),
     collectDashboardAuxiliaryState(),
   ]);
-  return { ...sessionsState, ...auxiliaryState };
+  return {
+    ...sessionsState,
+    ...auxiliaryState,
+    routing: {
+      ...auxiliaryState.routing,
+      pins: collectDashboardProjectPins(sessionsState.sessions),
+    },
+  };
 }
 
 export async function summarizeDashboardSession(sessionId: string) {
@@ -326,19 +502,25 @@ export async function collectDashboardSessions(url?: URL, dbPath?: string): Prom
       workspaces: [],
       accounts: [],
       cost: emptyDashboardCostState(),
+      audit: emptyDashboardAuditState(),
+      failover: emptyDashboardFailoverState(),
+      routing: emptyDashboardRoutingState(),
+      billing: emptyDashboardBillingState(),
     };
   } finally {
     db.close();
   }
 }
 
-async function collectDashboardAuxiliaryState(): Promise<Pick<DashboardState, 'workspaces' | 'accounts' | 'cost'>> {
+async function collectDashboardAuxiliaryState(): Promise<Pick<DashboardState, 'workspaces' | 'accounts' | 'cost' | 'audit' | 'failover' | 'routing' | 'billing'>> {
   const config = new ConfigManager();
   const profiles = config.getProfiles();
   const accountRefs = getKnownAccounts(profiles, { includeInactive: true });
-  const [accounts, costTable] = await Promise.all([
+  const [accounts, costTable, auditReport, route] = await Promise.all([
     getAccountInfo(accountRefs, { liveCacheOnly: true, timeoutMs: 500 }).catch(() => [] as AccountInfo[]),
     buildCostTable().catch(() => null),
+    auditProfiles({ config }).catch(() => null),
+    collectDashboardRouting(profiles).catch(() => null),
   ]);
   const lastUseByProfile = new Map<string, string>();
   for (const row of costTable?.rows ?? []) {
@@ -366,6 +548,10 @@ async function collectDashboardAuxiliaryState(): Promise<Pick<DashboardState, 'w
     workspaces,
     accounts: accounts.map(dashboardAccountFromInfo),
     cost: dashboardCostFromTable(costTable),
+    audit: dashboardAuditFromReport(auditReport),
+    failover: dashboardFailoverFromCooldowns(peekActiveCooldowns()),
+    routing: dashboardRoutingFromRecommendation(route),
+    billing: dashboardBillingFromEntries(Object.values(readBillingFile().entries)),
   };
 }
 
@@ -432,6 +618,184 @@ function dashboardCostSparkline(values: number[]): number[] {
   return buckets.map((value) => Math.max(4, Math.round((value / max) * 32)));
 }
 
+function dashboardAuditFromReport(report: AuditReport | null): DashboardAuditState {
+  if (!report) return emptyDashboardAuditState();
+  const findings = report.findings.map(dashboardAuditFindingFromFinding);
+  return {
+    generatedAt: report.generatedAt,
+    scanned: report.scanned,
+    totalIssues: report.summary.total_issues,
+    fixable: findings.filter((finding) => finding.fixAction !== null).length,
+    findings,
+  };
+}
+
+function dashboardAuditFindingFromFinding(finding: AuditFinding): DashboardAuditFinding {
+  const expectedProvider = typeof finding.evidence.expectedProvider === 'string'
+    ? finding.evidence.expectedProvider
+    : typeof finding.evidence.configuredProvider === 'string'
+      ? undefined
+      : undefined;
+  const orphanEnvKeys = Array.isArray(finding.evidence.orphanProviderEnvs)
+    ? finding.evidence.orphanProviderEnvs.filter((value): value is string => typeof value === 'string')
+    : [];
+  return {
+    profile: finding.profile,
+    cliType: finding.cliType,
+    provider: finding.provider,
+    severity: finding.severity,
+    kind: finding.kind,
+    detail: redactDashboardText(finding.detail),
+    fixAction: finding.suggestion === 'fix_cli_type'
+      ? 'fix_cli_type'
+      : finding.suggestion === 'fix_provider'
+        ? 'fix_provider'
+        : finding.kind === 'orphan_credentials' && orphanEnvKeys.length > 0
+          ? 'clear_orphan_env'
+          : null,
+    expectedProvider: typeof finding.evidence.expectedProvider === 'string' ? finding.evidence.expectedProvider : expectedProvider,
+    orphanEnvKeys,
+  };
+}
+
+function emptyDashboardAuditState(): DashboardAuditState {
+  return { generatedAt: new Date().toISOString(), scanned: 0, totalIssues: 0, fixable: 0, findings: [] };
+}
+
+function dashboardFailoverFromCooldowns(cooldowns: CooldownEntry[], now = Date.now()): DashboardFailoverState {
+  return {
+    generatedAt: new Date(now).toISOString(),
+    cooldowns: cooldowns
+      .map((entry) => ({
+        commandName: entry.commandName,
+        reason: entry.reason,
+        recordedAt: new Date(entry.recordedAt).toISOString(),
+        expiresAt: new Date(entry.expiresAt).toISOString(),
+        minutesRemaining: Math.max(0, Math.ceil((entry.expiresAt - now) / 60_000)),
+      }))
+      .sort((a, b) => a.minutesRemaining - b.minutesRemaining || a.commandName.localeCompare(b.commandName)),
+  };
+}
+
+function emptyDashboardFailoverState(): DashboardFailoverState {
+  return { generatedAt: new Date().toISOString(), cooldowns: [] };
+}
+
+async function collectDashboardRouting(profiles: ReturnType<ConfigManager['getProfiles']>): Promise<RouteRecommendationResponse> {
+  const pin = findProjectPin();
+  return recommendRoute({}, profiles, pin, { logPinAudit: false });
+}
+
+function dashboardRoutingFromRecommendation(route: RouteRecommendationResponse | null): DashboardRoutingState {
+  if (!route) return emptyDashboardRoutingState();
+  const candidates = route.candidates.slice(0, 5).map(dashboardRouteCandidateFromCandidate);
+  return {
+    generatedAt: route.generatedAt,
+    searchRoot: process.cwd(),
+    selected: route.selected ? dashboardRouteCandidateFromCandidate(route.selected) : null,
+    rejectedCount: route.rejected.length,
+    pin: route.pinApplied ? {
+      source: route.pinApplied.source,
+      projectRoot: route.pinApplied.projectRoot,
+      profile: route.pinApplied.pin.profile,
+      cliType: route.pinApplied.pin.cliType,
+      maxTier: route.pinApplied.pin.maxTier,
+      model: route.pinApplied.pin.model,
+    } : null,
+    pins: [],
+    candidates,
+  };
+}
+
+function dashboardRouteCandidateFromCandidate(candidate: RouteCandidate): DashboardRouteCandidate {
+  return {
+    commandName: candidate.route.commandName,
+    cliType: candidate.route.cliType,
+    provider: candidate.route.provider,
+    model: candidate.route.model,
+    status: candidate.route.health.status,
+    score: Number.isFinite(candidate.score) ? Math.round(candidate.score * 10) / 10 : 0,
+    reasons: candidate.reasons.slice(0, 4),
+    launchStatus: candidate.route.launch.status,
+    quotaStatus: candidate.route.quota.status,
+  };
+}
+
+function emptyDashboardRoutingState(): DashboardRoutingState {
+  return { generatedAt: new Date().toISOString(), searchRoot: process.cwd(), selected: null, rejectedCount: 0, pin: null, pins: [], candidates: [] };
+}
+
+function collectDashboardProjectPins(sessions: DashboardSession[]): DashboardProjectPinMapping[] {
+  const byCwd = new Map<string, Pick<DashboardSession, 'workspace' | 'cwd' | 'cwdBasename'>>();
+  for (const session of sessions) {
+    if (!session.cwd || byCwd.has(session.cwd)) continue;
+    byCwd.set(session.cwd, session);
+  }
+  if (byCwd.size === 0) {
+    const cwd = process.cwd();
+    byCwd.set(cwd, { workspace: path.basename(cwd), cwd, cwdBasename: path.basename(cwd) });
+  }
+  return Array.from(byCwd.values())
+    .sort((a, b) => a.workspace.localeCompare(b.workspace) || a.cwd.localeCompare(b.cwd))
+    .slice(0, 12)
+    .map((session) => {
+      const resolved = findProjectPin(session.cwd);
+      return {
+        workspace: session.workspace,
+        cwd: session.cwd,
+        cwdBasename: session.cwdBasename,
+        pinned: Boolean(resolved),
+        source: resolved?.source ?? null,
+        projectRoot: resolved?.projectRoot ?? null,
+        profile: resolved?.pin.profile,
+        cliType: resolved?.pin.cliType,
+        maxTier: resolved?.pin.maxTier,
+        model: resolved?.pin.model,
+      };
+    });
+}
+
+function dashboardBillingFromEntries(entries: BillingEntry[], now = Date.now()): DashboardBillingState {
+  const mapped = entries
+    .map((entry) => ({
+      vendor: entry.vendor,
+      email: maskEmail(entry.email),
+      billingDay: entry.billingDay,
+      nextBillingAt: nextBillingDate(entry, now),
+      daysUntilNextBill: daysUntilNextBill(entry, now),
+    }))
+    .sort((a, b) => (a.daysUntilNextBill ?? 9999) - (b.daysUntilNextBill ?? 9999) || a.vendor.localeCompare(b.vendor));
+  const start = startOfUtcDay(now);
+  const days = Array.from({ length: 30 }, (_, index) => {
+    const date = new Date(start + index * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const dayEntries = mapped.filter((entry) => entry.nextBillingAt === date);
+    return { date, count: dayEntries.length, entries: dayEntries };
+  });
+  return { generatedAt: new Date(now).toISOString(), days, entries: mapped };
+}
+
+function emptyDashboardBillingState(): DashboardBillingState {
+  return dashboardBillingFromEntries([]);
+}
+
+function startOfUtcDay(now: number): number {
+  const date = new Date(now);
+  return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
+}
+
+function redactDashboardText(value: string): string {
+  return scrubSecrets(value)
+    .replace(/https?:\/\/([^/\s:@?#]+):([^@\s/?#]+)@/gi, 'https://[REDACTED]@')
+    .replace(/([?&](?:api[_-]?key|key|token|access_token|refresh_token|code|client_secret)=)[^&\s]+/gi, '$1[REDACTED]');
+}
+
+function maskEmail(email: string): string {
+  const [local, domain] = email.split('@');
+  if (!local || !domain) return email;
+  const visible = local.slice(0, Math.min(2, local.length));
+  return `${visible}${local.length > 2 ? '***' : '*'}@${domain}`;
+}
+
 function editWorkspaceFromDashboard(commandName: string, payload: Record<string, unknown>) {
   const patch: WorkspaceEditOptions = {};
   const model = editableString(payload.model);
@@ -472,6 +836,132 @@ function dashboardEditableWorkspace(profile: { commandName: string; model?: stri
     model: profile.model,
     baseUrl: profile.baseUrl,
     smallFastModel: profile.smallFastModel,
+  };
+}
+
+async function fixDashboardAuditFinding(payload: Record<string, unknown>): Promise<{ ok: boolean; action?: string; profile?: string; result?: unknown; reason?: string }> {
+  const profile = optionalString(payload.profile);
+  const action = optionalString(payload.action);
+  if (!profile) throw new DashboardRequestError(400, 'profile is required');
+  if (action !== 'fix_cli_type' && action !== 'fix_provider' && action !== 'clear_orphan_env') {
+    throw new DashboardRequestError(400, 'unsupported audit fix action');
+  }
+
+  const config = new ConfigManager();
+  const report = await auditProfiles({ config });
+  const finding = report.findings
+    .map(dashboardAuditFindingFromFinding)
+    .find((candidate) => candidate.profile === profile && candidate.fixAction === action);
+  if (!finding) return { ok: false, action, profile, reason: 'matching-finding-not-found' };
+
+  if (action === 'fix_cli_type') {
+    return dashboardFixResult(action, profile, fixCliTypeOnProfile(config, profile));
+  }
+  if (action === 'fix_provider') {
+    const expectedProvider = finding.expectedProvider;
+    if (!expectedProvider) return { ok: false, action, profile, reason: 'expected-provider-missing' };
+    return dashboardFixResult(action, profile, fixProviderOnProfile(config, profile, expectedProvider));
+  }
+  return dashboardFixResult(action, profile, clearOrphanEnvForProfile(config, profile, finding.orphanEnvKeys ?? []));
+}
+
+function dashboardFixResult(action: string, profile: string, result: { changed?: boolean; reason?: string } & Record<string, unknown>) {
+  return result.changed === false
+    ? { ok: false, action, profile, reason: result.reason ?? 'not-changed', result }
+    : { ok: true, action, profile, result };
+}
+
+function clearOrphanEnvForProfile(config: ConfigManager, commandName: string, envKeys: string[]): { changed: boolean; removed: string[]; reason?: string } {
+  const allowedKeys = envKeys.map((key) => key.trim()).filter(Boolean);
+  if (allowedKeys.length === 0) return { changed: false, removed: [], reason: 'no-env-keys' };
+  const profiles = config.getProfiles();
+  const target = profiles.find((profile) => profile.commandName === commandName);
+  if (!target) return { changed: false, removed: [], reason: 'profile-not-found' };
+
+  const removed = new Set<string>();
+  const nextProfile = { ...target };
+  if (nextProfile.envOverrides) {
+    const nextEnv = { ...nextProfile.envOverrides };
+    for (const key of allowedKeys) {
+      if (key in nextEnv) {
+        delete nextEnv[key];
+        removed.add(key);
+      }
+    }
+    if (Object.keys(nextEnv).length > 0) nextProfile.envOverrides = nextEnv;
+    else delete nextProfile.envOverrides;
+  }
+
+  const settingsPath = path.join(config.getProfileDir(commandName), 'settings.json');
+  try {
+    const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8')) as { env?: Record<string, unknown> } & Record<string, unknown>;
+    if (settings.env && typeof settings.env === 'object') {
+      const nextSettingsEnv = { ...settings.env };
+      const settingsRemoved: string[] = [];
+      for (const key of allowedKeys) {
+        if (key in nextSettingsEnv) {
+          delete nextSettingsEnv[key];
+          settingsRemoved.push(key);
+        }
+      }
+      if (settingsRemoved.length > 0) {
+        settings.env = nextSettingsEnv;
+        fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\n', { mode: 0o600 });
+        for (const key of settingsRemoved) removed.add(key);
+      }
+    }
+  } catch (error) {
+    if (fs.existsSync(settingsPath)) {
+      return { changed: false, removed: [], reason: `settings-write-failed: ${error instanceof Error ? error.message : String(error)}` };
+    }
+    // Missing or malformed settings.json is already an audit finding; config
+    // envOverrides cleanup can still succeed independently.
+  }
+
+  if (removed.size === 0) return { changed: false, removed: [], reason: 'env-keys-not-present' };
+  config.writeProfiles(profiles.map((profile) => profile.commandName === commandName ? nextProfile : profile));
+  config.logLifecycle({
+    event: 'audit.orphan_env_cleared',
+    profile: commandName,
+    removed: Array.from(removed).sort(),
+  });
+  return { changed: true, removed: Array.from(removed).sort() };
+}
+
+function pinDashboardRoute(payload: Record<string, unknown>): { ok: true; source: string; projectRoot: string; pin: ProjectPin } {
+  const pin: ProjectPin = {};
+  const profile = optionalString(payload.profile);
+  const cliType = optionalString(payload.cliType);
+  const maxTier = optionalString(payload.maxTier);
+  const model = optionalString(payload.model);
+  const cwd = optionalString(payload.cwd) ?? process.cwd();
+  if (profile) pin.profile = profile;
+  if (cliType) {
+    if (cliType !== 'claude' && cliType !== 'codex' && cliType !== 'kimi') throw new DashboardRequestError(400, 'cliType must be claude, codex, or kimi');
+    pin.cliType = cliType;
+  }
+  if (maxTier) {
+    if (maxTier !== 'free' && maxTier !== 'pro' && maxTier !== 'max' && maxTier !== 'team' && maxTier !== 'enterprise') {
+      throw new DashboardRequestError(400, 'maxTier must be free, pro, max, team, or enterprise');
+    }
+    pin.maxTier = maxTier;
+  }
+  if (model) pin.model = model;
+  if (Object.keys(pin).length === 0) throw new DashboardRequestError(400, 'At least one routing pin field is required');
+
+  const source = writeProjectPin(cwd, pin);
+  return { ok: true, source, projectRoot: path.dirname(source), pin };
+}
+
+function unpinDashboardRoute(): { ok: boolean; source: string; projectRoot: string; reason?: string } {
+  const active = findProjectPin();
+  const projectRoot = active?.projectRoot ?? process.cwd();
+  const removed = removeProjectPin(projectRoot);
+  return {
+    ok: removed,
+    source: path.join(projectRoot, '.sweech.json'),
+    projectRoot,
+    ...(removed ? {} : { reason: 'pin-not-found' }),
   };
 }
 
@@ -788,6 +1278,7 @@ function isAllowedDashboardOrigin(host: string | undefined, origin: string | und
     if (site === 'same-origin' || site === 'none') return true;
     return pathname !== '/dashboard/state'
       && pathname !== '/dashboard/sessions'
+      && !isUnsafeDashboardPath(pathname)
       && !/^\/dashboard\/sessions\/[^/]+\/summary$/.test(pathname)
       && !/^\/dashboard\/sessions\/[^/]+\/restore$/.test(pathname)
       && pathname !== '/dashboard/events';
@@ -803,7 +1294,11 @@ function isAllowedDashboardOrigin(host: string | undefined, origin: string | und
 }
 
 function isUnsafeDashboardPath(pathname: string): boolean {
-  return /^\/dashboard\/sessions\/[^/]+\/(summary|restore)$/.test(pathname);
+  return /^\/dashboard\/sessions\/[^/]+\/(summary|restore)$/.test(pathname)
+    || pathname === '/dashboard/audit/fix'
+    || pathname === '/dashboard/routing/pin'
+    || /^\/dashboard\/failover\/cooldowns\/[^/]+$/.test(pathname)
+    || /^\/dashboard\/workspaces\/[^/]+$/.test(pathname);
 }
 
 function contentTypeFor(filePath: string): string {

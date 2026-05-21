@@ -19,6 +19,19 @@ test.afterAll(async () => {
 test('workspaces accounts and cost panels render real dashboard state', async ({ page }) => {
   const screenshotDir = process.env.PROJECT_SCREENSHOT_DIR;
   await page.setViewportSize({ width: 1440, height: 1100 });
+  await page.route('**/dashboard/audit/fix', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, action: 'fix_provider', profile: 'codex-wrong', result: { changed: true } }) });
+  });
+  await page.route('**/dashboard/failover/cooldowns/claude-pro', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, commandName: 'claude-pro' }) });
+  });
+  await page.route('**/dashboard/routing/pin', async (route) => {
+    if (route.request().method() === 'POST') {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, source: '/repo/sweech/.sweech.json', projectRoot: '/repo/sweech', pin: { profile: 'codex-pole', cliType: 'codex' } }) });
+      return;
+    }
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, source: '/repo/sweech/.sweech.json', projectRoot: '/repo/sweech' }) });
+  });
   await page.goto(fixture.url, { waitUntil: 'domcontentloaded' });
 
   await expect(page.getByTestId('workspace-card-claude-main')).toBeVisible();
@@ -30,6 +43,18 @@ test('workspaces accounts and cost panels render real dashboard state', async ({
   await expect(page.getByTestId('usage-bar-claude-pro-7d')).toContainText('320 7d');
   await expect(page.getByTestId('cost-sparkline-provider-mix')).toBeVisible();
   await expect(page.getByTestId('cost-provider-anthropic')).toContainText('$2.00');
+  await expect(page.getByTestId('audit-finding-codex-wrong-provider_misconfig')).toBeVisible();
+  await expect(page.getByTestId('audit-fix-codex-wrong-provider_misconfig')).toHaveText('Fix provider');
+  await expect(page.getByTestId('cooldown-row-claude-pro')).toContainText('limit_reached');
+  await expect(page.getByTestId('cooldown-clear-claude-pro')).toBeVisible();
+  await expect(page.getByTestId('routing-pin-active')).toContainText('claude-main');
+  await expect(page.getByTestId('routing-pin-map-repo-sweech')).toContainText('claude-main');
+  await expect(page.getByTestId('routing-candidate-claude-main')).toBeVisible();
+  await expect(page.getByTestId('routing-pin-set-codex-pole')).toBeVisible();
+  await expect(page.getByTestId('routing-pin-unset')).toBeVisible();
+  await expect(page.getByTestId('billing-calendar')).toBeVisible();
+  await expect(page.getByTestId('billing-day-2026-05-21')).toBeVisible();
+  await expect(page.getByTestId('billing-entry-anthropic-lu-example-com')).toContainText('today');
   await page.getByTestId('workspace-card-claude-main').click();
   await expect(page.getByRole('dialog', { name: 'Edit claude-main' })).toBeVisible();
   await expect(page.getByRole('textbox', { name: 'Model', exact: true })).toHaveValue('claude-sonnet-4-5');
@@ -50,16 +75,30 @@ test('workspaces accounts and cost panels render real dashboard state', async ({
       workspaceCards: document.querySelectorAll('.workspace-card').length,
       accountCards: document.querySelectorAll('.account-card').length,
       costBars: document.querySelectorAll('.cost-sparkline span').length,
+      auditRows: document.querySelectorAll('.audit-row').length,
+      cooldownRows: document.querySelectorAll('.cooldown-row').length,
+      billingDays: document.querySelectorAll('.billing-day').length,
       overflowCount: overflow.length,
     };
   });
-  expect(layout).toEqual({ workspaceCards: 2, accountCards: 2, costBars: 7, overflowCount: 0 });
+  expect(layout).toEqual({ workspaceCards: 2, accountCards: 2, costBars: 7, auditRows: 1, cooldownRows: 1, billingDays: 30, overflowCount: 0 });
 
   await page.getByTestId('workspace-card-claude-main').scrollIntoViewIfNeeded();
   await page.screenshot({
-    path: path.join(screenshotDir, 'T-DASH-011-workspaces-accounts-cost-desktop.png'),
-    fullPage: false,
+    path: path.join(screenshotDir, 'T-DASH-012-audit-failover-routing-billing-desktop.png'),
+    fullPage: true,
   });
+  await page.getByTestId('audit-fix-codex-wrong-provider_misconfig').click();
+  await expect(page.getByTestId('audit-finding-codex-wrong-provider_misconfig')).toHaveCount(0);
+  await page.getByTestId('cooldown-clear-claude-pro').click();
+  await expect(page.getByTestId('cooldown-row-claude-pro')).toHaveCount(0);
+  const pinSetRequestPromise = page.waitForRequest((request) => request.url().endsWith('/dashboard/routing/pin') && request.method() === 'POST');
+  await page.getByTestId('routing-pin-set-codex-pole').click();
+  const pinSetRequest = await pinSetRequestPromise;
+  expect(JSON.parse(pinSetRequest.postData())).toMatchObject({ profile: 'codex-pole', cliType: 'codex', cwd: '/repo/sweech' });
+  const pinUnsetRequestPromise = page.waitForRequest((request) => request.url().endsWith('/dashboard/routing/pin') && request.method() === 'DELETE');
+  await page.getByTestId('routing-pin-unset').click();
+  await pinUnsetRequestPromise;
 });
 
 test('dashboard data panels remain usable on mobile width', async ({ page }) => {
@@ -70,6 +109,8 @@ test('dashboard data panels remain usable on mobile width', async ({ page }) => 
   await expect(page.getByTestId('workspace-card-claude-main')).toBeVisible();
   await expect(page.getByTestId('account-card-claude-pro')).toBeVisible();
   await expect(page.getByTestId('cost-sparkline-provider-mix')).toBeVisible();
+  await expect(page.getByTestId('audit-finding-codex-wrong-provider_misconfig')).toBeVisible();
+  await expect(page.getByTestId('billing-calendar')).toBeVisible();
 
   const overflowCount = await page.evaluate(() => {
     const viewportWidth = document.documentElement.clientWidth;
@@ -81,16 +122,18 @@ test('dashboard data panels remain usable on mobile width', async ({ page }) => 
   expect(overflowCount).toBe(0);
 
   await page.screenshot({
-    path: path.join(screenshotDir, 'T-DASH-011-workspaces-accounts-cost-mobile.png'),
-    fullPage: false,
+    path: path.join(screenshotDir, 'T-DASH-012-audit-failover-routing-billing-mobile.png'),
+    fullPage: true,
   });
 });
 
 async function startDashboardPanelsFixture() {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sweech-dashboard-panels-'));
   const { createDashboardRequestHandler } = require('../../dist/dashboardServer');
   const handler = createDashboardRequestHandler({
     assetsDir: path.join(process.cwd(), 'dist/dashboard'),
     catchAllAssets: true,
+    sessionsDbPath: path.join(tmpDir, 'sessions.sqlite'),
     stateProvider: async () => dashboardStateFixture(),
   });
   const server = http.createServer((req, res) => {
@@ -111,6 +154,7 @@ async function startDashboardPanelsFixture() {
     url: `http://127.0.0.1:${address.port}/`,
     close: async () => {
       await new Promise((resolve) => server.close(resolve));
+      fs.rmSync(tmpDir, { recursive: true, force: true });
     },
   };
 }
@@ -188,6 +232,106 @@ function dashboardStateFixture() {
         { provider: 'anthropic', spent7dUsd: 2, estCostPerCallUsd: 0.04, profiles: 2 },
         { provider: 'openai', spent7dUsd: 0.5, estCostPerCallUsd: 0.01, profiles: 1 },
       ],
+    },
+    audit: {
+      generatedAt: new Date(now).toISOString(),
+      scanned: 2,
+      totalIssues: 1,
+      fixable: 1,
+      findings: [{
+        profile: 'codex-wrong',
+        cliType: 'codex',
+        provider: 'openai',
+        severity: 'warn',
+        kind: 'provider_misconfig',
+        detail: 'Codex profile routes to a local backend but is still tagged as OpenAI.',
+        fixAction: 'fix_provider',
+        expectedProvider: 'ollama',
+      }],
+    },
+    failover: {
+      generatedAt: new Date(now).toISOString(),
+      cooldowns: [{
+        commandName: 'claude-pro',
+        reason: 'limit_reached',
+        recordedAt: '2026-05-21T11:30:00.000Z',
+        expiresAt: '2026-05-21T12:45:00.000Z',
+        minutesRemaining: 45,
+      }],
+    },
+    routing: {
+      generatedAt: new Date(now).toISOString(),
+      searchRoot: '/repo/sweech',
+      selected: {
+        commandName: 'claude-main',
+        cliType: 'claude',
+        provider: 'anthropic',
+        model: 'claude-sonnet-4-5',
+        status: 'healthy',
+        score: 98.2,
+        reasons: [],
+        launchStatus: 'available',
+        quotaStatus: 'allowed',
+      },
+      rejectedCount: 1,
+      pin: {
+        source: '/repo/sweech/.sweech.json',
+        projectRoot: '/repo/sweech',
+        profile: 'claude-main',
+        cliType: 'claude',
+        maxTier: 'max',
+      },
+      pins: [{
+        workspace: 'claude-main',
+        cwd: '/repo/sweech',
+        cwdBasename: 'sweech',
+        pinned: true,
+        source: '/repo/sweech/.sweech.json',
+        projectRoot: '/repo/sweech',
+        profile: 'claude-main',
+        cliType: 'claude',
+        maxTier: 'max',
+      }],
+      candidates: [{
+        commandName: 'claude-main',
+        cliType: 'claude',
+        provider: 'anthropic',
+        model: 'claude-sonnet-4-5',
+        status: 'healthy',
+        score: 98.2,
+        reasons: [],
+        launchStatus: 'available',
+        quotaStatus: 'allowed',
+      }, {
+        commandName: 'codex-pole',
+        cliType: 'codex',
+        provider: 'openai',
+        model: 'gpt-5',
+        status: 'degraded',
+        score: 41,
+        reasons: ['not-selected:lower-score'],
+        launchStatus: 'available',
+        quotaStatus: 'allowed_warning',
+      }],
+    },
+    billing: {
+      generatedAt: new Date(now).toISOString(),
+      days: Array.from({ length: 30 }, (_, index) => {
+        const millis = Date.UTC(2026, 4, 21 + index);
+        const date = new Date(millis).toISOString().slice(0, 10);
+        return {
+          date,
+          count: date === '2026-05-21' ? 1 : 0,
+          entries: [],
+        };
+      }),
+      entries: [{
+        vendor: 'anthropic',
+        email: 'lu***@example.com',
+        billingDay: 21,
+        nextBillingAt: '2026-05-21',
+        daysUntilNextBill: 0,
+      }],
     },
   };
 }

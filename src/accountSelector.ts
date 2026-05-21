@@ -64,6 +64,10 @@ export interface RouteRecommendationRequest {
   preferredProfile?: string;
 }
 
+export interface RouteRecommendationOptions {
+  logPinAudit?: boolean;
+}
+
 export interface RouteCandidate {
   route: {
     commandName: string;
@@ -801,6 +805,7 @@ export async function recommendRoute(
   request: RouteRecommendationRequest = {},
   profiles?: ProfileConfig[],
   projectPin?: ProjectPinResolved | null,
+  options: RouteRecommendationOptions = {},
 ): Promise<RouteRecommendationResponse> {
   const resolvedProfiles = profiles ?? new ConfigManager().getProfiles();
 
@@ -879,7 +884,7 @@ export async function recommendRoute(
   //   (b) the pin specified a cliType (always relevant — filters)
   //   (c) the pin's maxTier rejected at least one candidate
   // Best-effort — audit log failures never block the recommendation.
-  if (projectPin && selected) {
+  if ((options.logPinAudit ?? true) && projectPin && selected) {
     const pin = projectPin.pin;
     const pinDirectedProfile = pin.profile === selected.route.commandName;
     const pinNarrowedCli = !!pin.cliType;

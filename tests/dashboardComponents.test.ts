@@ -19,14 +19,23 @@ import {
   type DashboardSession,
 } from '../apps/dashboard/src/components/sessionViewModel';
 import {
+  auditFixLabel,
+  auditTone,
+  billingDayTone,
   accountTokenStatus,
   costSparklineBars,
+  formatCooldownRemaining,
   freshnessFromTimestamp,
+  routeTone,
   utilizationPercent,
   workspaceStatus,
 } from '../apps/dashboard/src/components/panelViewModel';
 import { AccountsPanel } from '../apps/dashboard/src/panels/Accounts';
+import { AuditPanel } from '../apps/dashboard/src/panels/Audit';
+import { BillingPanel } from '../apps/dashboard/src/panels/Billing';
 import { CostPanel } from '../apps/dashboard/src/panels/Cost';
+import { FailoverPanel } from '../apps/dashboard/src/panels/Failover';
+import { RoutingPanel } from '../apps/dashboard/src/panels/Routing';
 import { SessionsPanel } from '../apps/dashboard/src/panels/Sessions';
 import { WorkspacesPanel } from '../apps/dashboard/src/panels/Workspaces';
 
@@ -212,6 +221,118 @@ describe('dashboard workspace account cost panels', () => {
   test('costSparklineBars pads and bounds dashboard bars', () => {
     expect(costSparklineBars({ spent7dUsd: 0, estCostPerCallUsd: 0, providers: [], sparkline: [1, 60] })).toHaveLength(7);
     expect(Math.max(...costSparklineBars({ spent7dUsd: 0, estCostPerCallUsd: 0, providers: [], sparkline: [1, 60] }))).toBe(36);
+  });
+});
+
+describe('dashboard audit failover routing billing panels', () => {
+  test('AuditPanel renders fixable findings without evidence payloads', () => {
+    const html = renderToStaticMarkup(React.createElement(AuditPanel, {
+      audit: {
+        scanned: 3,
+        totalIssues: 1,
+        fixable: 1,
+        findings: [{
+          profile: 'codex-wrong',
+          cliType: 'codex',
+          provider: 'openai',
+          severity: 'warn',
+          kind: 'provider_misconfig',
+          detail: 'Provider mismatch',
+          fixAction: 'fix_provider',
+          expectedProvider: 'ollama',
+        }],
+      },
+    }));
+
+    expect(auditTone({ profile: 'x', cliType: 'codex', provider: 'openai', severity: 'critical', kind: 'cli_type_mismatch', detail: 'x' })).toBe('danger');
+    expect(auditFixLabel('fix_provider')).toBe('Fix provider');
+    expect(html).toContain('Audit');
+    expect(html).toContain('audit-finding-codex-wrong-provider_misconfig');
+    expect(html).toContain('audit-fix-codex-wrong-provider_misconfig');
+    expect(html).not.toContain('accessToken');
+  });
+
+  test('FailoverPanel renders cooldown rows and clear affordance', () => {
+    const html = renderToStaticMarkup(React.createElement(FailoverPanel, {
+      failover: {
+        cooldowns: [{
+          commandName: 'claude-pro',
+          reason: 'limit_reached',
+          recordedAt: '2026-05-21T10:00:00.000Z',
+          expiresAt: '2026-05-21T11:00:00.000Z',
+          minutesRemaining: 75,
+        }],
+      },
+    }));
+
+    expect(formatCooldownRemaining({ commandName: 'x', reason: 'limit', recordedAt: '', expiresAt: '', minutesRemaining: 75 })).toBe('1h 15m');
+    expect(html).toContain('cooldown-row-claude-pro');
+    expect(html).toContain('cooldown-clear-claude-pro');
+  });
+
+  test('RoutingPanel renders selected route pin and candidates', () => {
+    const html = renderToStaticMarkup(React.createElement(RoutingPanel, {
+      routing: {
+        rejectedCount: 1,
+        searchRoot: '/repo/apps/sweech',
+        pin: { source: '/repo/.sweech.json', projectRoot: '/repo', profile: 'claude-pro' },
+        pins: [{
+          workspace: 'sweech',
+          cwd: '/repo/apps/sweech',
+          cwdBasename: 'sweech',
+          pinned: true,
+          source: '/repo/.sweech.json',
+          projectRoot: '/repo',
+          profile: 'claude-pro',
+        }],
+        selected: {
+          commandName: 'claude-pro',
+          cliType: 'claude',
+          provider: 'anthropic',
+          model: 'claude-sonnet-4-5',
+          status: 'healthy',
+          score: 98,
+          reasons: [],
+          launchStatus: 'available',
+          quotaStatus: 'ok',
+        },
+        candidates: [{
+          commandName: 'claude-pro',
+          cliType: 'claude',
+          provider: 'anthropic',
+          model: 'claude-sonnet-4-5',
+          status: 'healthy',
+          score: 98,
+          reasons: [],
+          launchStatus: 'available',
+          quotaStatus: 'ok',
+        }],
+      },
+      onPinSet: jest.fn(),
+      onPinUnset: jest.fn(),
+    }));
+
+    expect(routeTone({ commandName: 'x', cliType: 'claude', provider: 'anthropic', model: null, status: 'healthy', score: 1, reasons: [], launchStatus: 'available', quotaStatus: null })).toBe('success');
+    expect(html).toContain('routing-pin-active');
+    expect(html).toContain('routing-pin-map-repo-apps-sweech');
+    expect(html).toContain('routing-pin-unset');
+    expect(html).toContain('routing-candidate-claude-pro');
+    expect(html).toContain('routing-pin-set-claude-pro');
+  });
+
+  test('BillingPanel renders 30-day calendar and upcoming entries', () => {
+    const days = Array.from({ length: 30 }, (_, index) => ({ date: `2026-05-${String(index + 1).padStart(2, '0')}`, count: index === 20 ? 1 : 0, entries: [] }));
+    const html = renderToStaticMarkup(React.createElement(BillingPanel, {
+      billing: {
+        days,
+        entries: [{ vendor: 'anthropic', email: 'luke@example.com', billingDay: 21, nextBillingAt: '2026-05-21', daysUntilNextBill: 0 }],
+      },
+    }));
+
+    expect(billingDayTone({ count: 1 })).toBe('active');
+    expect(html).toContain('billing-calendar');
+    expect(html).toContain('billing-day-2026-05-21');
+    expect(html).toContain('billing-entry-anthropic-luke-example-com');
   });
 });
 

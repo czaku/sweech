@@ -17,6 +17,16 @@ const mockEditWorkspace = jest.fn();
 const mockGetKnownAccounts = jest.fn();
 const mockGetAccountInfo = jest.fn();
 const mockBuildCostTable = jest.fn();
+const mockAuditProfiles = jest.fn();
+const mockFixCliTypeOnProfile = jest.fn();
+const mockFixProviderOnProfile = jest.fn();
+const mockGetActiveCooldowns = jest.fn();
+const mockClearCooldown = jest.fn();
+const mockFindProjectPin = jest.fn();
+const mockWriteProjectPin = jest.fn();
+const mockRemoveProjectPin = jest.fn();
+const mockRecommendRoute = jest.fn();
+const mockReadBillingFile = jest.fn();
 
 jest.mock('../src/sessionsDb', () => ({
   SessionsDb: jest.fn().mockImplementation(() => ({
@@ -61,6 +71,35 @@ jest.mock('../src/subscriptions', () => ({
 jest.mock('../src/costCommand', () => ({
   buildCostTable: (...args: unknown[]) => mockBuildCostTable(...args),
 }));
+
+jest.mock('../src/profileAudit', () => ({
+  auditProfiles: (...args: unknown[]) => mockAuditProfiles(...args),
+  fixCliTypeOnProfile: (...args: unknown[]) => mockFixCliTypeOnProfile(...args),
+  fixProviderOnProfile: (...args: unknown[]) => mockFixProviderOnProfile(...args),
+}));
+
+jest.mock('../src/failover', () => ({
+  peekActiveCooldowns: (...args: unknown[]) => mockGetActiveCooldowns(...args),
+  clearCooldown: (...args: unknown[]) => mockClearCooldown(...args),
+}));
+
+jest.mock('../src/projectConfig', () => ({
+  findProjectPin: (...args: unknown[]) => mockFindProjectPin(...args),
+  writeProjectPin: (...args: unknown[]) => mockWriteProjectPin(...args),
+  removeProjectPin: (...args: unknown[]) => mockRemoveProjectPin(...args),
+}));
+
+jest.mock('../src/accountSelector', () => ({
+  recommendRoute: (...args: unknown[]) => mockRecommendRoute(...args),
+}));
+
+jest.mock('../src/billing', () => {
+  const actual = jest.requireActual('../src/billing');
+  return {
+    ...actual,
+    readBillingFile: (...args: unknown[]) => mockReadBillingFile(...args),
+  };
+});
 
 describe('dashboard server', () => {
   let server: http.Server;
@@ -158,6 +197,94 @@ describe('dashboard server', () => {
         lastUseTs: Date.UTC(2026, 4, 20, 9, 30),
       }],
     });
+    mockAuditProfiles.mockResolvedValue({
+      generatedAt: '2026-05-21T09:30:00.000Z',
+      scanned: 2,
+      summary: { total_issues: 2 },
+      findings: [{
+        profile: 'codex-wrong',
+        cliType: 'codex',
+        provider: 'openai',
+        severity: 'warn',
+        kind: 'provider_misconfig',
+        detail: 'Codex profile routes to http://user:secret@127.0.0.1:9058/v1?api_key=sk-proj-abcdefghijklmnopqrstuvwxyz1234567890.',
+        evidence: { expectedProvider: 'ollama' },
+        suggestion: 'fix_provider',
+      }, {
+        profile: 'claude-wrong',
+        cliType: 'codex',
+        provider: 'anthropic',
+        severity: 'critical',
+        kind: 'cli_type_mismatch',
+        detail: 'Wrapper will exec the wrong CLI binary.',
+        evidence: { expectedCliType: 'claude' },
+        suggestion: 'fix_cli_type',
+      }],
+    });
+    mockFixCliTypeOnProfile.mockReturnValue({ changed: true, from: 'codex', to: 'claude' });
+    mockFixProviderOnProfile.mockReturnValue({ changed: true, from: 'openai', to: 'ollama' });
+    mockGetActiveCooldowns.mockReturnValue([{
+      commandName: 'claude-pro',
+      reason: 'limit_reached',
+      recordedAt: Date.UTC(2026, 4, 21, 9, 0),
+      expiresAt: Date.now() + 15 * 60_000,
+    }]);
+    mockClearCooldown.mockReturnValue(true);
+    mockFindProjectPin.mockReturnValue({
+      source: '/repo/sweech/.sweech.json',
+      projectRoot: '/repo/sweech',
+      pin: { profile: 'sweech', cliType: 'claude', maxTier: 'max' },
+    });
+    mockWriteProjectPin.mockReturnValue('/Users/luke/dev/onlytools/sweech/.sweech.json');
+    mockRemoveProjectPin.mockReturnValue(true);
+    mockRecommendRoute.mockResolvedValue({
+      generatedAt: '2026-05-21T09:30:00.000Z',
+      selected: {
+        account: { commandName: 'sweech' },
+        route: {
+          commandName: 'sweech',
+          cliType: 'claude',
+          provider: 'anthropic',
+          model: 'claude-sonnet-4-5',
+          health: { status: 'healthy' },
+          launch: { status: 'available' },
+          quota: { status: 'ok' },
+        },
+        score: 98.24,
+        reasons: [],
+      },
+      rejected: [{ account: { commandName: 'codex' } }],
+      candidates: [{
+        account: { commandName: 'sweech' },
+        route: {
+          commandName: 'sweech',
+          cliType: 'claude',
+          provider: 'anthropic',
+          model: 'claude-sonnet-4-5',
+          health: { status: 'healthy' },
+          launch: { status: 'available' },
+          quota: { status: 'ok' },
+        },
+        score: 98.24,
+        reasons: [],
+      }],
+      pinApplied: {
+        source: '/repo/sweech/.sweech.json',
+        projectRoot: '/repo/sweech',
+        pin: { profile: 'sweech', cliType: 'claude', maxTier: 'max' },
+      },
+    });
+    mockReadBillingFile.mockReturnValue({
+      schemaVersion: 'sweech.billing.v1',
+      entries: {
+        'anthropic:luke@example.com': {
+          vendor: 'anthropic',
+          email: 'luke@example.com',
+          billingDay: 21,
+          updatedAt: '2026-05-20T12:00:00.000Z',
+        },
+      },
+    });
     mockSummarizeNow.mockResolvedValue({
       sessionId: 's1',
       summaryOne: 'Dashboard route summary.',
@@ -244,8 +371,23 @@ describe('dashboard server', () => {
     expect(body.cost).toMatchObject({ spent7dUsd: 1.75, estCostPerCallUsd: 0.009 });
     expect(body.cost.providers[0]).toMatchObject({ provider: 'anthropic', profiles: 1 });
     expect(body.cost.rows).toBeUndefined();
+    expect(body.audit).toMatchObject({ scanned: 2, totalIssues: 2, fixable: 2 });
+    expect(body.audit.findings[0]).toMatchObject({ profile: 'codex-wrong', fixAction: 'fix_provider', expectedProvider: 'ollama' });
+    expect(body.audit.findings[0].detail).toContain('[REDACTED]');
+    expect(body.audit.findings[0].detail).not.toContain('secret');
+    expect(body.audit.findings[0].detail).not.toContain('sk-proj');
+    expect(body.audit.findings[0].evidence).toBeUndefined();
+    expect(body.failover.cooldowns[0]).toMatchObject({ commandName: 'claude-pro', reason: 'limit_reached' });
+    expect(body.routing).toMatchObject({ searchRoot: process.cwd(), rejectedCount: 1, pin: { profile: 'sweech', cliType: 'claude' } });
+    expect(body.routing.pins[0]).toMatchObject({ workspace: 'sweech', cwd: '/repo/sweech', pinned: true, profile: 'sweech' });
+    expect(body.routing.selected).toMatchObject({ commandName: 'sweech', launchStatus: 'available' });
+    expect(body.billing.entries[0]).toMatchObject({ vendor: 'anthropic', email: 'lu***@example.com', billingDay: 21 });
+    expect(body.billing.days).toHaveLength(30);
     expect(mockClose).toHaveBeenCalledTimes(1);
     expect(mockGetAccountInfo).toHaveBeenCalledWith(expect.any(Array), { liveCacheOnly: true, timeoutMs: 500 });
+    expect(mockRecommendRoute).toHaveBeenCalledWith({}, expect.any(Array), expect.objectContaining({
+      source: '/repo/sweech/.sweech.json',
+    }), { logPinAudit: false });
   });
 
   test('dashboard account utilization prefers the All models bucket', async () => {
@@ -346,6 +488,76 @@ describe('dashboard server', () => {
     });
   });
 
+  test('POST /dashboard/audit/fix revalidates finding and applies provider fix', async () => {
+    const res = await requestWithBody('/dashboard/audit/fix', 'POST', JSON.stringify({
+      profile: 'codex-wrong',
+      action: 'fix_provider',
+    }));
+    const body = JSON.parse(res.body);
+
+    expect(res.status).toBe(200);
+    expect(body).toMatchObject({ ok: true, action: 'fix_provider', profile: 'codex-wrong' });
+    expect(mockFixProviderOnProfile).toHaveBeenCalledWith(expect.anything(), 'codex-wrong', 'ollama');
+  });
+
+  test('POST /dashboard/audit/fix rejects stale or unsupported findings', async () => {
+    const stale = await requestWithBody('/dashboard/audit/fix', 'POST', JSON.stringify({
+      profile: 'missing',
+      action: 'fix_provider',
+    }));
+    const unsupported = await requestWithBody('/dashboard/audit/fix', 'POST', JSON.stringify({
+      profile: 'codex-wrong',
+      action: 'delete_everything',
+    }));
+
+    expect(stale.status).toBe(422);
+    expect(JSON.parse(stale.body)).toMatchObject({ ok: false, reason: 'matching-finding-not-found' });
+    expect(unsupported.status).toBe(400);
+  });
+
+  test('POST /dashboard/audit/fix reports no-op fixer results as not ok', async () => {
+    mockFixCliTypeOnProfile.mockReturnValueOnce({ changed: false, reason: 'disk-conflict' });
+
+    const res = await requestWithBody('/dashboard/audit/fix', 'POST', JSON.stringify({
+      profile: 'claude-wrong',
+      action: 'fix_cli_type',
+    }));
+
+    expect(res.status).toBe(422);
+    expect(JSON.parse(res.body)).toMatchObject({ ok: false, reason: 'disk-conflict' });
+  });
+
+  test('DELETE /dashboard/failover/cooldowns/:name clears cooldowns', async () => {
+    const res = await request('/dashboard/failover/cooldowns/claude-pro', 'DELETE');
+
+    expect(res.status).toBe(200);
+    expect(JSON.parse(res.body)).toMatchObject({ ok: true, commandName: 'claude-pro' });
+    expect(mockClearCooldown).toHaveBeenCalledWith('claude-pro');
+  });
+
+  test('POST /dashboard/routing/pin writes a project pin from the dashboard', async () => {
+    const res = await requestWithBody('/dashboard/routing/pin', 'POST', JSON.stringify({
+      profile: 'codex',
+      cliType: 'codex',
+      model: 'gpt-5-mini',
+      cwd: '/repo/sweech',
+    }));
+    const body = JSON.parse(res.body);
+
+    expect(res.status).toBe(200);
+    expect(body).toMatchObject({ ok: true, pin: { profile: 'codex', cliType: 'codex', model: 'gpt-5-mini' } });
+    expect(mockWriteProjectPin).toHaveBeenCalledWith('/repo/sweech', { profile: 'codex', cliType: 'codex', model: 'gpt-5-mini' });
+  });
+
+  test('DELETE /dashboard/routing/pin removes the active project pin root', async () => {
+    const res = await request('/dashboard/routing/pin', 'DELETE');
+    const body = JSON.parse(res.body);
+
+    expect(res.status).toBe(200);
+    expect(body).toMatchObject({ ok: true, source: '/repo/sweech/.sweech.json', projectRoot: '/repo/sweech' });
+    expect(mockRemoveProjectPin).toHaveBeenCalledWith('/repo/sweech');
+  });
+
   test('restore route rejects unsupported terminals', async () => {
     const res = await requestWithBody('/dashboard/sessions/s1/restore', 'POST', JSON.stringify({ terminal: 'not-a-terminal' }));
 
@@ -375,6 +587,59 @@ describe('dashboard server', () => {
     expect(mockLaunchTerminal).not.toHaveBeenCalled();
   });
 
+  test('mutating audit and cooldown routes reject missing browser origin', async () => {
+    const fixCallsBefore = mockFixProviderOnProfile.mock.calls.length;
+    const audit = await new Promise<{ status: number; body: string }>((resolve, reject) => {
+      const req = http.request({
+        hostname: '127.0.0.1',
+        port,
+        path: '/dashboard/audit/fix',
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      }, (response) => {
+        let body = '';
+        response.on('data', (chunk) => { body += chunk; });
+        response.on('end', () => resolve({ status: response.statusCode ?? 0, body }));
+      });
+      req.on('error', reject);
+      req.end(JSON.stringify({ profile: 'codex-wrong', action: 'fix_provider' }));
+    });
+    const cooldown = await new Promise<{ status: number; body: string }>((resolve, reject) => {
+      const req = http.request({
+        hostname: '127.0.0.1',
+        port,
+        path: '/dashboard/failover/cooldowns/claude-pro',
+        method: 'DELETE',
+      }, (response) => {
+        let body = '';
+        response.on('data', (chunk) => { body += chunk; });
+        response.on('end', () => resolve({ status: response.statusCode ?? 0, body }));
+      });
+      req.on('error', reject);
+      req.end();
+    });
+    const routing = await new Promise<{ status: number; body: string }>((resolve, reject) => {
+      const req = http.request({
+        hostname: '127.0.0.1',
+        port,
+        path: '/dashboard/routing/pin',
+        method: 'DELETE',
+      }, (response) => {
+        let body = '';
+        response.on('data', (chunk) => { body += chunk; });
+        response.on('end', () => resolve({ status: response.statusCode ?? 0, body }));
+      });
+      req.on('error', reject);
+      req.end();
+    });
+
+    expect(audit.status).toBe(403);
+    expect(cooldown.status).toBe(403);
+    expect(routing.status).toBe(403);
+    expect(mockFixProviderOnProfile).toHaveBeenCalledTimes(fixCallsBefore);
+    expect(mockRemoveProjectPin).not.toHaveBeenCalled();
+  });
+
   test('restore route rejects mismatched localhost origins', async () => {
     const res = await new Promise<{ status: number; body: string }>((resolve, reject) => {
       const req = http.request({
@@ -398,6 +663,36 @@ describe('dashboard server', () => {
 
     expect(res.status).toBe(403);
     expect(mockLaunchTerminal).not.toHaveBeenCalled();
+  });
+
+  test('dashboard mutating routes reject mismatched localhost origins', async () => {
+    const routes = [
+      { path: '/dashboard/audit/fix', method: 'POST', body: JSON.stringify({ profile: 'codex-wrong', action: 'fix_provider' }) },
+      { path: '/dashboard/failover/cooldowns/claude-pro', method: 'DELETE', body: '' },
+      { path: '/dashboard/routing/pin', method: 'DELETE', body: '' },
+    ];
+    for (const route of routes) {
+      const res = await new Promise<{ status: number; body: string }>((resolve, reject) => {
+        const req = http.request({
+          hostname: '127.0.0.1',
+          port,
+          path: route.path,
+          method: route.method,
+          headers: {
+            Host: `127.0.0.1:${port}`,
+            Origin: 'http://localhost:9999',
+            'Content-Type': 'application/json',
+          },
+        }, (response) => {
+          let body = '';
+          response.on('data', (chunk) => { body += chunk; });
+          response.on('end', () => resolve({ status: response.statusCode ?? 0, body }));
+        });
+        req.on('error', reject);
+        req.end(route.body);
+      });
+      expect(res.status).toBe(403);
+    }
   });
 
   test('restore route requires JSON content type and non-empty body', async () => {

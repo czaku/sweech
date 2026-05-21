@@ -158,6 +158,11 @@ export function getActiveCooldowns(now: number = Date.now()): CooldownEntry[] {
   return active;
 }
 
+/** Return active cooldowns without pruning expired entries from disk. */
+export function peekActiveCooldowns(now: number = Date.now()): CooldownEntry[] {
+  return Object.values(readCooldownStore()).filter((entry) => entry.expiresAt > now);
+}
+
 /** Is the given profile currently in a cooldown that hasn't expired? */
 export function isInCooldown(commandName: string, now: number = Date.now()): boolean {
   const store = readCooldownStore();

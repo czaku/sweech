@@ -569,7 +569,11 @@ h2 {
 
 .workspace-card-grid,
 .account-list,
-.provider-breakdown {
+.provider-breakdown,
+.audit-list,
+.cooldown-list,
+.routing-list,
+.billing-list {
   display: grid;
   gap: 10px;
 }
@@ -677,7 +681,11 @@ h2 {
 .freshness-row,
 .usage-bar > div,
 .provider-row,
-.cost-summary {
+.cost-summary,
+.audit-row,
+.cooldown-row,
+.routing-row,
+.billing-row {
   align-items: center;
   display: flex;
   gap: 10px;
@@ -763,6 +771,129 @@ h2 {
   border-radius: 6px;
   min-height: 38px;
   padding: 8px 10px;
+}
+
+.audit-row,
+.cooldown-row,
+.routing-row,
+.billing-row,
+.routing-pin,
+.selected-route {
+  background: var(--vysual-surface-strong);
+  border: 1px solid var(--vysual-border);
+  border-radius: 6px;
+  min-height: 46px;
+  padding: 9px 10px;
+}
+
+.audit-row > div:first-child,
+.cooldown-row > div:first-child,
+.routing-row > div:first-child,
+.billing-row > div:first-child,
+.routing-pin,
+.selected-route {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.audit-row strong,
+.cooldown-row strong,
+.routing-row strong,
+.billing-row strong,
+.routing-pin strong,
+.selected-route strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.audit-row span:not(.pill),
+.audit-row p,
+.cooldown-row span:not(.pill),
+.routing-row span:not(.pill),
+.billing-row span:not(.pill),
+.routing-pin span,
+.selected-route span,
+.selected-route em {
+  color: var(--vysual-muted);
+  font-size: 12px;
+}
+
+.audit-row p {
+  margin: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.row-actions {
+  align-items: center;
+  display: flex;
+  flex: 0 0 auto;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.score-pill {
+  color: var(--vysual-muted);
+  font-size: 12px;
+  font-weight: 800;
+  min-width: 32px;
+  text-align: right;
+}
+
+.routing-pin.muted {
+  color: var(--vysual-muted);
+}
+
+.routing-pin {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+}
+
+.routing-pin > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.selected-route {
+  border-color: var(--vysual-accent);
+}
+
+.selected-route em {
+  font-style: normal;
+}
+
+.billing-calendar {
+  display: grid;
+  gap: 6px;
+  grid-template-columns: repeat(10, minmax(0, 1fr));
+}
+
+.billing-day {
+  align-items: center;
+  aspect-ratio: 1;
+  background: var(--vysual-surface-strong);
+  border: 1px solid var(--vysual-border);
+  border-radius: 6px;
+  display: flex;
+  flex-direction: column;
+  font-size: 11px;
+  justify-content: center;
+  min-width: 0;
+}
+
+.billing-day-active {
+  background: #e9f8ef;
+  border-color: rgb(22 163 74 / 0.3);
+}
+
+.billing-day strong {
+  color: var(--vysual-success);
+  font-size: 12px;
 }
 
 .provider-row em {
@@ -857,5 +988,22 @@ h2 {
   .session-meta-grid,
   .session-detail-grid {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .billing-calendar {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+
+  .audit-row,
+  .cooldown-row,
+  .routing-row,
+  .routing-pin,
+  .billing-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .row-actions {
+    justify-content: space-between;
   }
 }
