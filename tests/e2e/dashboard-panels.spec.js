@@ -169,6 +169,7 @@ test('dashboard data panels remain usable on mobile width', async ({ page }) => 
   await expect(page.getByTestId('billing-calendar')).toBeVisible();
   await expect(page.getByTestId('doctor-check-daemon-health')).toBeVisible();
   await expect(page.getByTestId('logs-tail')).toBeVisible();
+  await expect(page.getByTestId('logs-event-filter').locator('option[value="audit.orphan_env_cleared"]')).toHaveCount(1);
   await page.getByTestId('logs-event-filter').selectOption('audit.orphan_env_cleared');
   await expect(page.getByTestId('logs-tail')).toContainText('audit.orphan_env_cleared');
   await expect(page.getByTestId('logs-tail')).not.toContainText('dashboard.started');
@@ -264,6 +265,17 @@ async function startDashboardPanelsFixture() {
 }
 
 async function setupDashboardPanelRoutes(page) {
+  await page.route('**/dashboard/state', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(dashboardStateFixture()) });
+  });
+  await page.route('**/dashboard/events', async (route) => {
+    const { logs } = dashboardStateFixture();
+    await route.fulfill({
+      status: 200,
+      contentType: 'text/event-stream',
+      body: `event: log.appended\ndata: ${JSON.stringify({ lines: logs.lines })}\n\n`,
+    });
+  });
   await page.route('**/dashboard/doctor', async (route) => {
     await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(dashboardStateFixture().doctor) });
   });
