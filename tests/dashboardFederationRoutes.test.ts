@@ -203,6 +203,30 @@ describe('/fed/dashboard federation routes', () => {
     });
   });
 
+  test('peer cache marks hostname-discovered peers offline by URL', () => {
+    const cache = new DashboardPeerCache();
+    cache.upsert({
+      hostname: 'actual-hostname',
+      url: 'http://127.0.0.1:59999',
+      lastSeen: 1000,
+      capabilities: ['dashboard-v1'],
+      status: 'online',
+      sessionCount: 1,
+    });
+
+    cache.markOffline('configured-peer-name', 'http://127.0.0.1:59999');
+
+    expect(cache.list()).toEqual([
+      expect.objectContaining({
+        hostname: 'actual-hostname',
+        url: 'http://127.0.0.1:59999',
+        status: 'offline',
+        capabilities: ['dashboard-v1'],
+        sessionCount: 1,
+      }),
+    ]);
+  });
+
   function authedHeaders(method: string, requestPath: string, body: string): http.OutgoingHttpHeaders {
     return {
       ...signDaemonRequest(secret, method, requestPath, body, Date.now()),

@@ -18,7 +18,11 @@ test.beforeAll(async () => {
 
 test.afterAll(async () => {
   if (!fixture) return;
+  const fixtureUrl = fixture.url;
   await fixture.close();
+  if (process.env.DASHBOARD_E2E_URL === fixtureUrl) {
+    delete process.env.DASHBOARD_E2E_URL;
+  }
 });
 
 test('sessions panel filters, opens details, restores, and screenshots flagship grid', async ({ page }) => {

@@ -249,6 +249,11 @@ async function startDashboardPanelsFixture() {
       }
     });
   });
+  const sockets = new Set();
+  server.on('connection', (socket) => {
+    sockets.add(socket);
+    socket.on('close', () => sockets.delete(socket));
+  });
   await new Promise((resolve, reject) => {
     server.on('error', reject);
     server.listen(0, '127.0.0.1', resolve);
@@ -258,6 +263,8 @@ async function startDashboardPanelsFixture() {
   return {
     url: `http://127.0.0.1:${address.port}/`,
     close: async () => {
+      for (const socket of sockets) socket.destroy();
+      server.closeAllConnections?.();
       await new Promise((resolve) => server.close(resolve));
       fs.rmSync(tmpDir, { recursive: true, force: true });
     },

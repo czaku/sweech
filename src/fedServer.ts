@@ -97,9 +97,12 @@ export class DashboardPeerCache {
   }
 
   markOffline(hostname: string, url: string, capabilities: string[] = []): void {
-    const existing = this.peers.get(hostname)
-    this.peers.set(hostname, {
-      hostname,
+    const key = this.peers.has(hostname)
+      ? hostname
+      : [...this.peers.entries()].find(([, entry]) => entry.url === url)?.[0] ?? hostname
+    const existing = this.peers.get(key)
+    this.peers.set(key, {
+      hostname: key,
       url,
       capabilities: existing?.capabilities ?? capabilities,
       lastSeen: existing?.lastSeen ?? Date.now(),
