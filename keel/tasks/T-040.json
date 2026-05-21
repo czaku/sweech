@@ -3,13 +3,13 @@
   "title": "Engine hot-reloads ~/.sweech/config.json",
   "wave": "wave-5",
   "space": "space-api",
-  "status": "ready",
+  "status": "done",
   "priority": "critical",
   "platform": null,
-  "assignee": null,
+  "assignee": "codex",
   "description": "Engine watches providers.yaml but not config.json. Profile mutations through CLI require daemon stop && start before the daemon API reflects them. Stale state risk in the very HTTP API agents depend on.",
   "createdAt": "2026-05-16T18:00:00Z",
-  "updatedAt": "2026-05-16T18:00:00Z",
+  "updatedAt": "2026-05-21T19:08:00.000Z",
   "product": null,
   "lane": null,
   "stage": null,
@@ -18,7 +18,12 @@
   "attachments": [],
   "validationOverrides": null,
   "executionMode": null,
-  "statusHistory": [],
+  "statusHistory": [
+    {
+      "status": "done",
+      "ts": "2026-05-21T19:08:00.000Z"
+    }
+  ],
   "dependsOn": [],
   "runStatus": null,
   "size": "S",
@@ -27,6 +32,11 @@
       "at": "2026-05-16T18:00:00Z",
       "by": "claude",
       "text": "Source (verbatim from 2026-05-16 audit): Audit Section 1: \"Daemon doesn't watch config.json. Engine only hot-reloads providers.yaml; profile mutations via CLI require daemon stop && start\""
+    },
+    {
+      "at": "2026-05-21T19:08:00.000Z",
+      "by": "codex",
+      "text": "Verified implemented T-040 contract: packages/engine/src/middleware/profiles.ts watches the config.json parent directory with debounce, reloads the cached profile snapshot, handles atomic rename/delete/recreate, and uses a generation guard so stale in-flight reads cannot overwrite a newer reload. packages/engine/src/daemon/index.ts starts the watcher on daemon boot. Gates: npm --prefix packages/engine test -- src/__tests__/middleware/profiles-hot-reload.test.ts (7 passed); npm --prefix packages/engine run typecheck."
     }
   ],
   "acceptanceCriteria": [
