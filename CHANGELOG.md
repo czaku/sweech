@@ -1,5 +1,40 @@
 # 🍭 Sweech Changelog
 
+## v0.4.0 (Unreleased)
+
+### ✨ Features
+
+- **React dashboard control panel** — `sweech dashboard` opens a local browser UI for sessions, workspaces, accounts, cost, audit, failover, routing, billing, doctor, logs, plugins, templates, federation, and settings.
+- **Durable session ledger** — `sessions.db` records wrapper, tmux, launcher, and CLI launches with workspace, cwd, PID, tmux name, terminal, summary, and lifecycle status.
+- **Session recovery grid** — dashboard session tiles support search, machine/status/workspace filters, sorting, details, local jump, detached tmux attach, and crash-recoverable restore.
+- **SSE dashboard updates** — `/dashboard/events` streams session, summary, doctor, and log updates without page reloads.
+- **Session summaries** — dashboard sessions can be summarized from local transcript/jsonl context with stale-summary detection and federation summary writeback.
+- **Dashboard federation** — `/fed/dashboard/state`, `/fed/dashboard/restore`, and `/fed/dashboard/summary` expose HMAC-protected cross-machine dashboard state, restore, and summary flows.
+- **Federation peer panel** — dashboard settings and federation panels show enabled state, peer cards, capabilities, session counts, and refresh controls.
+- **Setup wizard and settings drawer** — first-run dashboard setup and persisted terminal/tmux/federation preferences are available from the browser UI.
+- **Operations panels** — dashboard surfaces Doctor, Logs, Plugins, Templates, Audit, Failover, Routing, and Billing actions from existing CLI backends.
+- **Provider pricing dashboard** — cost panel tracks provider mix, estimated call cost, and seven-day spend signals.
+- **Profile query commands** — `sweech query <profile>` and `sweech models` expose model/provider/capability details for automation.
+- **Repair workflow** — `sweech repair --all` regenerates wrappers, settings, share topology, and optional stuck session transcript markers for legacy profiles.
+- **Codex review routing** — `sweech code-review` picks a low-utilization Codex profile for adversarial review work.
+
+### 🐛 Fixes
+
+- **Dashboard port collision safety** — `sweech dashboard` now distinguishes a real existing dashboard from a non-dashboard process on the same port.
+- **Federation account refresh isolation** — `/fed/dashboard/state` still returns session state when live account refresh fails or times out.
+- **Summary prompt hardening** — dashboard summary prompts are piped through stdin instead of shell-interpolated command arguments.
+- **SSE cleanup hardening** — dashboard E2E fixtures now force-close streaming sockets so tests catch leaked connections.
+
+### 🔄 Migration From 0.3.x
+
+- Run `sweech update`, `sweech repair --all`, `sweech update-wrappers`, and `sweech doctor --fix` after upgrading so existing profile wrappers record dashboard lifecycle events.
+- Existing auth, credentials, shared profile data, and aliases are preserved; 0.4.0 adds `~/.sweech/sessions.db` and dashboard settings as new local state.
+- If `sweech dashboard` reports a port collision, stop the non-dashboard process or pass `--port <number>`.
+
+### 🔬 Testing
+
+- Full gate for the dashboard release: `npm run build`, `npm test -- --runInBand` (102 suites, 2469 passed, 5 skipped), `npm run test:e2e:dashboard` (6 Playwright tests), `npm run typecheck:dashboard`, `npm audit --audit-level=moderate`, `swift build --package-path macos-menubar/SweechBar`, and Codex adversarial review.
+
 ## v0.3.0 (2026-05-15)
 
 ### ✨ Features

@@ -22,7 +22,7 @@ const TMP_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'sweech-livedispatch-'))
 
 // Mock fetch so no network calls happen.
 const mockFetch = jest.fn()
-;(global as any).fetch = mockFetch
+Object.defineProperty(globalThis, 'fetch', { value: mockFetch, writable: true })
 
 afterAll(() => {
   try { fs.rmSync(TMP_HOME, { recursive: true, force: true }) } catch {}
@@ -191,11 +191,31 @@ describe('getLiveUsage provider dispatch', () => {
     const configDir = writeSettingsForProfile('codex-kimi-wrapped', { KIMI_API_KEY: 'shouldnt-be-used' })
 
     const liveUsage = require('../src/liveUsage')
-    // configDir is `.codex-kimi-wrapped`, not `.codex` — fetchCodexRateLimits
-    // short-circuits non-codex dirs and returns null. We just need to
-    // assert mockFetch wasn't called via the provider path.
+    // Use a deterministic app-server stub so this test proves branch order
+    // without launching the real Codex CLI or touching provider fetchers.
+    const { EventEmitter } = require('events')
+    const mockSpawn = jest.fn(() => {
+      const proc = Object.assign(new EventEmitter(), {
+        stdout: new EventEmitter(),
+        stdin: { write: jest.fn() },
+        kill: jest.fn(),
+      })
+      proc.stdin.write.mockImplementation((payload: string) => {
+        const message = JSON.parse(payload)
+        if (message.id === 1) {
+          setImmediate(() => proc.stdout.emit('data', Buffer.from(JSON.stringify({ id: 1, result: {} }) + '\n')))
+        }
+        if (message.id === 2) {
+          setImmediate(() => proc.stdout.emit('data', Buffer.from(JSON.stringify({ id: 2, result: { rateLimitsByLimitId: {} } }) + '\n')))
+        }
+      })
+      return proc
+    })
+    jest.doMock('child_process', () => ({ spawn: mockSpawn }))
+
     await liveUsage.getLiveUsage(configDir, 'codex', 'kimi')
 
+    expect(mockSpawn).toHaveBeenCalledWith('codex', ['app-server', '--listen', 'stdio://'], expect.any(Object))
     for (const call of mockFetch.mock.calls) {
       const url = String(call[0])
       expect(url).not.toMatch(/moonshot/i)

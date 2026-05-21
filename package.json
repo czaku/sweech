@@ -53,6 +53,8 @@
   ],
   "files": [
     "dist/",
+    "assets/mascot/mascot-full-256.png",
+    "assets/dashboard-0.4.0.png",
     "scripts/postinstall.js",
     "README.md",
     "LICENSE"

@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/mascot/mascot-full-256.png" alt="Sweech mascot" width="128" />
+</p>
+
 # 🍭 Sweech
 
 > **Switch between Claude Code, Codex, and 10+ AI providers seamlessly**
@@ -10,17 +14,19 @@ Sweech is also the account control plane for the broader routing stack:
 - it tracks account health, rate-limit windows, and refresh state
 - it can recommend which account should be used first when a router such as `cloudy` asks
 
-[![Tests](https://img.shields.io/badge/tests-733%20passing-brightgreen.svg)](https://github.com/vykeai/sweech)
+[![Tests](https://img.shields.io/badge/tests-2469%20passing-brightgreen.svg)](https://github.com/vykeai/sweech)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.7-blue.svg)](https://www.typescriptlang.org/)
 [![npm](https://img.shields.io/npm/v/sweech.svg)](https://www.npmjs.com/package/sweech)
 
 ```bash
-# Use them all at once! 🎉
+# Use them all at once.
 claude              # Your default Claude account
 claude-qwen         # Qwen (Alibaba) - $0.14/M tokens
 claude-deep         # DeepSeek via Claude Code - $0.28/M tokens (cheapest!)
 ```
+
+![Sweech 0.4 dashboard](assets/dashboard-0.4.0.png)
 
 ## Features
 
@@ -35,6 +41,8 @@ claude-deep         # DeepSeek via Claude Code - $0.28/M tokens (cheapest!)
 | Global hotkey | — | — | Cmd+Shift+S |
 | Threshold notifications | — | — | 70% / 90% alerts |
 | Token refresh visibility | JSON output | key icon | Token badge |
+| Durable session recovery | `sweech sessions` | launch tracking | Dashboard session grid |
+| Browser control panel | `sweech dashboard` | — | — |
 | Webhook events | Config-driven | — | — |
 | Dynamic shell completion | Tab | — | — |
 
@@ -43,8 +51,10 @@ claude-deep         # DeepSeek via Claude Code - $0.28/M tokens (cheapest!)
 - **Smart Sort** — Profiles with expiring weekly quota automatically rank first. Never waste what resets soonest.
 - **SweechBar** — macOS menu bar app with live usage, smart sort, launch buttons, and Cmd+Shift+S global hotkey.
 - **React dashboard** — `sweech dashboard` starts or attaches to the local fed server and opens the control panel served from `dist/dashboard/`.
+- **Durable sessions** — launcher, tmux, and wrapper launches are recorded in `sessions.db`; the dashboard can restore live, detached, or crash-recoverable sessions.
+- **Dashboard federation** — local peers expose HMAC-protected dashboard state, restore, and summary routes for cross-machine visibility.
 - **Federation API** — `sweech serve` exposes `/fed/widget`, `/fed/alerts`, `/fed/status` for integration with routing tools.
-- **733 tests** — Comprehensive coverage including integration tests, edge cases, and OAuth flows.
+- **2469 tests** — Comprehensive coverage including integration tests, edge cases, dashboard E2E, and OAuth flows.
 - **AES-256 backups** — Encrypted backup/restore of all profile configurations and chat history.
 
 ---
@@ -369,12 +379,16 @@ sweech usage --json            # Machine-readable output
 sweech stats [name] [--json]   # Launch statistics with visual bars
 sweech serve [--port]          # Start federation HTTP server
 sweech dashboard [--port]      # Start/open the local React dashboard
+sweech sessions [--json]       # List active CLI sessions across accounts
+sweech agents [profile]        # Live Claude Code sessions / native agents
 ```
 
 ### Provider Management
 
 ```bash
 sweech show <name>             # Detailed info with live rate limits
+sweech query <name>            # Profile model/provider/capability details
+sweech models [--provider X]   # Available models, context sizes, notes
 sweech edit <name>             # Edit provider config
 sweech clone <src> <dest>      # Clone provider config
 sweech rename <old> <new>      # Rename provider
@@ -388,6 +402,7 @@ sweech backup                  # Create AES-256 encrypted backup
 sweech restore <file>          # Restore from backup
 sweech backup-chats <name>     # Export chat history
 sweech backup-claude           # Backup ~/.claude/ directory
+sweech repair --all            # Regenerate wrappers and repair profile drift
 ```
 
 ### Utilities
@@ -400,7 +415,19 @@ sweech completion <shell>      # Shell completion (bash/zsh/fish) with dynamic p
 sweech webhooks                # Show configured webhooks
 sweech path                    # Show bin directory
 sweech update                  # Self-update from GitHub
+sweech code-review             # Pick the best Codex profile for review work
 ```
+
+### Upgrading From 0.3.x to 0.4.0
+
+```bash
+sweech update
+sweech repair --all
+sweech update-wrappers
+sweech doctor --fix
+```
+
+When 0.4.0 is installed, it adds the React dashboard, `sessions.db`, local federation dashboard routes, and generated wrappers that record launch lifecycle events. Existing profiles keep their auth and shared data; the repair/update commands regenerate wrappers and config markers so old `claude-*` and `codex-*` commands participate in session recovery.
 
 ---
 
@@ -810,17 +837,20 @@ Your default `~/.claude/` stays **completely untouched** (unless a profile choos
 
 ## 🧪 Testing
 
-Comprehensive test suite with 733 tests across 30 suites:
+Comprehensive test suite with 2469 tests across 102 suites:
 
 ```bash
-npm test            # Run all tests
-npm run build       # TypeScript build
+npm test                    # Run all tests
+npm run build               # TypeScript + dashboard build
+npm run test:e2e:dashboard  # Playwright dashboard E2E
+npm run typecheck:dashboard # Dashboard-only typecheck
 ```
 
 **Test Coverage:**
-- 733 tests across 30 suites
+- 2469 tests across 102 suites
 - Launcher integration tests (entry building, render, keyboard, launch command)
 - Federation server edge cases (rate limiting, CORS, alerts, status)
+- Dashboard session lifecycle, SSE, restore, federation, and Playwright E2E flows
 - OAuth flow tests
 - Charts and sparkline tests
 - Account selector scoring tests
