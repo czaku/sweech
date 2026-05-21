@@ -57,6 +57,7 @@ import {
 import { appendSnapshot, allAccountSparklines } from './usageHistory';
 import { recordProjectionSamples, getAccountProjection, formatEta } from './quotaProjection';
 import { scrubSecrets } from './scrubSecrets';
+import { logSilent } from './silentLogger';
 import { checkForUpdate, fetchChangelog, shouldSkipUpdateCheck } from './updateChecker';
 import { asciiBar, barColor } from './charts';
 import { installPlugin, uninstallPlugin, listPlugins } from './plugins';
@@ -95,7 +96,8 @@ async function resolveFedDashboardPort(): Promise<number> {
     return typeof configured === 'number' && Number.isFinite(configured) && configured > 0
       ? configured
       : DEFAULT_FED_PORT;
-  } catch {
+  } catch (error) {
+    logSilent(error, 'federated dashboard port config unavailable');
     return DEFAULT_FED_PORT;
   }
 }
@@ -148,7 +150,9 @@ function prelaunchShareHeal(config: ConfigManager, profile: ProfileConfig | unde
     ) {
       config.healProfileSharedDirs(profile.commandName);
     }
-  } catch { /* silent — heal must never block launch */ }
+  } catch (error) {
+    logSilent(error, 'prelaunch share heal skipped');
+  }
 }
 
 program
@@ -348,7 +352,9 @@ program
       try {
         execFileSync('which', [cli.command], { stdio: 'ignore' });
         installed = true;
-      } catch {}
+      } catch (error) {
+        logSilent(error, `default CLI not found: ${cli.command}`);
+      }
       if (installed) {
         installedDefaults.push(cli);
         accountRefs.push({ name: cli.command, commandName: cli.name, cliType: cli.name, isDefault: true });
@@ -381,7 +387,8 @@ program
       try {
         const { readBillingFile } = require('./billing') as typeof import('./billing');
         return readBillingFile();
-      } catch {
+      } catch (error) {
+        logSilent(error, 'list command billing data unavailable');
         return null;
       }
     })();
@@ -552,7 +559,7 @@ program
         // Point users at the companion view — same content split the
         // SweechBar menubar uses (Workspaces / Accounts tabs).
         const vaultCount = (() => {
-          try { return require('./vault').listAccounts().length; } catch { return 0; }
+          try { return require('./vault').listAccounts().length; } catch (error) { logSilent(error, 'list command vault count unavailable'); return 0; }
         })();
         if (vaultCount > 0) {
           console.log(chalk.dim(`  · ${vaultCount} OAuth identities in vault — `) + chalk.bold('sweech accounts list'));
@@ -598,7 +605,9 @@ program
       try {
         const infos = await getAccountInfo(accountRefs, opts.refresh ? { timeoutMs: 5000 } : { cacheOnly: true });
         for (const info of infos) accountInfoMap.set(info.commandName, info);
-      } catch { /* live data unavailable */ }
+      } catch (error) {
+        logSilent(error, 'list command live data unavailable');
+      }
       process.stdout.write(`\x1b[${lineCount}A\x1b[0J`);
       renderProfiles(accountInfoMap);
     } else {
@@ -607,7 +616,9 @@ program
       try {
         const infos = await getAccountInfo(accountRefs, opts.refresh ? { timeoutMs: 5000 } : { cacheOnly: true });
         for (const info of infos) accountInfoMap.set(info.commandName, info);
-      } catch { /* live data unavailable */ }
+      } catch (error) {
+        logSilent(error, 'list command live data unavailable');
+      }
       renderProfiles(accountInfoMap);
     }
     // Stale-while-revalidate: cache-only render is instant, but kick a
@@ -705,7 +716,9 @@ program
       const stat = fs.statSync(cacheFile);
       const mins = Math.floor((Date.now() - stat.mtimeMs) / 60000);
       cacheAge = mins < 60 ? `${mins}m ago` : `${Math.floor(mins / 60)}h ago`;
-    } catch {}
+    } catch (error) {
+      logSilent(error, 'rate-limit cache age unavailable');
+    }
 
     const claudeProfiles = profiles.filter(p => p.cliType !== 'codex' && p.cliType !== 'kimi' && !isExternalProvider(p.provider));
     const codexProfiles = profiles.filter(p => p.cliType === 'codex' && !isExternalProvider(p.provider));
@@ -1239,7 +1252,9 @@ program
             console.log(chalk.gray('  Status:'), statusColor(acctInfo.live.status));
           }
         }
-      } catch {}
+      } catch (error) {
+        logSilent(error, 'profile info live rate limits unavailable');
+      }
     }
 
     // Show aliases pointing to this command
@@ -1325,7 +1340,8 @@ program
         source: 'use',
         scanJsonl: false,
       });
-    } catch {
+    } catch (error) {
+      logSilent(error, 'dashboard session launch ledger write failed');
       // Dashboard ledger writes are best-effort; launch must remain reliable.
     }
 
@@ -1344,8 +1360,10 @@ program
           source: 'use',
           jsonlAfterMs: launchedAfterMs,
         });
-      } catch { /* best effort */ }
-      try { closeDashboardSession({ id: launchId }); } catch { /* best effort */ }
+      } catch (error) {
+        logSilent(error, 'dashboard session completion ledger write failed');
+      }
+      try { closeDashboardSession({ id: launchId }); } catch (error) { logSilent(error, 'dashboard session close failed'); }
     } catch (error: unknown) {
       try {
         recordDashboardSessionLaunch({
@@ -1359,8 +1377,10 @@ program
           source: 'use',
           jsonlAfterMs: launchedAfterMs,
         });
-      } catch { /* best effort */ }
-      try { closeDashboardSession({ id: launchId }); } catch { /* best effort */ }
+      } catch (ledgerError) {
+        logSilent(ledgerError, 'dashboard session error ledger write failed');
+      }
+      try { closeDashboardSession({ id: launchId }); } catch (closeError) { logSilent(closeError, 'dashboard session close failed'); }
       if (error && typeof error === 'object' && 'status' in error) {
         process.exit((error as { status: number }).status ?? 1);
       }
@@ -1603,13 +1623,16 @@ program
                   console.error(chalk.yellow('No reachable profiles found.'));
                 }
               }
-            } catch { /* ignore */ }
+            } catch (error) {
+              logSilent(error, 'launch reachability alternatives unavailable');
+            }
 
             console.error(chalk.gray('Use --force to skip this check.'));
             process.exit(1);
           }
         }
-      } catch {
+      } catch (error) {
+        logSilent(error, 'launch reachability check skipped');
         // Daemon not running — skip check, proceed with launch
       }
     }
@@ -1624,7 +1647,9 @@ program
         const auditDir = join(homedir(), '.sweech');
         mkdirSync(auditDir, { recursive: true, mode: 0o700 });
         appendFileSync(join(auditDir, 'audit.log'), `${new Date().toISOString()} launch --force profile=${safeName}\n`);
-      } catch { /* best effort */ }
+      } catch (error) {
+        logSilent(error, 'launch force audit write failed');
+      }
     }
 
     const cli = cliConfig!;
@@ -1692,7 +1717,8 @@ program
         source: 'launch',
         scanJsonl: false,
       });
-    } catch {
+    } catch (error) {
+      logSilent(error, 'dashboard session launch ledger write failed');
       // Dashboard ledger writes are best-effort; launch must remain reliable.
     }
 
@@ -1711,8 +1737,10 @@ program
           source: 'launch',
           jsonlAfterMs: launchedAfterMs,
         });
-      } catch { /* best effort */ }
-      try { closeDashboardSession({ id: launchId }); } catch { /* best effort */ }
+      } catch (error) {
+        logSilent(error, 'dashboard session completion ledger write failed');
+      }
+      try { closeDashboardSession({ id: launchId }); } catch (error) { logSilent(error, 'dashboard session close failed'); }
     } catch (error: unknown) {
       try {
         recordDashboardSessionLaunch({
@@ -1726,8 +1754,10 @@ program
           source: 'launch',
           jsonlAfterMs: launchedAfterMs,
         });
-      } catch { /* best effort */ }
-      try { closeDashboardSession({ id: launchId }); } catch { /* best effort */ }
+      } catch (ledgerError) {
+        logSilent(ledgerError, 'dashboard session error ledger write failed');
+      }
+      try { closeDashboardSession({ id: launchId }); } catch (closeError) { logSilent(closeError, 'dashboard session close failed'); }
       if (error && typeof error === 'object' && 'status' in error) {
         process.exit((error as { status: number }).status ?? 1);
       }
@@ -2178,7 +2208,8 @@ program
       try { config = new ConfigManager(); }
       finally { ConfigManager.disableConstructorHeal = prior; }
       config.ensureSessionPointers(opts.profile, opts.cwd);
-    } catch {
+    } catch (error) {
+      logSilent(error, 'session pointer repair failed');
       // Silent — must never block launch.
     }
     process.exit(0);
@@ -2204,7 +2235,8 @@ program
       try { config = new ConfigManager(); }
       finally { ConfigManager.disableConstructorHeal = prior; }
       config.healProfileSharedDirs(commandName);
-    } catch {
+    } catch (error) {
+      logSilent(error, 'profile heal failed');
       // NEVER throw — this runs before exec'ing the CLI binary; a
       // heal failure must never block launch.
     }
@@ -2222,7 +2254,8 @@ program
     try {
       const { runPostinstallHeal } = await import('./utilityCommands');
       await runPostinstallHeal();
-    } catch {
+    } catch (error) {
+      logSilent(error, 'postinstall heal failed');
       // Postinstall MUST be silent on failure — a heal error during
       // `npm install -g sweech` would otherwise turn into an install
       // failure surfaced to every user upgrading. The lifecycle log
@@ -2940,7 +2973,9 @@ profileCmd
                   removedDependents: result.removedDependents,
                 },
               });
-            } catch { /* audit failure never blocks prune */ }
+            } catch (error) {
+              logSilent(error, 'profile audit prune audit write failed');
+            }
           } catch (e: unknown) {
             errors.push({
               profile: p.profile,
@@ -2982,7 +3017,9 @@ profileCmd
                   removedDependents: result.removedDependents,
                 },
               });
-            } catch { /* audit failure never blocks prune */ }
+            } catch (error) {
+              logSilent(error, 'profile audit prune audit write failed');
+            }
           } catch (e: unknown) {
             const msg = scrubSecrets(e instanceof Error ? e.message : String(e));
             errors.push({ profile: p.profile, error: msg });
@@ -3421,8 +3458,8 @@ const usageCmd = program
 
     // Record history snapshot (non-blocking, max once per hour) and
     // projection samples (fast-cadence ring buffer for burn-rate ETA).
-    try { appendSnapshot(accounts); } catch {}
-    try { recordProjectionSamples(accounts); } catch {}
+    try { appendSnapshot(accounts); } catch (error) { logSilent(error, 'usage history snapshot write failed'); }
+    try { recordProjectionSamples(accounts); } catch (error) { logSilent(error, 'usage projection sample write failed'); }
 
     if (opts.json) {
       // Sort by smart score within groups, add precomputed fields.
@@ -3473,7 +3510,9 @@ const usageCmd = program
           const q = getCachedQuota(key);
           if (q) providerQuotas[key] = q;
         }
-      } catch {}
+      } catch (error) {
+        logSilent(error, 'provider quota cache unavailable');
+      }
 
       process.stdout.write(JSON.stringify({
         schemaVersion: 2,
@@ -3537,7 +3576,9 @@ const usageCmd = program
         }
         console.log();
       }
-    } catch {}
+    } catch (error) {
+      logSilent(error, 'vault account list unavailable');
+    }
 
     console.log(chalk.bold.cyan('  ── WORKSPACES ──\n'));
 
@@ -4425,7 +4466,8 @@ program
       let template: Record<string, unknown>;
       try {
         template = JSON.parse(raw);
-      } catch {
+      } catch (error) {
+        logSilent(error, 'import template JSON parse failed');
         console.error(chalk.red('Invalid JSON in template file'));
         process.exit(1);
       }
@@ -4759,13 +4801,13 @@ program
       const seen = new Set<string>();
       for (const p of targets) {
         const dir = path.join(cfgMgr.getProfileDir(p.commandName), 'projects');
-        try { const real = fs.realpathSync(dir); if (!seen.has(real)) { seen.add(real); roots.push(dir); } } catch {}
+        try { const real = fs.realpathSync(dir); if (!seen.has(real)) { seen.add(real); roots.push(dir); } } catch (error) { logSilent(error, 'profile transcript root unavailable'); }
       }
 
       const walk = (dir: string): string[] => {
         const out: string[] = [];
         let entries: fs.Dirent[];
-        try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return out; }
+        try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (error) { logSilent(error, 'repair command transcript directory unreadable'); return out; }
         for (const e of entries) {
           const p = path.join(dir, e.name);
           if (e.isDirectory()) out.push(...walk(p));
@@ -4802,13 +4844,13 @@ program
         for (const file of walk(root)) {
           filesScanned++;
           let raw: string;
-          try { raw = fs.readFileSync(file, 'utf-8'); } catch { continue; }
+          try { raw = fs.readFileSync(file, 'utf-8'); } catch (error) { logSilent(error, 'repair command transcript unreadable'); continue; }
           const lines = raw.split('\n');
           let changed = false;
           const patched = lines.map(ln => {
             if (!ln.trim()) return ln;
             let d: any;
-            try { d = JSON.parse(ln); } catch { return ln; }
+            try { d = JSON.parse(ln); } catch (error) { logSilent(error, 'repair command skipped malformed transcript line'); return ln; }
             if (!isBrokenAssistant(d)) return ln;
             brokenFound++;
             const msg = d.message || {};
@@ -4858,14 +4900,14 @@ program
 // Designed to be fire-and-forget: never fails the launch. Silent on no-op.
 function scrubThinkingFromFile(file: string): { stripped: number; changed: boolean } {
   let raw: string;
-  try { raw = fs.readFileSync(file, 'utf-8'); } catch { return { stripped: 0, changed: false }; }
+  try { raw = fs.readFileSync(file, 'utf-8'); } catch (error) { logSilent(error, 'scrub-thinking transcript unreadable'); return { stripped: 0, changed: false }; }
   const lines = raw.split('\n');
   let stripped = 0;
   let changed = false;
   const patched = lines.map(ln => {
     if (!ln.trim()) return ln;
     let d: any;
-    try { d = JSON.parse(ln); } catch { return ln; }
+    try { d = JSON.parse(ln); } catch (error) { logSilent(error, 'scrub-thinking skipped malformed transcript line'); return ln; }
     if (d?.type !== 'assistant') return ln;
     const msg = d.message;
     if (!msg || msg.role !== 'assistant') return ln;
@@ -4889,7 +4931,10 @@ function scrubThinkingFromFile(file: string): { stripped: number; changed: boole
       const tmp = file + '.scrub.tmp';
       fs.writeFileSync(tmp, patched.join('\n'));
       fs.renameSync(tmp, file);
-    } catch { return { stripped: 0, changed: false }; }
+    } catch (error) {
+      logSilent(error, 'scrub-thinking transcript write failed');
+      return { stripped: 0, changed: false };
+    }
   }
   return { stripped, changed };
 }
@@ -4922,13 +4967,13 @@ program
       for (const p of targets) {
         const projDir = path.join(cfgMgr.getProfileDir(p.commandName), 'projects', encodedCwd);
         let realDir: string;
-        try { realDir = fs.realpathSync(projDir); } catch { continue; }
+        try { realDir = fs.realpathSync(projDir); } catch (error) { logSilent(error, 'scrub-thinking project directory unavailable'); continue; }
         if (seenDirs.has(realDir)) continue;
         seenDirs.add(realDir);
 
         let entries: string[];
         try { entries = fs.readdirSync(realDir).filter(f => f.endsWith('.jsonl')); }
-        catch { continue; }
+        catch (error) { logSilent(error, 'scrub-thinking project directory unreadable'); continue; }
 
         let files: string[];
         if (opts.session) {
@@ -4936,7 +4981,7 @@ program
           files = entries.includes(f) ? [path.join(realDir, f)] : [];
         } else {
           const stat = entries
-            .map(f => ({ f, m: (() => { try { return fs.statSync(path.join(realDir, f)).mtimeMs; } catch { return 0; } })() }))
+            .map(f => ({ f, m: (() => { try { return fs.statSync(path.join(realDir, f)).mtimeMs; } catch (error) { logSilent(error, 'scrub-thinking transcript stat unavailable'); return 0; } })() }))
             .sort((a, b) => b.m - a.m)
             .slice(0, recentN);
           files = stat.map(s => path.join(realDir, s.f));
@@ -4952,8 +4997,9 @@ program
       if (!opts.quiet && totalStripped > 0) {
         console.error(chalk.dim(`[sweech] scrubbed ${totalStripped} cross-provider thinking block(s) from ${filesChanged} transcript(s)`));
       }
-    } catch {
+    } catch (error) {
       // Never block launch
+      logSilent(error, 'scrub-thinking command failed');
     }
     process.exit(0);
   });
@@ -4968,7 +5014,10 @@ async function resolveDaemonPort(): Promise<number> {
     const raw = fs.readFileSync(path.join(os.homedir(), '.fed', 'config.json'), 'utf-8');
     const cfg = JSON.parse(raw) as { tools?: Record<string, { dash?: number }> };
     return cfg?.tools?.['sweech-engine']?.dash ?? DEFAULT_DAEMON_PORT;
-  } catch { return DEFAULT_DAEMON_PORT; }
+  } catch (error) {
+    logSilent(error, 'engine daemon port config unavailable');
+    return DEFAULT_DAEMON_PORT;
+  }
 }
 
 async function readDaemonPid(): Promise<number | null> {
@@ -4976,11 +5025,14 @@ async function readDaemonPid(): Promise<number | null> {
     const raw = fs.readFileSync(PID_FILE, 'utf-8');
     const pid = parseInt(raw.trim(), 10);
     return Number.isNaN(pid) ? null : pid;
-  } catch { return null; }
+  } catch (error) {
+    logSilent(error, 'daemon PID file unreadable');
+    return null;
+  }
 }
 
 function isProcessAlive(pid: number): boolean {
-  try { process.kill(pid, 0); return true; } catch { return false; }
+  try { process.kill(pid, 0); return true; } catch (error) { logSilent(error, 'daemon process probe failed'); return false; }
 }
 
 async function waitForProcessExit(pid: number, timeoutMs = 10_000): Promise<boolean> {
@@ -5032,7 +5084,7 @@ daemonCmd
     console.log(`Sent SIGTERM to daemon (pid ${pid}); waiting for shutdown`);
     const stopped = await waitForProcessExit(pid);
     if (!stopped) { console.error(chalk.red('Daemon did not stop within timeout')); process.exitCode = 1; return; }
-    try { fs.unlinkSync(PID_FILE); } catch {}
+    try { fs.unlinkSync(PID_FILE); } catch (error) { logSilent(error, 'daemon PID cleanup failed'); }
     console.log('Daemon stopped cleanly');
   });
 
@@ -5060,7 +5112,8 @@ daemonCmd
       if (data.activeSessions !== undefined) console.log(`  activeSessions: ${data.activeSessions}`);
       if (data.uptime !== undefined) console.log(`  uptime: ${Math.round(Number(data.uptime))}s`);
       if (data.version !== undefined) console.log(`  version: ${data.version}`);
-    } catch {
+    } catch (error) {
+      logSilent(error, 'daemon status health check failed');
       console.log(`Daemon process exists (pid ${pid}) but /healthz not reachable`);
       process.exitCode = 1;
     }
@@ -5104,7 +5157,10 @@ program
       const data = await res.json() as Record<string, unknown>;
       clearTimeout(timer);
       healthy = !!data.ok;
-    } catch { healthy = false; }
+    } catch (error) {
+      logSilent(error, 'run command daemon health check failed');
+      healthy = false;
+    }
 
     if (!healthy && flags.autoStartDaemon !== false) {
       const engineDir = path.resolve(__dirname, '..', 'packages', 'engine');
@@ -5123,7 +5179,9 @@ program
           const res = await fetch(`http://127.0.0.1:${port}/healthz`);
           const data = await res.json() as Record<string, unknown>;
           if (data.ok) { healthy = true; break; }
-        } catch { /* not ready yet */ }
+        } catch (error) {
+          logSilent(error, 'run command daemon not ready yet');
+        }
       }
       if (!healthy) {
         console.error(chalk.red('Error:'), 'Daemon did not become ready within 15s');
@@ -5228,7 +5286,9 @@ program
                 console.error(`\n[error] ${event.message}`);
                 process.exit(1);
             }
-          } catch { /* skip malformed SSE */ }
+          } catch (error) {
+            logSilent(error, 'run command skipped malformed SSE event');
+          }
         }
       }
     } catch (err) {
@@ -5260,7 +5320,10 @@ program
       const data = await res.json() as Record<string, unknown>;
       clearTimeout(timer);
       healthy = !!data.ok;
-    } catch { healthy = false; }
+    } catch (error) {
+      logSilent(error, 'engines command daemon health check failed');
+      healthy = false;
+    }
 
     if (!healthy && flags.autoStartDaemon !== false) {
       const engineDir = path.resolve(__dirname, '..', 'packages', 'engine');
@@ -5278,7 +5341,9 @@ program
           const res = await fetch(`${daemonUrl}/healthz`);
           const data = await res.json() as Record<string, unknown>;
           if (data.ok) { healthy = true; break; }
-        } catch { /* not ready yet */ }
+        } catch (error) {
+          logSilent(error, 'engines command daemon not ready yet');
+        }
       }
       if (!healthy) {
         console.error(chalk.red('Error:'), 'Daemon did not become ready within 15s');
@@ -5359,7 +5424,9 @@ program
         const text = fs.readFileSync(p, 'utf-8');
         process.stdout.write(text);
         return;
-      } catch {}
+      } catch (error) {
+        logSilent(error, 'guide file candidate unavailable');
+      }
     }
     console.error(chalk.red('SWEECH_GUIDE.md not found alongside the install. See:'));
     console.error(chalk.gray('  https://github.com/vykeai/sweech/blob/main/SWEECH_GUIDE.md'));
@@ -6216,7 +6283,8 @@ program
                 updatedAt: entry.updatedAt,
               };
             };
-          } catch {
+          } catch (error) {
+            logSilent(error, 'accounts list billing map unavailable');
             return () => null;
           }
         })();
@@ -6261,7 +6329,8 @@ program
         try {
           const { readBillingFile } = require('./billing') as typeof import('./billing');
           return readBillingFile();
-        } catch {
+        } catch (error) {
+          logSilent(error, 'accounts list billing data unavailable');
           return null;
         }
       })();

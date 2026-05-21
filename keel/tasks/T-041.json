@@ -3,13 +3,13 @@
   "title": "Eliminate silent catch {} blocks across CLI",
   "wave": "wave-5",
   "space": "space-cli",
-  "status": "ready",
+  "status": "done",
   "priority": "critical",
   "platform": null,
-  "assignee": null,
+  "assignee": "codex",
   "description": "23 silent catch blocks swallow transient errors without logging. Debuggability nightmare — unreproducible bug reports forever.",
   "createdAt": "2026-05-16T18:00:00Z",
-  "updatedAt": "2026-05-16T18:00:00Z",
+  "updatedAt": "2026-05-21T19:31:00.000Z",
   "product": null,
   "lane": null,
   "stage": null,
@@ -18,7 +18,20 @@
   "attachments": [],
   "validationOverrides": null,
   "executionMode": null,
-  "statusHistory": [],
+  "statusHistory": [
+    {
+      "at": "2026-05-21T19:16:00.000Z",
+      "from": "ready",
+      "to": "active",
+      "by": "codex"
+    },
+    {
+      "at": "2026-05-21T19:31:00.000Z",
+      "from": "active",
+      "to": "done",
+      "by": "codex"
+    }
+  ],
   "dependsOn": [],
   "runStatus": null,
   "size": "M",
@@ -27,6 +40,11 @@
       "at": "2026-05-16T18:00:00Z",
       "by": "claude",
       "text": "Source (verbatim from 2026-05-16 audit): Audit Section 1: \"23 silent catch blocks swallow transient errors with no log\""
+    },
+    {
+      "at": "2026-05-21T19:31:00.000Z",
+      "by": "codex",
+      "text": "Replaced every unbound/empty catch in src/cli.ts with real handling or debug-only logSilent(error, context) calls gated by SWEECH_DEBUG=1/true and scrubSecrets. Added src/silentLogger.ts, eslint.config.mjs, npm run lint:cli, and tests/cliSilentCatch.test.ts so future src/cli.ts catch clauses cannot omit an error binding or empty-handler guard. Proof: rg catch-without-binding scan returned no matches; npm run lint:cli passed; npm test -- --runInBand tests/cliSilentCatch.test.ts passed, including built CLI list --json smoke for clean normal stderr and debug-only stderr; npm run build passed; npm test -- --runInBand passed; npm audit --audit-level=moderate found 0 vulnerabilities; swift build --package-path macos-menubar/SweechBar passed. Codex adversarial review ran and its findings were addressed; final re-review returned no blockers."
     }
   ],
   "acceptanceCriteria": [
