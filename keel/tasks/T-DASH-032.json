@@ -3,13 +3,13 @@
   "title": "sweech upgrade \u2014 migration runner for legacy installs",
   "wave": "wave-7",
   "space": "space-cli",
-  "status": "todo",
+  "status": "done",
   "priority": "high",
   "platform": null,
-  "assignee": null,
+  "assignee": "codex",
   "description": "sweech upgrade command: update-wrappers + healShareTopology + sessions.db init + classify-providers + open dashboard once. Idempotent. _postinstall-heal extended to call upgrade silently. --dry-run + --json.",
   "createdAt": "2026-05-18T11:00:00Z",
-  "updatedAt": "2026-05-18T11:00:00Z",
+  "updatedAt": "2026-05-21T00:00:00Z",
   "product": null,
   "lane": null,
   "stage": null,
@@ -31,6 +31,11 @@
       "at": "2026-05-18T11:00:00Z",
       "by": "luke",
       "text": "Filed via /vy-backlog 2026-05-18. Spec: docs/specs/dashboard-2026-05-18.md, backlog: docs/specs/dashboard-2026-05-18-backlog.md"
+    },
+    {
+      "at": "2026-05-21T00:00:00Z",
+      "by": "codex",
+      "text": "Implemented sweech upgrade migration runner with wrapper regeneration, share-topology heal/sweep, sessions.db init, provider reclassification, one-time dashboard open, dry-run/json output, and postinstall integration. Gates: focused Jest upgrade/postinstall tests, npx tsc --noEmit, npm run build:cli, built CLI dry-run JSON smoke."
     }
   ]
 }

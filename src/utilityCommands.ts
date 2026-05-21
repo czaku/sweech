@@ -23,6 +23,7 @@ import { isMacOS } from './platform';
 import { findProjectPin, PIN_FILENAME } from './projectConfig';
 import { atomicWriteFileSync } from './atomicWrite';
 import { DOCTOR_CHECK_TIMEOUT_MS, probeDaemonHealthz, type DaemonHealthzProbe } from './daemonHealthz';
+import { runUpgrade } from './upgrade';
 
 export { DOCTOR_CHECK_TIMEOUT_MS, probeDaemonHealthz, type DaemonHealthzProbe };
 
@@ -200,28 +201,11 @@ export async function runPostinstallHeal(): Promise<PostinstallHealResult> {
   let totalRepaired = 0;
   let profilesScanned = 0;
   try {
-    // Snapshot-driven pass first (covers removed+recreated profiles).
-    const snapResult = config.healShareTopology();
-    totalRepaired += snapResult.linksCreated.length + snapResult.collisionsHealed.length;
-
-    // Steady-state sweep — covers new shareables added in this version.
-    for (const profile of readPostinstallProfiles(configPath)) {
-      if (!profile.sharedWith) continue;
-      profilesScanned++;
-      try {
-        let repaired = config.healProfileSharedDirs(profile.commandName);
-        if (repaired === 0 && postinstallProfileNeedsLinks(profile)) {
-          repaired = createMissingSharedLinks(profile);
-        }
-        totalRepaired += repaired;
-      } catch (err) {
-        config.logLifecycle({
-          event: 'postinstall.profile_heal_failed',
-          profile: profile.commandName,
-          error: err instanceof Error ? err.message : String(err),
-        });
-      }
-    }
+    const upgrade = await runUpgrade({ silent: true, openDashboard: false });
+    totalRepaired += upgrade.shareTopology.linksCreated.length
+      + upgrade.shareTopology.collisionsHealed.length
+      + upgrade.shareSweep.repairs.reduce((sum, item) => sum + item.repaired, 0);
+    profilesScanned = readPostinstallProfiles(configPath).filter(p => p.sharedWith).length;
   } catch (err) {
     logPostinstallAuditFailure(config.getConfigDir(), err);
     config.logLifecycle({
@@ -288,39 +272,6 @@ function readPostinstallProfiles(configPath: string): ProfileConfig[] {
   } catch {
     return [];
   }
-}
-
-function postinstallProfileNeedsLinks(profile: ProfileConfig): boolean {
-  if (!profile.sharedWith || !/^[A-Za-z0-9_-]+$/.test(profile.commandName) || !/^[A-Za-z0-9_-]+$/.test(profile.sharedWith)) {
-    return false;
-  }
-  const profileDir = path.join(os.homedir(), `.${profile.commandName}`);
-  const masterDir = ['claude', 'codex', 'kimi'].includes(profile.sharedWith)
-    ? path.join(os.homedir(), `.${profile.sharedWith}`)
-    : path.join(os.homedir(), `.${profile.sharedWith}`);
-  return fs.existsSync(profileDir) && fs.existsSync(masterDir);
-}
-
-function createMissingSharedLinks(profile: ProfileConfig): number {
-  const profileDir = path.join(os.homedir(), `.${profile.commandName}`);
-  const masterDir = profile.sharedWith
-    ? path.join(os.homedir(), `.${profile.sharedWith}`)
-    : '';
-  const isCodex = profile.cliType === 'codex' || profile.sharedWith === 'codex' || profile.commandName.startsWith('codex');
-  const isKimi = profile.cliType === 'kimi' || profile.sharedWith === 'kimi' || profile.commandName.startsWith('kimi');
-  const dirs = isCodex ? CODEX_SHAREABLE_DIRS : isKimi ? KIMI_SHAREABLE_DIRS : SHAREABLE_DIRS;
-  const files = isCodex ? [...CODEX_SHAREABLE_FILES, ...CODEX_SHAREABLE_DBS] : isKimi ? KIMI_SHAREABLE_FILES : SHAREABLE_FILES;
-  let count = 0;
-  for (const item of [...dirs, ...files]) {
-    const linkPath = path.join(profileDir, item);
-    const targetPath = path.join(masterDir, item);
-    if (!fs.existsSync(targetPath) || fs.existsSync(linkPath)) continue;
-    try {
-      fs.symlinkSync(targetPath, linkPath);
-      count++;
-    } catch { /* skip best-effort postinstall repair */ }
-  }
-  return count;
 }
 
 function writePostinstallConfigMarker(configPath: string, sweechVersion: string | null): void {
