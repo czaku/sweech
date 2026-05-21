@@ -561,6 +561,255 @@ h2 {
   padding: 16px;
 }
 
+.data-panel {
+  display: grid;
+  gap: 14px;
+  min-height: 300px;
+}
+
+.workspace-card-grid,
+.account-list,
+.provider-breakdown {
+  display: grid;
+  gap: 10px;
+}
+
+.workspace-card,
+.account-card {
+  background: var(--vysual-surface-strong);
+  border: 1px solid var(--vysual-border);
+  border-radius: 8px;
+  color: var(--vysual-text);
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  padding: 12px;
+  text-align: left;
+}
+
+.workspace-card {
+  min-height: 170px;
+}
+
+.workspace-card:hover,
+.workspace-card:focus-visible {
+  border-color: var(--vysual-accent);
+}
+
+.workspace-card strong,
+.account-card strong,
+.provider-row strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-card > span:not(.pill):not(.panel-action),
+.account-card span,
+.provider-row span,
+.cost-summary span {
+  color: var(--vysual-muted);
+  font-size: 12px;
+}
+
+.workspace-card dl {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 0;
+}
+
+.workspace-card dt {
+  color: var(--vysual-muted);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.workspace-card dd {
+  font-size: 12px;
+  font-weight: 700;
+  margin: 2px 0 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.panel-action {
+  color: var(--vysual-accent) !important;
+  font-size: 12px !important;
+  font-weight: 800;
+  justify-self: end;
+}
+
+.pill {
+  align-items: center;
+  border: 1px solid var(--vysual-border);
+  border-radius: 999px;
+  display: inline-flex;
+  font-size: 11px;
+  font-weight: 800;
+  justify-self: start;
+  min-height: 24px;
+  padding: 3px 8px;
+}
+
+.pill-success {
+  background: #e9f8ef;
+  color: var(--vysual-success);
+}
+
+.pill-warning {
+  background: #fff7ed;
+  color: var(--vysual-warning);
+}
+
+.pill-danger {
+  background: #fef2f2;
+  color: var(--vysual-danger);
+}
+
+.pill-muted {
+  background: var(--vysual-surface);
+  color: var(--vysual-muted);
+}
+
+.account-card-top,
+.freshness-row,
+.usage-bar > div,
+.provider-row,
+.cost-summary {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+  min-width: 0;
+}
+
+.account-card-top > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.freshness-row {
+  justify-content: flex-start;
+}
+
+.usage-bar {
+  display: grid;
+  gap: 5px;
+}
+
+.usage-bar strong {
+  font-size: 12px;
+}
+
+.usage-track {
+  background: var(--vysual-surface);
+  border: 1px solid var(--vysual-border);
+  border-radius: 999px;
+  display: block;
+  height: 10px;
+  overflow: hidden;
+}
+
+.usage-track span {
+  background: var(--vysual-accent);
+  border-radius: inherit;
+  display: block;
+  height: 100%;
+  min-width: 4px;
+}
+
+.cost-summary {
+  align-items: stretch;
+}
+
+.cost-summary div {
+  background: var(--vysual-surface-strong);
+  border: 1px solid var(--vysual-border);
+  border-radius: 6px;
+  display: grid;
+  flex: 1;
+  gap: 4px;
+  min-width: 0;
+  padding: 10px;
+}
+
+.cost-summary strong {
+  font-size: 18px;
+}
+
+.cost-sparkline {
+  align-items: end;
+  border-bottom: 1px solid var(--vysual-border);
+  display: flex;
+  gap: 7px;
+  height: 48px;
+  padding: 4px 2px 0;
+}
+
+.cost-sparkline span {
+  background: var(--vysual-accent);
+  border-radius: 999px 999px 2px 2px;
+  display: block;
+  opacity: 0.76;
+  width: 11px;
+}
+
+.provider-row {
+  background: var(--vysual-surface-strong);
+  border: 1px solid var(--vysual-border);
+  border-radius: 6px;
+  min-height: 38px;
+  padding: 8px 10px;
+}
+
+.provider-row em {
+  font-style: normal;
+  font-weight: 800;
+}
+
+.workspace-edit-form {
+  background: var(--vysual-surface-strong);
+  border: 1px solid var(--vysual-border);
+  border-radius: 6px;
+  display: grid;
+  gap: 10px;
+  padding: 10px;
+}
+
+.workspace-edit-form label {
+  color: var(--vysual-muted);
+  display: grid;
+  font-size: 11px;
+  font-weight: 800;
+  gap: 5px;
+}
+
+.workspace-edit-form input {
+  background: var(--vysual-surface);
+  border: 1px solid var(--vysual-border);
+  border-radius: 6px;
+  color: var(--vysual-text);
+  font-size: 13px;
+  min-height: 36px;
+  min-width: 0;
+  padding: 8px 10px;
+}
+
+.workspace-edit-actions {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+}
+
+.workspace-edit-actions span {
+  color: var(--vysual-success);
+  font-size: 12px;
+  font-weight: 800;
+}
+
 @media (min-width: 921px) {
   h1 {
     max-width: none;

@@ -409,7 +409,7 @@ export async function getAccountInfo(
     disabled?: boolean;
     hidden?: boolean;
   }>,
-  options: { refresh?: boolean; timeoutMs?: number; cacheOnly?: boolean } = {},
+  options: { refresh?: boolean; timeoutMs?: number; cacheOnly?: boolean; liveCacheOnly?: boolean } = {},
 ): Promise<AccountInfo[]> {
   const allMeta = readMeta()
 
@@ -417,7 +417,7 @@ export async function getAccountInfo(
     const configDir = getConfigDir(p.commandName)
     const cliType = p.cliType || p.commandName || 'claude'
     const meta = allMeta[p.commandName] ?? {}
-    const claude = readClaudeJson(configDir, { skipKeychain: !!options.cacheOnly })
+    const claude = readClaudeJson(configDir, { skipKeychain: !!options.cacheOnly || !!options.liveCacheOnly })
     // Skip history parsing in cache-only paths — reading + JSON-parsing
     // multi-megabyte history.jsonl files across 24 profiles is the dominant
     // cost (3-4s sync block on the TUI). Windows are filled in on refresh.
@@ -438,7 +438,7 @@ export async function getAccountInfo(
     // marked inactive.
     const isInactive = Boolean(p.disabled || p.hidden)
     let live: LiveRateLimitData | undefined
-    if (options.cacheOnly || isInactive) {
+    if (options.cacheOnly || options.liveCacheOnly || isInactive) {
       // Never touch the network — return whatever's in cache (fresh or stale).
       live = (getCached(configDir) ?? getStaleCache(configDir)) ?? undefined
     } else {
@@ -467,7 +467,7 @@ export async function getAccountInfo(
     // Only flag reauth if the Keychain token is actually expired (not just a transient fetch failure).
     // Skipped in cache-only paths to avoid 14+ sync `security` execs blocking the event loop.
     let needsReauth = false
-    if (process.platform === 'darwin' && cliType === 'claude' && !live && !options.cacheOnly) {
+    if (process.platform === 'darwin' && cliType === 'claude' && !live && !options.cacheOnly && !options.liveCacheOnly) {
       try {
         const crypto = require('crypto')
         const defaultDir = path.join(os.homedir(), '.claude')

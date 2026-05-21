@@ -13,7 +13,7 @@
     "dev": "tsc --watch",
     "start": "node dist/cli.js",
     "test": "jest",
-    "test:e2e:dashboard": "npm run build && PROJECT_SCREENSHOT_DIR=${PROJECT_SCREENSHOT_DIR:-$HOME/Desktop/screenshots/sweech} playwright test tests/e2e/dashboard-sessions.spec.js --reporter=line",
+    "test:e2e:dashboard": "npm run build && PROJECT_SCREENSHOT_DIR=${PROJECT_SCREENSHOT_DIR:-$HOME/Desktop/screenshots/sweech} playwright test tests/e2e/*.spec.js --reporter=line",
     "typecheck:dashboard": "tsc --noEmit -p apps/dashboard/tsconfig.json",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",

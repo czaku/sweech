@@ -11,6 +11,12 @@ const mockClose = jest.fn();
 const mockSummarizeNow = jest.fn();
 const mockSummarizerClose = jest.fn();
 const mockLaunchTerminal = jest.fn();
+const mockGetProfiles = jest.fn();
+const mockListWorkspaces = jest.fn();
+const mockEditWorkspace = jest.fn();
+const mockGetKnownAccounts = jest.fn();
+const mockGetAccountInfo = jest.fn();
+const mockBuildCostTable = jest.fn();
 
 jest.mock('../src/sessionsDb', () => ({
   SessionsDb: jest.fn().mockImplementation(() => ({
@@ -33,6 +39,27 @@ jest.mock('child_process', () => ({
 
 jest.mock('../src/terminalLauncher', () => ({
   launchTerminal: (...args: unknown[]) => mockLaunchTerminal(...args),
+}));
+
+jest.mock('../src/config', () => ({
+  ConfigManager: jest.fn().mockImplementation(() => ({
+    getProfiles: mockGetProfiles,
+    getProfileDir: (commandName: string) => `/profiles/${commandName}`,
+  })),
+}));
+
+jest.mock('../src/workspaceCrud', () => ({
+  listWorkspaces: (...args: unknown[]) => mockListWorkspaces(...args),
+  editWorkspace: (...args: unknown[]) => mockEditWorkspace(...args),
+}));
+
+jest.mock('../src/subscriptions', () => ({
+  getKnownAccounts: (...args: unknown[]) => mockGetKnownAccounts(...args),
+  getAccountInfo: (...args: unknown[]) => mockGetAccountInfo(...args),
+}));
+
+jest.mock('../src/costCommand', () => ({
+  buildCostTable: (...args: unknown[]) => mockBuildCostTable(...args),
 }));
 
 describe('dashboard server', () => {
@@ -79,6 +106,58 @@ describe('dashboard server', () => {
     ]);
     mockById.mockReturnValue(session);
     mockLaunchTerminal.mockResolvedValue({ ok: true, command: 'open', args: ['ghostty://run?...'] });
+    mockGetProfiles.mockReturnValue([{ name: 'Sweech Main', commandName: 'sweech', cliType: 'claude', provider: 'anthropic', model: 'claude-sonnet-4-5' }]);
+    mockEditWorkspace.mockReturnValue({
+      commandName: 'sweech',
+      model: 'claude-opus-4-5',
+      baseUrl: 'https://api.example.test',
+      apiKey: 'sk-test-should-not-leak',
+      oauth: { accessToken: 'secret-token' },
+      envOverrides: { ANTHROPIC_AUTH_TOKEN: 'secret-env' },
+    });
+    mockListWorkspaces.mockReturnValue([{
+      commandName: 'sweech',
+      cliType: 'claude',
+      provider: 'anthropic',
+      disabled: false,
+      hidden: false,
+      profileDir: '/profiles/sweech',
+      profileDirExists: true,
+    }]);
+    mockGetKnownAccounts.mockReturnValue([{ name: 'Sweech Main', commandName: 'sweech', cliType: 'claude', provider: 'anthropic' }]);
+    mockGetAccountInfo.mockResolvedValue([{
+      name: 'Sweech Main',
+      commandName: 'sweech',
+      cliType: 'claude',
+      provider: 'anthropic',
+      meta: { plan: 'Max 5x' },
+      messages5h: 12,
+      messages7d: 88,
+      lastActive: '2026-05-21T09:30:00.000Z',
+      hoursUntilWeeklyReset: 24,
+      tokenStatus: 'valid',
+      live: { capturedAt: Date.UTC(2026, 4, 21, 9, 30), buckets: [{ session: { utilization: 0.24 }, weekly: { utilization: 0.44 } }] },
+    }]);
+    mockBuildCostTable.mockResolvedValue({
+      generatedAt: '2026-05-21T09:30:00.000Z',
+      rows: [{
+        profile: 'sweech',
+        cliType: 'claude',
+        provider: 'anthropic',
+        model: 'claude-sonnet-4-5',
+        spent7dUsd: 1.25,
+        estCostPerCallUsd: 0.0375,
+        lastUseTs: Date.UTC(2026, 4, 21, 9, 30),
+      }, {
+        profile: 'codex',
+        cliType: 'codex',
+        provider: 'openai',
+        model: 'gpt-5-mini',
+        spent7dUsd: 0.5,
+        estCostPerCallUsd: 0.009,
+        lastUseTs: Date.UTC(2026, 4, 20, 9, 30),
+      }],
+    });
     mockSummarizeNow.mockResolvedValue({
       sessionId: 's1',
       summaryOne: 'Dashboard route summary.',
@@ -158,7 +237,41 @@ describe('dashboard server', () => {
     expect(body.machine).toEqual(expect.any(String));
     expect(body.sessions).toHaveLength(1);
     expect(body.sessions[0]).toMatchObject({ id: 's1', status: 'live', workspace: 'sweech' });
+    expect(body.workspaces[0]).toMatchObject({ commandName: 'sweech', name: 'Sweech Main', provider: 'anthropic', model: 'claude-sonnet-4-5' });
+    expect(body.workspaces[0].lastUsed).toBe('2026-05-21T09:30:00.000Z');
+    expect(body.workspaces[0].profileDir).toBeUndefined();
+    expect(body.accounts[0]).toMatchObject({ commandName: 'sweech', plan: 'Max 5x', tokenStatus: 'valid', messages5h: 12, messages7d: 88, utilization5h: 0.24 });
+    expect(body.cost).toMatchObject({ spent7dUsd: 1.75, estCostPerCallUsd: 0.009 });
+    expect(body.cost.providers[0]).toMatchObject({ provider: 'anthropic', profiles: 1 });
+    expect(body.cost.rows).toBeUndefined();
     expect(mockClose).toHaveBeenCalledTimes(1);
+    expect(mockGetAccountInfo).toHaveBeenCalledWith(expect.any(Array), { liveCacheOnly: true, timeoutMs: 500 });
+  });
+
+  test('dashboard account utilization prefers the All models bucket', async () => {
+    mockGetAccountInfo.mockResolvedValueOnce([{
+      name: 'Codex',
+      commandName: 'codex',
+      cliType: 'codex',
+      provider: 'openai',
+      meta: {},
+      messages5h: 0,
+      messages7d: 0,
+      tokenStatus: undefined,
+      live: {
+        capturedAt: Date.UTC(2026, 4, 21, 9, 30),
+        buckets: [
+          { label: 'GPT-5.3-Codex-Spark', session: { utilization: 0 }, weekly: { utilization: 0 } },
+          { label: 'All models', session: { utilization: 0.34 }, weekly: { utilization: 0.44 } },
+        ],
+      },
+    }]);
+
+    const res = await request('/dashboard/state');
+    const body = JSON.parse(res.body);
+
+    expect(res.status).toBe(200);
+    expect(body.accounts[0]).toMatchObject({ commandName: 'codex', utilization5h: 0.34, utilization7d: 0.44 });
   });
 
   test('serves sessions alias from the same state payload', async () => {
@@ -197,6 +310,39 @@ describe('dashboard server', () => {
       command: ['tmux', 'attach', '-t', 'sweech-s1'],
       cwd: '/repo/sweech',
       title: 'sweech sweech',
+    });
+  });
+
+  test('PATCH /dashboard/workspaces/:name edits workspace settings', async () => {
+    const res = await requestWithBody('/dashboard/workspaces/sweech', 'PATCH', JSON.stringify({
+      model: 'claude-opus-4-5',
+      baseUrl: 'https://api.example.test',
+    }));
+    const body = JSON.parse(res.body);
+
+    expect(res.status).toBe(200);
+    expect(body).toMatchObject({ ok: true, profile: { commandName: 'sweech', model: 'claude-opus-4-5' } });
+    expect(body.profile.apiKey).toBeUndefined();
+    expect(body.profile.oauth).toBeUndefined();
+    expect(body.profile.envOverrides).toBeUndefined();
+    expect(mockEditWorkspace).toHaveBeenCalledWith('sweech', {
+      model: 'claude-opus-4-5',
+      baseUrl: 'https://api.example.test',
+    });
+  });
+
+  test('PATCH /dashboard/workspaces/:name preserves blank strings to clear overrides', async () => {
+    const res = await requestWithBody('/dashboard/workspaces/sweech', 'PATCH', JSON.stringify({
+      model: '',
+      baseUrl: '',
+      smallFastModel: '',
+    }));
+
+    expect(res.status).toBe(200);
+    expect(mockEditWorkspace).toHaveBeenCalledWith('sweech', {
+      model: '',
+      baseUrl: '',
+      smallFastModel: '',
     });
   });
 

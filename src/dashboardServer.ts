@@ -3,9 +3,14 @@ import { EventEmitter } from 'node:events';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { ConfigManager } from './config';
+import { buildCostTable, type CostTable } from './costCommand';
+import { pickPrimaryBucket } from './liveUsage';
 import { SessionsDb, type DashboardSession, type DashboardSessionStatus, type ListDashboardSessionsFilter } from './sessionsDb';
 import { SessionSummarizer } from './sessionSummarizer';
+import { getAccountInfo, getKnownAccounts, type AccountInfo } from './subscriptions';
 import { launchTerminal, type TerminalName } from './terminalLauncher';
+import { editWorkspace, listWorkspaces, type WorkspaceEditOptions, type WorkspaceStatusRow } from './workspaceCrud';
 
 export type DashboardEventName =
   | 'session.changed'
@@ -32,6 +37,9 @@ export interface DashboardState {
   generatedAt: string;
   machine: string;
   sessions: DashboardSession[];
+  workspaces: DashboardWorkspace[];
+  accounts: DashboardAccount[];
+  cost: DashboardCostState;
 }
 
 export interface DashboardRequestHandlerOptions {
@@ -42,6 +50,40 @@ export interface DashboardRequestHandlerOptions {
   catchAllAssets?: boolean;
   sessionsDbPath?: string;
   terminalLauncher?: typeof launchTerminal;
+  stateProvider?: () => Promise<DashboardState>;
+}
+
+export interface DashboardWorkspace extends Omit<WorkspaceStatusRow, 'profileDir'> {
+  name: string;
+  sharedWith?: string;
+  lastUsed?: string | null;
+  model?: string;
+  baseUrl?: string;
+  smallFastModel?: string;
+}
+
+export interface DashboardAccount {
+  name: string;
+  commandName: string;
+  cliType: string;
+  provider?: string;
+  plan?: string;
+  tokenStatus?: string;
+  messages5h?: number | null;
+  messages7d?: number | null;
+  lastActive?: string;
+  freshnessAt?: number | null;
+  utilization5h?: number | null;
+  utilization7d?: number | null;
+  resetLabel?: string | null;
+}
+
+export interface DashboardCostState {
+  generatedAt: string;
+  spent7dUsd: number;
+  estCostPerCallUsd: number;
+  providers: Array<{ provider: string; spent7dUsd: number; estCostPerCallUsd: number; profiles: number }>;
+  sparkline: number[];
 }
 
 type DashboardEventListener = (event: DashboardEvent) => void;
@@ -190,6 +232,32 @@ export function createDashboardRequestHandler(options: DashboardRequestHandlerOp
       return true;
     }
 
+    const workspaceEditMatch = url.pathname.match(/^\/dashboard\/workspaces\/([^/]+)$/);
+    if (workspaceEditMatch) {
+      if (req.method !== 'PATCH') {
+        sendDashboardJson(res, 405, { error: 'Method not allowed' });
+        return true;
+      }
+      if (!isJsonRequest(req.headers['content-type'])) {
+        sendDashboardJson(res, 415, { error: 'Content-Type must be application/json' });
+        return true;
+      }
+      const body = await readDashboardBody(req, res);
+      if (body === null) return true;
+      try {
+        const payload = parseDashboardJsonObject(body);
+        const profile = editWorkspaceFromDashboard(decodeURIComponent(workspaceEditMatch[1]), payload);
+        sendDashboardJson(res, 200, { ok: true, profile: dashboardEditableWorkspace(profile) });
+      } catch (error) {
+        if (error instanceof DashboardRequestError) {
+          sendDashboardJson(res, error.status, { error: error.message });
+          return true;
+        }
+        sendDashboardJson(res, 500, dashboardErrorBody(error));
+      }
+      return true;
+    }
+
     if (req.method !== 'GET' && req.method !== 'HEAD') {
       sendDashboardJson(res, 405, { error: 'Method not allowed' });
       return true;
@@ -197,7 +265,7 @@ export function createDashboardRequestHandler(options: DashboardRequestHandlerOp
 
     if (url.pathname === '/dashboard/state') {
       try {
-        sendDashboardJson(res, 200, await collectDashboardState(options.sessionsDbPath));
+        sendDashboardJson(res, 200, options.stateProvider ? await options.stateProvider() : await collectDashboardState(options.sessionsDbPath));
       } catch (error) {
         if (error instanceof DashboardRequestError) {
           sendDashboardJson(res, error.status, { error: error.message });
@@ -232,7 +300,11 @@ export function createDashboardRequestHandler(options: DashboardRequestHandlerOp
 }
 
 export async function collectDashboardState(dbPath?: string): Promise<DashboardState> {
-  return collectDashboardSessions(undefined, dbPath);
+  const [sessionsState, auxiliaryState] = await Promise.all([
+    collectDashboardSessions(undefined, dbPath),
+    collectDashboardAuxiliaryState(),
+  ]);
+  return { ...sessionsState, ...auxiliaryState };
 }
 
 export async function summarizeDashboardSession(sessionId: string) {
@@ -251,10 +323,156 @@ export async function collectDashboardSessions(url?: URL, dbPath?: string): Prom
       generatedAt: new Date().toISOString(),
       machine: os.hostname(),
       sessions: db.list(dashboardSessionsFilterFromUrl(url)),
+      workspaces: [],
+      accounts: [],
+      cost: emptyDashboardCostState(),
     };
   } finally {
     db.close();
   }
+}
+
+async function collectDashboardAuxiliaryState(): Promise<Pick<DashboardState, 'workspaces' | 'accounts' | 'cost'>> {
+  const config = new ConfigManager();
+  const profiles = config.getProfiles();
+  const accountRefs = getKnownAccounts(profiles, { includeInactive: true });
+  const [accounts, costTable] = await Promise.all([
+    getAccountInfo(accountRefs, { liveCacheOnly: true, timeoutMs: 500 }).catch(() => [] as AccountInfo[]),
+    buildCostTable().catch(() => null),
+  ]);
+  const lastUseByProfile = new Map<string, string>();
+  for (const row of costTable?.rows ?? []) {
+    if (row.lastUseTs) lastUseByProfile.set(row.profile, new Date(row.lastUseTs).toISOString());
+  }
+  const workspaces = listWorkspaces(config).map((workspace) => {
+    const profile = profiles.find((candidate) => candidate.commandName === workspace.commandName);
+    return {
+      commandName: workspace.commandName,
+      cliType: workspace.cliType,
+      provider: workspace.provider,
+      disabled: workspace.disabled,
+      hidden: workspace.hidden,
+      profileDirExists: workspace.profileDirExists,
+      name: profile?.name ?? workspace.commandName,
+      sharedWith: profile?.sharedWith,
+      lastUsed: lastUseByProfile.get(workspace.commandName) ?? null,
+      model: profile?.model,
+      baseUrl: profile?.baseUrl,
+      smallFastModel: profile?.smallFastModel,
+    };
+  });
+
+  return {
+    workspaces,
+    accounts: accounts.map(dashboardAccountFromInfo),
+    cost: dashboardCostFromTable(costTable),
+  };
+}
+
+function dashboardAccountFromInfo(account: AccountInfo): DashboardAccount {
+  const primaryBucket = pickPrimaryBucket(account.live);
+  const session = primaryBucket?.session?.utilization;
+  const weekly = primaryBucket?.weekly?.utilization;
+  return {
+    name: account.name,
+    commandName: account.commandName,
+    cliType: account.cliType,
+    provider: account.provider,
+    plan: account.meta.plan,
+    tokenStatus: account.tokenStatus,
+    messages5h: account.messages5h,
+    messages7d: account.messages7d,
+    lastActive: account.lastActive,
+    freshnessAt: account.live?.capturedAt ?? account.tokenRefreshedAt ?? null,
+    utilization5h: typeof session === 'number' ? session : null,
+    utilization7d: typeof weekly === 'number' ? weekly : null,
+    resetLabel: account.hoursUntilWeeklyReset === undefined ? null : `${Math.max(0, Math.round(account.hoursUntilWeeklyReset))}h`,
+  };
+}
+
+function dashboardCostFromTable(table: CostTable | null): DashboardCostState {
+  if (!table) return emptyDashboardCostState();
+  const providers = new Map<string, { provider: string; spent7dUsd: number; estCostPerCallUsd: number; profiles: number }>();
+  for (const row of table.rows) {
+    const provider = row.provider || 'unknown';
+    const slot = providers.get(provider) ?? { provider, spent7dUsd: 0, estCostPerCallUsd: 0, profiles: 0 };
+    slot.spent7dUsd += row.spent7dUsd;
+    slot.estCostPerCallUsd += row.estCostPerCallUsd ?? 0;
+    slot.profiles += 1;
+    providers.set(provider, slot);
+  }
+  const spent7dUsd = table.rows.reduce((sum, row) => sum + row.spent7dUsd, 0);
+  const perCallEstimates = table.rows
+    .map((row) => row.estCostPerCallUsd)
+    .filter((value): value is number => typeof value === 'number' && Number.isFinite(value) && value > 0);
+  const estCostPerCallUsd = perCallEstimates.length > 0 ? Math.min(...perCallEstimates) : 0;
+  return {
+    generatedAt: table.generatedAt,
+    spent7dUsd,
+    estCostPerCallUsd,
+    providers: [...providers.values()].sort((a, b) => b.spent7dUsd - a.spent7dUsd || b.estCostPerCallUsd - a.estCostPerCallUsd),
+    sparkline: dashboardCostSparkline([...providers.values()].map((provider) => provider.spent7dUsd)),
+  };
+}
+
+function emptyDashboardCostState(): DashboardCostState {
+  return {
+    generatedAt: new Date().toISOString(),
+    spent7dUsd: 0,
+    estCostPerCallUsd: 0,
+    providers: [],
+    sparkline: dashboardCostSparkline([]),
+  };
+}
+
+function dashboardCostSparkline(values: number[]): number[] {
+  const buckets = values.length > 0 ? values.slice(0, 7) : [0, 0, 0, 0, 0, 0, 0];
+  while (buckets.length < 7) buckets.unshift(0);
+  const max = Math.max(...buckets, 0.01);
+  return buckets.map((value) => Math.max(4, Math.round((value / max) * 32)));
+}
+
+function editWorkspaceFromDashboard(commandName: string, payload: Record<string, unknown>) {
+  const patch: WorkspaceEditOptions = {};
+  const model = editableString(payload.model);
+  const baseUrl = editableString(payload.baseUrl);
+  const smallFastModel = editableString(payload.smallFastModel);
+  if (model !== undefined) patch.model = model;
+  if (baseUrl !== undefined) patch.baseUrl = baseUrl;
+  if (smallFastModel !== undefined) patch.smallFastModel = smallFastModel;
+
+  if (payload.envOverrides !== undefined) {
+    if (!payload.envOverrides || typeof payload.envOverrides !== 'object' || Array.isArray(payload.envOverrides)) {
+      throw new DashboardRequestError(400, 'envOverrides must be an object');
+    }
+    const envOverrides: Record<string, string> = {};
+    for (const [key, value] of Object.entries(payload.envOverrides)) {
+      const envKey = key.trim();
+      if (!envKey || typeof value !== 'string') {
+        throw new DashboardRequestError(400, 'envOverrides values must be strings');
+      }
+      envOverrides[envKey] = value;
+    }
+    if (Object.keys(envOverrides).length > 0) patch.envOverrides = envOverrides;
+  }
+
+  if (Object.keys(patch).length === 0) {
+    throw new DashboardRequestError(400, 'At least one editable workspace field is required');
+  }
+  return editWorkspace(commandName, patch);
+}
+
+function editableString(value: unknown): string | undefined {
+  return typeof value === 'string' ? value.trim() : undefined;
+}
+
+function dashboardEditableWorkspace(profile: { commandName: string; model?: string; baseUrl?: string; smallFastModel?: string }): Pick<DashboardWorkspace, 'commandName' | 'model' | 'baseUrl' | 'smallFastModel'> {
+  return {
+    commandName: profile.commandName,
+    model: profile.model,
+    baseUrl: profile.baseUrl,
+    smallFastModel: profile.smallFastModel,
+  };
 }
 
 async function restoreLocalDashboardSession(
@@ -461,7 +679,7 @@ function sendDashboardEvents(
 
 async function emitSessionChanges(res: http.ServerResponse, since: number, dbPath?: string): Promise<number> {
   let latest = since;
-  const state = await collectDashboardState(dbPath);
+  const state = await collectDashboardSessions(undefined, dbPath);
   for (const session of state.sessions) {
     if (session.lastActiveAt <= since) continue;
     latest = Math.max(latest, session.lastActiveAt);

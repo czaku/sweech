@@ -6,16 +6,24 @@ import { HeroStrip } from './components/HeroStrip';
 import { type DoctorCheck, deriveHeroStats } from './components/heroStats';
 import { SessionsPanel } from './panels/Sessions';
 import { type DashboardSession } from './components/sessionViewModel';
+import { AccountsPanel } from './panels/Accounts';
+import { CostPanel } from './panels/Cost';
+import { WorkspacesPanel } from './panels/Workspaces';
+import { type DashboardAccount, type DashboardCostState, type DashboardWorkspace } from './components/panelViewModel';
 import './styles.css';
 
 type DashboardState = {
   sessions: DashboardSession[];
+  workspaces: DashboardWorkspace[];
+  accounts: DashboardAccount[];
+  cost: DashboardCostState;
   doctorChecks: DoctorCheck[];
   connected: boolean;
   localMachine: string;
   panels: Record<string, 'idle' | 'loading' | 'ready'>;
   setConnected: (connected: boolean) => void;
-  applyInitialState: (state: { sessions?: DashboardSession[]; machine?: string }) => void;
+  applyInitialState: (state: { sessions?: DashboardSession[]; machine?: string; workspaces?: DashboardWorkspace[]; accounts?: DashboardAccount[]; cost?: DashboardCostState }) => void;
+  updateWorkspace: (workspace: DashboardWorkspace) => void;
   upsertSession: (session: DashboardSession) => void;
   applyDoctorTick: (payload: unknown) => void;
 };
@@ -23,10 +31,23 @@ type DashboardState = {
 type DashboardInitialPayload = {
   sessions?: unknown;
   machine?: unknown;
+  workspaces?: unknown;
+  accounts?: unknown;
+  cost?: unknown;
+};
+
+const emptyCost: DashboardCostState = {
+  spent7dUsd: 0,
+  estCostPerCallUsd: 0,
+  providers: [],
+  sparkline: [],
 };
 
 const useDashboardStore = create<DashboardState>((set) => ({
   sessions: [],
+  workspaces: [],
+  accounts: [],
+  cost: emptyCost,
   doctorChecks: [],
   connected: false,
   localMachine: '',
@@ -41,8 +62,15 @@ const useDashboardStore = create<DashboardState>((set) => ({
   setConnected: (connected) => set({ connected }),
   applyInitialState: (state) => set((current) => ({
     sessions: state.sessions ?? current.sessions,
+    workspaces: state.workspaces ?? current.workspaces,
+    accounts: state.accounts ?? current.accounts,
+    cost: state.cost ?? current.cost,
     localMachine: state.machine ?? current.localMachine,
-    panels: { ...current.panels, sessions: 'ready' },
+    panels: { ...current.panels, sessions: 'ready', workspaces: 'ready', accounts: 'ready', cost: 'ready' },
+  })),
+  updateWorkspace: (workspace) => set((state) => ({
+    workspaces: state.workspaces.map((item) => item.commandName === workspace.commandName ? { ...item, ...workspace } : item),
+    panels: { ...state.panels, workspaces: 'ready' },
   })),
   upsertSession: (session) => set((state) => ({
     sessions: [session, ...state.sessions.filter((item) => item.id !== session.id)],
@@ -67,6 +95,9 @@ function useInitialState(url: string) {
           applyInitialState({
             sessions: payload.sessions as DashboardSession[],
             machine: typeof payload.machine === 'string' ? payload.machine : undefined,
+            workspaces: Array.isArray(payload.workspaces) ? payload.workspaces as DashboardWorkspace[] : undefined,
+            accounts: Array.isArray(payload.accounts) ? payload.accounts as DashboardAccount[] : undefined,
+            cost: payload.cost && typeof payload.cost === 'object' ? payload.cost as DashboardCostState : undefined,
           });
         }
       })
@@ -173,7 +204,8 @@ function PlaceholderPanel({ title, detail }: { title: string; detail: string }) 
 function App() {
   useInitialState('/dashboard/state');
   useSSE('/dashboard/events');
-  const { connected, sessions, doctorChecks, localMachine } = useDashboardStore();
+  const { connected, sessions, doctorChecks, localMachine, workspaces, accounts, cost } = useDashboardStore();
+  const updateWorkspace = useDashboardStore((state) => state.updateWorkspace);
   useSummaryRequests(sessions);
   const heroSessions = sessions.map((session) => ({
     ...session,
@@ -191,9 +223,9 @@ function App() {
         <SessionsPanel sessions={sessions} connected={connected} localMachine={localMachine} />
 
         <section className="mid-grid" aria-label="Dashboard panels">
-          <PlaceholderPanel title="Workspaces" detail="Workspace health and launch controls land here." />
-          <PlaceholderPanel title="Accounts" detail="Vault, plan, and rate-limit state land here." />
-          <PlaceholderPanel title="Cost" detail="Spend and usage mix land here." />
+          <WorkspacesPanel workspaces={workspaces} onWorkspaceSaved={updateWorkspace} />
+          <AccountsPanel accounts={accounts} />
+          <CostPanel cost={cost} />
           <PlaceholderPanel title="Audit" detail="Fixable profile findings land here." />
           <PlaceholderPanel title="Failover" detail="Cooldowns and routing decisions land here." />
           <PlaceholderPanel title="Billing" detail="Renewal calendar and balance gaps land here." />

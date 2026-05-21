@@ -18,7 +18,17 @@ import {
   sparklineBars,
   type DashboardSession,
 } from '../apps/dashboard/src/components/sessionViewModel';
+import {
+  accountTokenStatus,
+  costSparklineBars,
+  freshnessFromTimestamp,
+  utilizationPercent,
+  workspaceStatus,
+} from '../apps/dashboard/src/components/panelViewModel';
+import { AccountsPanel } from '../apps/dashboard/src/panels/Accounts';
+import { CostPanel } from '../apps/dashboard/src/panels/Cost';
 import { SessionsPanel } from '../apps/dashboard/src/panels/Sessions';
+import { WorkspacesPanel } from '../apps/dashboard/src/panels/Workspaces';
 
 describe('dashboard hero components', () => {
   const now = Date.UTC(2026, 4, 20, 12);
@@ -100,6 +110,108 @@ describe('dashboard hero components', () => {
   test('formatUsd always prints cents for dashboard metrics', () => {
     expect(formatUsd(0)).toBe('$0.00');
     expect(formatUsd(12.5)).toBe('$12.50');
+  });
+});
+
+describe('dashboard workspace account cost panels', () => {
+  test('workspaceStatus prioritizes hidden disabled missing and active states', () => {
+    expect(workspaceStatus({ commandName: 'claude', cliType: 'claude', provider: 'anthropic' }).label).toBe('Active');
+    expect(workspaceStatus({ commandName: 'claude', cliType: 'claude', provider: 'anthropic', hidden: true }).label).toBe('Hidden');
+    expect(workspaceStatus({ commandName: 'claude', cliType: 'claude', provider: 'anthropic', disabled: true }).label).toBe('Disabled');
+    expect(workspaceStatus({ commandName: 'claude', cliType: 'claude', provider: 'anthropic', profileDirExists: false }).label).toBe('Missing dir');
+  });
+
+  test('account helpers expose token, freshness, and utilization states', () => {
+    expect(accountTokenStatus({ commandName: 'claude', cliType: 'claude', tokenStatus: 'valid' }).label).toBe('Token ok');
+    expect(accountTokenStatus({ commandName: 'claude', cliType: 'claude', tokenStatus: 'expired' }).tone).toBe('danger');
+    expect(freshnessFromTimestamp(Date.UTC(2026, 4, 21, 11, 58), Date.UTC(2026, 4, 21, 12))).toBe('fresh');
+    expect(utilizationPercent(1.4)).toBe(100);
+    expect(utilizationPercent(-0.2)).toBe(0);
+  });
+
+  test('WorkspacesPanel renders status sharedWith last-used and edit affordance', () => {
+    const html = renderToStaticMarkup(React.createElement(WorkspacesPanel, {
+      workspaces: [{
+        name: 'Sweech Main',
+        commandName: 'claude-main',
+        cliType: 'claude',
+        provider: 'anthropic',
+        sharedWith: 'claude',
+        lastUsed: '2026-05-21T09:00:00.000Z',
+        profileDirExists: true,
+      }],
+    }));
+
+    expect(html).toContain('Workspaces');
+    expect(html).toContain('workspace-card-claude-main');
+    expect(html).toContain('Active');
+    expect(html).toContain('sharedWith');
+    expect(html).toContain('claude');
+    expect(html).toContain('Edit');
+  });
+
+  test('WorkspacesPanel exposes click-through edit dialog markup when selected client-side', () => {
+    const html = renderToStaticMarkup(React.createElement(WorkspacesPanel, {
+      workspaces: [{
+        commandName: 'claude-main',
+        cliType: 'claude',
+        provider: 'anthropic',
+        profileDirExists: true,
+      }],
+    }));
+
+    expect(html).toContain('aria-label="Edit claude-main"');
+  });
+
+  test('AccountsPanel renders usage bars freshness chip and token status', () => {
+    const html = renderToStaticMarkup(React.createElement(AccountsPanel, {
+      accounts: [{
+        commandName: 'claude-pro',
+        cliType: 'claude',
+        provider: 'anthropic',
+        plan: 'Max 20x',
+        tokenStatus: 'valid',
+        messages5h: 42,
+        messages7d: 320,
+        freshnessAt: Date.UTC(2026, 4, 21, 12),
+        utilization5h: 0.42,
+        utilization7d: 0.64,
+        resetLabel: '18h',
+      }],
+    }));
+
+    expect(html).toContain('account-card-claude-pro');
+    expect(html).toContain('usage-bar-claude-pro-5h');
+    expect(html).toContain('usage-bar-claude-pro-7d');
+    expect(html).toContain('Token ok');
+    expect(html).toContain('Max 20x');
+    expect(html).toContain('42 5h');
+    expect(html).toContain('64%');
+  });
+
+  test('CostPanel renders provider-mix sparkline and provider breakdown', () => {
+    const html = renderToStaticMarkup(React.createElement(CostPanel, {
+      cost: {
+        spent7dUsd: 2.5,
+        estCostPerCallUsd: 0.05,
+        sparkline: [4, 8, 12, 16, 20, 28, 32],
+        providers: [
+          { provider: 'anthropic', spent7dUsd: 2, estCostPerCallUsd: 0.04, profiles: 2 },
+          { provider: 'openai', spent7dUsd: 0.5, estCostPerCallUsd: 0.01, profiles: 1 },
+        ],
+      },
+    }));
+
+    expect(html).toContain('Cost');
+    expect(html).toContain('$2.50');
+    expect(html).toContain('cost-sparkline-provider-mix');
+    expect(html).toContain('cost-provider-anthropic');
+    expect(html).toContain('2 profiles');
+  });
+
+  test('costSparklineBars pads and bounds dashboard bars', () => {
+    expect(costSparklineBars({ spent7dUsd: 0, estCostPerCallUsd: 0, providers: [], sparkline: [1, 60] })).toHaveLength(7);
+    expect(Math.max(...costSparklineBars({ spent7dUsd: 0, estCostPerCallUsd: 0, providers: [], sparkline: [1, 60] }))).toBe(36);
   });
 });
 

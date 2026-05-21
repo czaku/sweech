@@ -3,13 +3,13 @@
   "title": "Workspaces / Accounts / Cost panels",
   "wave": "wave-7",
   "space": "space-cli",
-  "status": "todo",
+  "status": "done",
   "priority": "high",
   "platform": null,
-  "assignee": null,
-  "description": "Workspaces: grid of cards, status pill, sharedWith, last-used, click \u2192 edit. Accounts: UsageBar, R13 freshness chip, 5h+7d windows, tokenStatus pill. Cost: Sparkline week-to-date, breakdown by provider.",
+  "assignee": "codex",
+  "description": "Workspaces: grid of cards, status pill, sharedWith, last-used, click → edit. Accounts: UsageBar, R13 freshness chip, 5h+7d windows, tokenStatus pill. Cost: Sparkline week-to-date, breakdown by provider.",
   "createdAt": "2026-05-18T11:00:00Z",
-  "updatedAt": "2026-05-18T11:00:00Z",
+  "updatedAt": "2026-05-21T04:17:45.000Z",
   "product": null,
   "lane": null,
   "stage": null,
@@ -18,7 +18,16 @@
   "attachments": [],
   "validationOverrides": null,
   "executionMode": null,
-  "statusHistory": [],
+  "statusHistory": [
+    {
+      "status": "active",
+      "ts": "2026-05-21T03:36:56.000Z"
+    },
+    {
+      "status": "done",
+      "ts": "2026-05-21T04:17:45.000Z"
+    }
+  ],
   "dependsOn": [
     "T-DASH-001",
     "T-DASH-005"
@@ -30,6 +39,11 @@
       "at": "2026-05-18T11:00:00Z",
       "by": "luke",
       "text": "Filed via /vy-backlog 2026-05-18. Spec: docs/specs/dashboard-2026-05-18.md, backlog: docs/specs/dashboard-2026-05-18-backlog.md"
+    },
+    {
+      "ts": "2026-05-21T04:17:43.000Z",
+      "text": "Implemented dashboard Workspaces, Accounts, and Cost panels with real collector state, redacted workspace edit PATCH, cache-only live account usage, and safe account/cost DTOs. Gates passed: npm test -- --runInBand (102 suites, 2446 passed, 5 skipped), npm run build, npx tsc --noEmit, npm run typecheck:dashboard, npm audit --audit-level=moderate, Swift build, git diff --check, and dashboard Playwright E2E (4 passed). Screenshot proof: ~/Desktop/screenshots/sweech/T-DASH-011-workspaces-accounts-cost-desktop.png, ~/Desktop/screenshots/sweech/T-DASH-011-workspace-edit-dialog.png, ~/Desktop/screenshots/sweech/T-DASH-011-workspaces-accounts-cost-mobile.png. Codex adversarial review found prior blockers; all were fixed, and final focused review reported no blocking findings.",
+      "by": "human"
     }
   ]
 }
