@@ -586,6 +586,9 @@ export function detectDiskCliShape(profileDir: string): DiskCliShapeEvidence {
     // T-079: `~/.<name>/projects` is the high-confidence Claude Code shape
     // used to confirm suspicious `claude-*` profiles before auto-correction.
     { cliType: 'claude', rel: 'projects', kind: 'dir' },
+    { cliType: 'claude', rel: 'commands', kind: 'dir' },
+    { cliType: 'claude', rel: 'agents', kind: 'dir' },
+    { cliType: 'claude', rel: 'settings.json', kind: 'file' },
     { cliType: 'codex', rel: 'config.toml', kind: 'file' },
     { cliType: 'codex', rel: 'auth.json', kind: 'file' },
     { cliType: 'kimi', rel: 'kimi.json', kind: 'file' },
@@ -671,12 +674,12 @@ export function validateCliTypeConfig(config: ConfigManager = new ConfigManager(
     }
 
     const claudePrefixNeedsConfirmation = nameCliType === 'claude';
-    const hasClaudeProjects = diskShape.markers.some(m => m.cliType === 'claude' && m.path === 'projects' && m.exists);
+    const hasClaudeShape = diskShape.markers.some(m => m.cliType === 'claude' && m.exists);
     const diskAgreesWithDifferentConfig = diskShape.detectedCliTypes.length === 1
       && diskShape.detectedCliTypes[0] === cliType
       && diskShape.detectedCliTypes[0] !== expectedCliType;
     const canAutoFix = !diskAgreesWithDifferentConfig
-      && (!claudePrefixNeedsConfirmation || hasClaudeProjects);
+      && (!claudePrefixNeedsConfirmation || hasClaudeShape);
 
     findings.push({
       profile: profile.commandName,

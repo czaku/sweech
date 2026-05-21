@@ -156,6 +156,35 @@ describe('validateCliTypeConfig', () => {
     expect(rawLines[(findings[0].evidence.configLine.line ?? 0) - 1]).toContain('"cliType"');
   });
 
+  test('accepts commands/agents/settings.json as Claude disk evidence when projects is absent', () => {
+    isolateHome();
+    const cfg = new ConfigManager();
+    const profileDir = path.join(cfg.getConfigDir(), '..', '.claude-mm-pro');
+    fs.mkdirSync(path.join(profileDir, 'commands'), { recursive: true });
+    fs.mkdirSync(path.join(profileDir, 'agents'), { recursive: true });
+    fs.writeFileSync(path.join(profileDir, 'settings.json'), JSON.stringify({ env: {} }));
+    cfg.writeProfiles([{
+      name: 'claude-mm-pro',
+      commandName: 'claude-mm-pro',
+      cliType: 'codex',
+      provider: 'minimax',
+      createdAt: '2026-05-17T00:00:00Z',
+    } as any]);
+
+    const findings = validateCliTypeConfig(cfg);
+    expect(findings).toHaveLength(1);
+    expect(findings[0].suggestion).toBe('fix_cli_type');
+    expect(findings[0].evidence.diskShape.detectedCliTypes).toEqual(['claude']);
+    expect(findings[0].evidence.diskShape.markers).toEqual(expect.arrayContaining([
+      expect.objectContaining({ cliType: 'claude', path: 'commands', exists: true }),
+      expect.objectContaining({ cliType: 'claude', path: 'agents', exists: true }),
+      expect.objectContaining({ cliType: 'claude', path: 'settings.json', exists: true }),
+    ]));
+
+    const result = fixCliTypeOnProfile(cfg, 'claude-mm-pro');
+    expect(result).toMatchObject({ changed: true, from: 'codex', to: 'claude' });
+  });
+
   test('refuses auto-correction when disk shape disagrees with both prefix and config', () => {
     isolateHome();
     const cfg = new ConfigManager();
