@@ -3,13 +3,13 @@
   "title": "Playwright E2E test suite",
   "wave": "wave-7",
   "space": "space-cli",
-  "status": "todo",
+  "status": "done",
   "priority": "high",
   "platform": null,
-  "assignee": null,
-  "description": "Cold-load empty state. Launch claude-pole \u2192 SSE-driven tile populate. Click jump \u2192 terminal launch attempt. Simulate Mac reboot \u2192 crash-recoverable status. Filter+sort+search. Settings persist. Federation: two daemons, cross-machine restore.",
+  "assignee": "codex",
+  "description": "Cold-load empty state. Launch claude-pole → SSE-driven tile populate. Click jump → terminal launch attempt. Simulate Mac reboot → crash-recoverable status. Filter+sort+search. Settings persist. Federation: two daemons, cross-machine restore.",
   "createdAt": "2026-05-18T11:00:00Z",
-  "updatedAt": "2026-05-18T11:00:00Z",
+  "updatedAt": "2026-05-21T10:19:40.000Z",
   "product": null,
   "lane": null,
   "stage": null,
@@ -18,7 +18,16 @@
   "attachments": [],
   "validationOverrides": null,
   "executionMode": null,
-  "statusHistory": [],
+  "statusHistory": [
+    {
+      "status": "active",
+      "ts": "2026-05-21T09:48:16.000Z"
+    },
+    {
+      "status": "done",
+      "ts": "2026-05-21T10:19:40.000Z"
+    }
+  ],
   "dependsOn": [
     "T-DASH-010",
     "T-DASH-014"
@@ -30,6 +39,11 @@
       "at": "2026-05-18T11:00:00Z",
       "by": "luke",
       "text": "Filed via /vy-backlog 2026-05-18. Spec: docs/specs/dashboard-2026-05-18.md, backlog: docs/specs/dashboard-2026-05-18-backlog.md"
+    },
+    {
+      "ts": "2026-05-21T10:19:40.000Z",
+      "text": "Implemented Playwright dashboard E2E coverage for cold empty state, SSE-driven session tile insertion, filter/search/sort assertions, settings persistence through restore, reboot recoverable jump launch, and two-daemon federation restore with HMAC negative cases plus real peer polling. Added /fed/dashboard/state account-refresh degradation so peer session state remains available when account refresh fails. Proof screenshots: ~/Desktop/screenshots/sweech/T-DASH-016-cold-load-empty-state.png, ~/Desktop/screenshots/sweech/T-DASH-016-sse-filter-sort.png, ~/Desktop/screenshots/sweech/T-DASH-016-reboot-recoverable.png. Gates: npm run build; npm run test:e2e:dashboard (6 passed); npm test -- --runInBand (102 suites, 2469 passed, 5 skipped); npm run typecheck:dashboard; npm audit --audit-level=moderate; swift build --package-path macos-menubar/SweechBar; git diff --check; stub/debug scan. Parallel code/security/integration reviews completed; Codex adversarial re-review on codex-pole returned no blockers.",
+      "by": "human"
     }
   ]
 }

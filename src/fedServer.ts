@@ -493,8 +493,16 @@ export function createSweechFedServer(port: number, options: SweechFedServerCrea
         return
       }
       try {
-        const profiles = getProfiles()
-        const accounts = await getAccountInfo(getKnownAccounts(profiles))
+        let accounts: Awaited<ReturnType<typeof getAccountInfo>> = []
+        try {
+          const profiles = getProfiles()
+          accounts = await Promise.race([
+            getAccountInfo(getKnownAccounts(profiles)),
+            new Promise<Awaited<ReturnType<typeof getAccountInfo>>>((resolve) => setTimeout(() => resolve([]), 1000)),
+          ])
+        } catch (error) {
+          console.error(`[sweech] dashboard federation accounts unavailable: ${error instanceof Error ? error.message : String(error)}`)
+        }
         const dashboardState = collectFederatedDashboardState(options.sessionsDbPath)
         sendJson(res, 200, {
           ...dashboardState,

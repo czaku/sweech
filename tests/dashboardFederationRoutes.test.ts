@@ -6,6 +6,7 @@ import { createSweechFedServer, DashboardPeerCache, startDashboardPeerPolling } 
 import { signDaemonRequest } from '../src/daemonAuth';
 import { SessionsDb } from '../src/sessionsDb';
 import { launchTerminal } from '../src/terminalLauncher';
+import { getAccountInfo } from '../src/subscriptions';
 
 jest.mock('../src/config', () => ({
   ConfigManager: jest.fn().mockImplementation(() => ({
@@ -43,6 +44,7 @@ jest.mock('../src/terminalLauncher', () => ({
 }));
 
 const mockLaunchTerminal = jest.mocked(launchTerminal);
+const mockGetAccountInfo = jest.mocked(getAccountInfo);
 
 describe('/fed/dashboard federation routes', () => {
   let tmp: string;
@@ -90,6 +92,24 @@ describe('/fed/dashboard federation routes', () => {
     expect(signed.body.sessions[0]).toMatchObject({ id: 'a1', workspace: 'claude-a', machine: 'peer-a' });
     expect(signed.body.accounts[0]).toMatchObject({ name: 'claude', slug: 'claude', messages5h: 2 });
     expect(signed.body.status).toMatchObject({ version: expect.any(String), accountCount: 1 });
+  });
+
+  test('GET /fed/dashboard/state still returns sessions when account refresh fails', async () => {
+    const dbPath = path.join(tmp, 'peer-account-fail', '.sweech', 'sessions.db');
+    seedSession(dbPath, 'account-fail-1', { workspace: 'claude-a', machine: 'peer-a' });
+    mockGetAccountInfo.mockRejectedValueOnce(new Error('refresh failed'));
+    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const daemon = await listen(createSweechFedServer(0, { daemonSecretPath: secretPath, sessionsDbPath: dbPath }));
+    let signed!: Awaited<ReturnType<typeof request>>;
+    try {
+      signed = await request(daemon, 'GET', '/fed/dashboard/state', undefined, authedHeaders('GET', '/fed/dashboard/state', ''));
+    } finally {
+      consoleError.mockRestore();
+    }
+    expect(signed.status).toBe(200);
+    expect(signed.body.sessions).toHaveLength(1);
+    expect(signed.body.accounts).toEqual([]);
+    expect(signed.body.status).toMatchObject({ version: expect.any(String), accountCount: 0 });
   });
 
   test('two local daemons expose separate dashboard state databases', async () => {
