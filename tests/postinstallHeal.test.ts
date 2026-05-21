@@ -77,6 +77,25 @@ describe('runPostinstallHeal', () => {
     expect(configJson.lastResyncedSweechVersion).toBe(readSweechVersion());
   });
 
+  test('runs upgrade migrations silently without opening the dashboard', async () => {
+    isolateHome();
+    const cfg = new ConfigManager();
+    cfg.writeProfiles([{
+      name: 'claude-main',
+      commandName: 'claude-main',
+      cliType: 'claude',
+      provider: 'anthropic',
+      createdAt: '2026-05-21T00:00:00Z',
+    } as any]);
+
+    const result = await runPostinstallHeal();
+
+    expect(result.skipped).toBe(false);
+    expect(fs.existsSync(path.join(cfg.getBinDir(), 'claude-main'))).toBe(true);
+    expect(fs.existsSync(path.join(cfg.getConfigDir(), 'sessions.db'))).toBe(true);
+    expect(fs.existsSync(path.join(cfg.getConfigDir(), 'upgrade-state.json'))).toBe(false);
+  });
+
   test('skips silently on same-version re-run', async () => {
     isolateHome();
     const cfg = new ConfigManager();

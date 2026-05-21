@@ -24,6 +24,7 @@ import { generateBashCompletion, generateZshCompletion, generateFishCompletion, 
 import { confirmChatBackupBeforeRemoval, backupChatHistory } from './chatBackup';
 import { isDefaultCLIDirectory } from './reset';
 import { runDoctor, runPath, runTest, runEdit, runClone } from './utilityCommands';
+import { runUpgrade } from './upgrade';
 import { runShare, runUnshare, runShareStatus } from './shareCommands';
 import { runReset } from './reset';
 import { runInit, isFirstRun } from './init';
@@ -764,6 +765,41 @@ program
     });
 
     console.log(chalk.green('\n✓ All wrapper scripts updated\n'));
+  });
+
+// Upgrade command - idempotent migration runner for legacy installs
+program
+  .command('upgrade')
+  .description('Run idempotent migrations: wrappers, share topology, sessions DB, provider classification, and dashboard intro')
+  .option('--dry-run', 'Report planned migrations without writing files or opening the dashboard')
+  .option('--json', 'Emit machine-readable output')
+  .option('--no-open', 'Do not open the dashboard after migration')
+  .action(async (opts: { dryRun?: boolean; json?: boolean; open?: boolean }) => {
+    try {
+      const result = await runUpgrade({
+        dryRun: !!opts.dryRun,
+        json: !!opts.json,
+        openDashboard: opts.open !== false,
+      });
+
+      if (opts.json) {
+        process.stdout.write(JSON.stringify(result, null, 2) + '\n');
+        return;
+      }
+
+      const mode = opts.dryRun ? chalk.yellow('DRY-RUN') : chalk.green('UPGRADE');
+      console.log(chalk.bold(`\n${mode}  sweech migrations\n`));
+      console.log(chalk.cyan('  Wrappers:'), `${result.wrappers.updated.length}/${result.wrappers.scanned} regenerated`);
+      console.log(chalk.cyan('  Share topology:'), `${result.shareTopology.linksCreated.length} link(s), ${result.shareTopology.collisionsHealed.length} collision(s), ${result.shareSweep.repairs.reduce((sum, item) => sum + item.repaired, 0)} sweep repair(s)`);
+      console.log(chalk.cyan('  sessions.db:'), result.sessionsDb.initialized ? `initialized at ${result.sessionsDb.path}` : result.sessionsDb.path);
+      console.log(chalk.cyan('  Providers:'), `${result.providers.fixed.length} fixed, ${result.providers.planned.length} planned`);
+      console.log(chalk.cyan('  Dashboard:'), result.dashboard.opened ? `opened ${result.dashboard.url}` : `skipped (${result.dashboard.skippedReason ?? 'not needed'})`);
+      console.log(chalk.green(`\n  ✓ ${opts.dryRun ? result.totals.planned : result.totals.changed} ${opts.dryRun ? 'planned change(s)' : 'change(s) applied'}\n`));
+    } catch (error: unknown) {
+      const msg = scrubSecrets(error instanceof Error ? error.message : String(error));
+      console.error(chalk.red('Upgrade failed:'), msg);
+      process.exit(1);
+    }
   });
 
 // Backup command
