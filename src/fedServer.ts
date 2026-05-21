@@ -419,7 +419,10 @@ export interface SweechFedServerCreateOptions {
 }
 
 export function createSweechFedServer(port: number, options: SweechFedServerCreateOptions = {}): http.Server {
-  const handleDashboardRequest = createDashboardRequestHandler()
+  const handleDashboardRequest = createDashboardRequestHandler({
+    sessionsDbPath: options.sessionsDbPath,
+    terminalLauncher: options.terminalLauncher,
+  })
   const peerCache = options.dashboardPeerCache ?? new DashboardPeerCache()
   const server = http.createServer(async (req, res) => {
     let url: URL

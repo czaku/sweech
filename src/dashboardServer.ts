@@ -1,9 +1,11 @@
 import http from 'node:http';
 import { EventEmitter } from 'node:events';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { SessionsDb, type DashboardSession, type DashboardSessionStatus, type ListDashboardSessionsFilter } from './sessionsDb';
 import { SessionSummarizer } from './sessionSummarizer';
+import { launchTerminal, type TerminalName } from './terminalLauncher';
 
 export type DashboardEventName =
   | 'session.changed'
@@ -28,6 +30,7 @@ export interface DashboardEvent<TPayload = unknown> {
 
 export interface DashboardState {
   generatedAt: string;
+  machine: string;
   sessions: DashboardSession[];
 }
 
@@ -37,6 +40,8 @@ export interface DashboardRequestHandlerOptions {
   sessionPollMs?: number;
   maxSseClients?: number;
   catchAllAssets?: boolean;
+  sessionsDbPath?: string;
+  terminalLauncher?: typeof launchTerminal;
 }
 
 type DashboardEventListener = (event: DashboardEvent) => void;
@@ -120,7 +125,7 @@ export function createDashboardRequestHandler(options: DashboardRequestHandlerOp
       sendDashboardJson(res, 403, { error: 'Dashboard is only available from localhost' });
       return true;
     }
-    if (!isLocalDashboardHost(req.headers.host) || !isAllowedDashboardOrigin(req.headers.origin, req.headers['sec-fetch-site'], url.pathname)) {
+    if (!isLocalDashboardHost(req.headers.host) || !isAllowedDashboardOrigin(req.headers.host, req.headers.origin, req.headers['sec-fetch-site'], url.pathname)) {
       sendDashboardJson(res, 403, { error: 'Dashboard requests must use a localhost origin' });
       return true;
     }
@@ -147,6 +152,44 @@ export function createDashboardRequestHandler(options: DashboardRequestHandlerOp
       return true;
     }
 
+    const restoreMatch = url.pathname.match(/^\/dashboard\/sessions\/([^/]+)\/restore$/);
+    if (restoreMatch) {
+      if (req.method !== 'POST') {
+        sendDashboardJson(res, 405, { error: 'Method not allowed' });
+        return true;
+      }
+      if (!isJsonRequest(req.headers['content-type'])) {
+        sendDashboardJson(res, 415, { error: 'Content-Type must be application/json' });
+        return true;
+      }
+      const body = await readDashboardBody(req, res);
+      if (body === null) return true;
+      if (!body.trim()) {
+        sendDashboardJson(res, 400, { error: 'JSON body is required' });
+        return true;
+      }
+      try {
+        const payload = parseDashboardJsonObject(body);
+        const result = await restoreLocalDashboardSession(
+          decodeURIComponent(restoreMatch[1]),
+          parseTerminalName(optionalString(payload.terminal)),
+          options.terminalLauncher ?? launchTerminal,
+          options.sessionsDbPath,
+        );
+        sendDashboardJson(res, result.ok ? 200 : 422, result);
+      } catch (error) {
+        if (error instanceof DashboardRequestError) {
+          sendDashboardJson(res, error.status, { error: error.message });
+          return true;
+        }
+        sendDashboardJson(res, 500, {
+          error: 'Dashboard session restore failed',
+          detail: error instanceof Error ? error.message : String(error),
+        });
+      }
+      return true;
+    }
+
     if (req.method !== 'GET' && req.method !== 'HEAD') {
       sendDashboardJson(res, 405, { error: 'Method not allowed' });
       return true;
@@ -154,7 +197,7 @@ export function createDashboardRequestHandler(options: DashboardRequestHandlerOp
 
     if (url.pathname === '/dashboard/state') {
       try {
-        sendDashboardJson(res, 200, await collectDashboardState());
+        sendDashboardJson(res, 200, await collectDashboardState(options.sessionsDbPath));
       } catch (error) {
         if (error instanceof DashboardRequestError) {
           sendDashboardJson(res, error.status, { error: error.message });
@@ -167,7 +210,7 @@ export function createDashboardRequestHandler(options: DashboardRequestHandlerOp
 
     if (url.pathname === '/dashboard/sessions') {
       try {
-        sendDashboardJson(res, 200, await collectDashboardSessions(url));
+        sendDashboardJson(res, 200, await collectDashboardSessions(url, options.sessionsDbPath));
       } catch (error) {
         if (error instanceof DashboardRequestError) {
           sendDashboardJson(res, error.status, { error: error.message });
@@ -179,7 +222,7 @@ export function createDashboardRequestHandler(options: DashboardRequestHandlerOp
     }
 
     if (url.pathname === '/dashboard/events') {
-      sendDashboardEvents(req, res, { heartbeatMs, sessionPollMs, maxSseClients });
+      sendDashboardEvents(req, res, { heartbeatMs, sessionPollMs, maxSseClients, sessionsDbPath: options.sessionsDbPath });
       return true;
     }
 
@@ -188,8 +231,8 @@ export function createDashboardRequestHandler(options: DashboardRequestHandlerOp
   };
 }
 
-export async function collectDashboardState(): Promise<DashboardState> {
-  return collectDashboardSessions();
+export async function collectDashboardState(dbPath?: string): Promise<DashboardState> {
+  return collectDashboardSessions(undefined, dbPath);
 }
 
 export async function summarizeDashboardSession(sessionId: string) {
@@ -201,13 +244,44 @@ export async function summarizeDashboardSession(sessionId: string) {
   }
 }
 
-export async function collectDashboardSessions(url?: URL): Promise<DashboardState> {
-  const db = new SessionsDb();
+export async function collectDashboardSessions(url?: URL, dbPath?: string): Promise<DashboardState> {
+  const db = new SessionsDb(dbPath);
   try {
     return {
       generatedAt: new Date().toISOString(),
+      machine: os.hostname(),
       sessions: db.list(dashboardSessionsFilterFromUrl(url)),
     };
+  } finally {
+    db.close();
+  }
+}
+
+async function restoreLocalDashboardSession(
+  sessionId: string,
+  requestedTerminal: TerminalName | undefined,
+  terminalLauncher: typeof launchTerminal,
+  dbPath?: string,
+): Promise<{ ok: boolean; session: DashboardSession; launch?: unknown; reason?: string }> {
+  const db = new SessionsDb(dbPath);
+  try {
+    const session = db.byId(sessionId);
+    if (!session) throw new DashboardRequestError(404, 'Dashboard session not found');
+    if (session.machine !== os.hostname()) throw new DashboardRequestError(409, 'Remote dashboard sessions must be restored through federation');
+    if (session.status === 'closed') throw new DashboardRequestError(409, 'Closed dashboard sessions cannot be restored');
+    const terminal = requestedTerminal ?? terminalFromSession(session) ?? 'ghostty';
+    const command: [string, ...string[]] = session.tmuxName
+      ? ['tmux', 'attach', '-t', session.tmuxName]
+      : [session.workspace, '--continue'];
+    const launch = await terminalLauncher({
+      terminal,
+      command,
+      cwd: session.cwd,
+      title: `sweech ${session.workspace}`,
+    });
+    return launch.ok
+      ? { ok: true, session, launch }
+      : { ok: false, session, reason: launch.reason, launch };
   } finally {
     db.close();
   }
@@ -238,6 +312,64 @@ function parseStatusFilter(value: string | null | undefined): DashboardSessionSt
 function optionalParam(value: string | null | undefined): string | undefined {
   const trimmed = value?.trim();
   return trimmed ? trimmed : undefined;
+}
+
+function optionalString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+function terminalFromSession(session: DashboardSession): TerminalName | undefined {
+  const value = session.terminalApp?.trim().toLowerCase();
+  if (!value) return undefined;
+  if (value.includes('ghostty')) return 'ghostty';
+  if (value.includes('iterm')) return 'iterm2';
+  if (value.includes('terminal')) return 'terminal';
+  if (value.includes('alacritty')) return 'alacritty';
+  if (value.includes('kitty')) return 'kitty';
+  if (value.includes('wezterm')) return 'wezterm';
+  return undefined;
+}
+
+function parseTerminalName(value: string | undefined): TerminalName | undefined {
+  if (!value) return undefined;
+  if (value === 'ghostty' || value === 'iterm2' || value === 'terminal' || value === 'alacritty' || value === 'kitty' || value === 'wezterm') {
+    return value;
+  }
+  throw new DashboardRequestError(400, `Unsupported terminal: ${value}`);
+}
+
+function isJsonRequest(contentType: string | string[] | undefined): boolean {
+  const value = Array.isArray(contentType) ? contentType[0] : contentType;
+  return typeof value === 'string' && value.toLowerCase().split(';', 1)[0].trim() === 'application/json';
+}
+
+async function readDashboardBody(req: http.IncomingMessage, res: http.ServerResponse): Promise<string | null> {
+  const chunks: Buffer[] = [];
+  let total = 0;
+  for await (const chunk of req) {
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    total += buffer.length;
+    if (total > 64 * 1024) {
+      sendDashboardJson(res, 413, { error: 'Request body too large' });
+      return null;
+    }
+    chunks.push(buffer);
+  }
+  return Buffer.concat(chunks).toString('utf8');
+}
+
+function parseDashboardJsonObject(body: string): Record<string, unknown> {
+  if (!body.trim()) return {};
+  try {
+    const parsed = JSON.parse(body) as unknown;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      throw new DashboardRequestError(400, 'JSON body must be an object');
+    }
+    return parsed as Record<string, unknown>;
+  } catch (error) {
+    if (error instanceof DashboardRequestError) throw error;
+    throw new DashboardRequestError(400, 'Invalid JSON body');
+  }
 }
 
 function parsePositiveInt(value: string, fallback: number): number {
@@ -271,7 +403,7 @@ function dashboardErrorBody(error: unknown): { error: string; detail: string } {
 function sendDashboardEvents(
   req: http.IncomingMessage,
   res: http.ServerResponse,
-  options: { heartbeatMs: number; sessionPollMs: number; maxSseClients: number }
+  options: { heartbeatMs: number; sessionPollMs: number; maxSseClients: number; sessionsDbPath?: string }
 ): void {
   if (req.method === 'HEAD') {
     res.writeHead(405, { 'Content-Type': 'application/json' });
@@ -294,7 +426,7 @@ function sendDashboardEvents(
 
   let since = 0;
   const emitSessions = () => {
-    void emitSessionChanges(res, since).then((latest) => {
+    void emitSessionChanges(res, since, options.sessionsDbPath).then((latest) => {
       since = Math.max(since, latest);
     }).catch((error) => {
       writeDashboardComment(res, `dashboard state unavailable: ${error instanceof Error ? error.message : String(error)}`);
@@ -327,9 +459,9 @@ function sendDashboardEvents(
   res.on('error', cleanup);
 }
 
-async function emitSessionChanges(res: http.ServerResponse, since: number): Promise<number> {
+async function emitSessionChanges(res: http.ServerResponse, since: number, dbPath?: string): Promise<number> {
   let latest = since;
-  const state = await collectDashboardState();
+  const state = await collectDashboardState(dbPath);
   for (const session of state.sessions) {
     if (session.lastActiveAt <= since) continue;
     latest = Math.max(latest, session.lastActiveAt);
@@ -432,21 +564,28 @@ function isLocalDashboardHost(host: string | undefined): boolean {
     || normalized.startsWith('[::1]:');
 }
 
-function isAllowedDashboardOrigin(origin: string | undefined, fetchSite: string | string[] | undefined, pathname: string): boolean {
+function isAllowedDashboardOrigin(host: string | undefined, origin: string | undefined, fetchSite: string | string[] | undefined, pathname: string): boolean {
   if (!origin) {
     const site = Array.isArray(fetchSite) ? fetchSite[0] : fetchSite;
     if (site === 'same-origin' || site === 'none') return true;
     return pathname !== '/dashboard/state'
       && pathname !== '/dashboard/sessions'
       && !/^\/dashboard\/sessions\/[^/]+\/summary$/.test(pathname)
+      && !/^\/dashboard\/sessions\/[^/]+\/restore$/.test(pathname)
       && pathname !== '/dashboard/events';
   }
   try {
     const parsed = new URL(origin);
-    return parsed.protocol === 'http:' && isLocalDashboardHost(parsed.host);
+    if (parsed.protocol !== 'http:' || !isLocalDashboardHost(parsed.host)) return false;
+    if (isUnsafeDashboardPath(pathname)) return Boolean(host && parsed.host.toLowerCase() === host.toLowerCase());
+    return true;
   } catch {
     return false;
   }
+}
+
+function isUnsafeDashboardPath(pathname: string): boolean {
+  return /^\/dashboard\/sessions\/[^/]+\/(summary|restore)$/.test(pathname);
 }
 
 function contentTypeFor(filePath: string): string {

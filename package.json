@@ -13,6 +13,8 @@
     "dev": "tsc --watch",
     "start": "node dist/cli.js",
     "test": "jest",
+    "test:e2e:dashboard": "npm run build && PROJECT_SCREENSHOT_DIR=${PROJECT_SCREENSHOT_DIR:-$HOME/Desktop/screenshots/sweech} playwright test tests/e2e/dashboard-sessions.spec.js --reporter=line",
+    "typecheck:dashboard": "tsc --noEmit -p apps/dashboard/tsconfig.json",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
     "prepare": "npm run build",
@@ -85,10 +87,13 @@
     "packages/vysual-react"
   ],
   "devDependencies": {
+    "@playwright/test": "^1.60.0",
     "@types/archiver": "^6.0.2",
     "@types/inquirer": "^9.0.7",
     "@types/jest": "^29.5.11",
     "@types/node": "^20.10.6",
+    "@types/react": "^19.2.15",
+    "@types/react-dom": "^19.2.3",
     "@types/unzipper": "^0.10.9",
     "jest": "^29.7.0",
     "ts-jest": "^29.1.1",

@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "lib": ["DOM", "DOM.Iterable", "ES2020"],
+    "rootDir": ".",
+    "types": ["jest", "node"]
+  },
+  "include": ["src/**/*", "tests/**/*", "apps/dashboard/src/**/*", "packages/vysual-react/src/**/*"]
+}

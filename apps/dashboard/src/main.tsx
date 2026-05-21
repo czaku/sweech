@@ -2,51 +2,34 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { Card, ThemeProvider, themes } from '@vykeai/vysual-react';
 import { create } from 'zustand';
-import { FreshnessChip, HeroStrip, ViewerCountBadge } from './components/HeroStrip';
+import { HeroStrip } from './components/HeroStrip';
 import { type DoctorCheck, deriveHeroStats } from './components/heroStats';
+import { SessionsPanel } from './panels/Sessions';
+import { type DashboardSession } from './components/sessionViewModel';
 import './styles.css';
-
-type SessionStatus = 'live' | 'tmux-detached' | 'crash-recoverable' | 'closed';
-
-type DashboardSession = {
-  id: string;
-  workspace: string;
-  cwd: string;
-  machine: string;
-  status: SessionStatus;
-  lastActiveAt?: number;
-  last_active_at?: number;
-  launchedAt?: number | null;
-  launched_at?: number | null;
-  summaryCostUsd?: number | null;
-  summary_cost_usd?: number | null;
-  summaryAt?: number | null;
-  summary_at?: number | null;
-  summaryStale?: boolean;
-  summary_stale?: boolean;
-  summaryOne?: string | null;
-  summary_one?: string | null;
-  summaryBullets?: string[] | string | null;
-  summary_bullets?: string[] | string | null;
-  attachClients?: number;
-  attach_clients?: number;
-};
 
 type DashboardState = {
   sessions: DashboardSession[];
   doctorChecks: DoctorCheck[];
   connected: boolean;
+  localMachine: string;
   panels: Record<string, 'idle' | 'loading' | 'ready'>;
   setConnected: (connected: boolean) => void;
-  applySessions: (sessions: DashboardSession[]) => void;
+  applyInitialState: (state: { sessions?: DashboardSession[]; machine?: string }) => void;
   upsertSession: (session: DashboardSession) => void;
   applyDoctorTick: (payload: unknown) => void;
+};
+
+type DashboardInitialPayload = {
+  sessions?: unknown;
+  machine?: unknown;
 };
 
 const useDashboardStore = create<DashboardState>((set) => ({
   sessions: [],
   doctorChecks: [],
   connected: false,
+  localMachine: '',
   panels: {
     sessions: 'idle',
     workspaces: 'idle',
@@ -56,7 +39,11 @@ const useDashboardStore = create<DashboardState>((set) => ({
     failover: 'idle',
   },
   setConnected: (connected) => set({ connected }),
-  applySessions: (sessions) => set({ sessions, panels: { sessions: 'ready' } }),
+  applyInitialState: (state) => set((current) => ({
+    sessions: state.sessions ?? current.sessions,
+    localMachine: state.machine ?? current.localMachine,
+    panels: { ...current.panels, sessions: 'ready' },
+  })),
   upsertSession: (session) => set((state) => ({
     sessions: [session, ...state.sessions.filter((item) => item.id !== session.id)],
     panels: { ...state.panels, sessions: 'ready' },
@@ -68,20 +55,26 @@ const useDashboardStore = create<DashboardState>((set) => ({
 }));
 
 function useInitialState(url: string) {
-  const applySessions = useDashboardStore((state) => state.applySessions);
+  const applyInitialState = useDashboardStore((state) => state.applyInitialState);
 
   React.useEffect(() => {
     let cancelled = false;
     fetch(url)
       .then((res) => res.ok ? res.json() : null)
       .then((data) => {
-        if (!cancelled && Array.isArray(data?.sessions)) applySessions(data.sessions);
+        const payload = data as DashboardInitialPayload | null;
+        if (!cancelled && payload && Array.isArray(payload.sessions)) {
+          applyInitialState({
+            sessions: payload.sessions as DashboardSession[],
+            machine: typeof payload.machine === 'string' ? payload.machine : undefined,
+          });
+        }
       })
       .catch(() => undefined);
     return () => {
       cancelled = true;
     };
-  }, [applySessions, url]);
+  }, [applyInitialState, url]);
 }
 
 function useSSE(url: string) {
@@ -102,9 +95,9 @@ function useSSE(url: string) {
         retry = 500;
         setConnected(true);
       };
-      const handleSessionChanged = (event: MessageEvent) => {
+      const handleSessionChanged: EventListener = (event) => {
         try {
-          const payload = JSON.parse(event.data);
+          const payload = JSON.parse((event as MessageEvent).data);
           const session = payload.session ?? payload.data?.session;
           if (session?.id) {
             upsertSession(session);
@@ -113,9 +106,9 @@ function useSSE(url: string) {
           return;
         }
       };
-      const handleDoctorTick = (event: MessageEvent) => {
+      const handleDoctorTick: EventListener = (event) => {
         try {
-          applyDoctorTick(JSON.parse(event.data));
+          applyDoctorTick(JSON.parse((event as MessageEvent).data));
         } catch {
           return;
         }
@@ -180,7 +173,7 @@ function PlaceholderPanel({ title, detail }: { title: string; detail: string }) 
 function App() {
   useInitialState('/dashboard/state');
   useSSE('/dashboard/events');
-  const { connected, sessions, doctorChecks } = useDashboardStore();
+  const { connected, sessions, doctorChecks, localMachine } = useDashboardStore();
   useSummaryRequests(sessions);
   const heroSessions = sessions.map((session) => ({
     ...session,
@@ -195,42 +188,7 @@ function App() {
       <main className="dashboard-shell">
         <HeroStrip connected={connected} stats={heroStats} />
 
-        <Card className="sessions-panel">
-          <div className="panel-heading">
-            <h2>Sessions</h2>
-            <span>{connected ? 'SSE connected' : 'SSE reconnecting'}</span>
-          </div>
-          {sessions.length === 0 ? (
-            <div className="empty-state">
-              <strong>No sessions yet</strong>
-              <p>Launch a workspace to create the first durable session tile.</p>
-              <button type="button">Setup</button>
-            </div>
-          ) : (
-            <div className="session-grid">
-              {sessions.map((session) => (
-                <article className="session-tile" key={session.id}>
-                  <span className={`status-dot status-${session.status}`} />
-                  <strong>{session.workspace}</strong>
-                  <p>{session.cwd}</p>
-                  <p className="session-summary">{session.summaryOne ?? session.summary_one ?? 'Summary pending'}</p>
-                  {normalizeBullets(session.summaryBullets ?? session.summary_bullets).length > 0 && (
-                    <ul className="session-activities">
-                      {normalizeBullets(session.summaryBullets ?? session.summary_bullets).map((bullet) => (
-                        <li key={bullet}>{bullet}</li>
-                      ))}
-                    </ul>
-                  )}
-                  <div className="session-meta">
-                    <span>{session.machine}</span>
-                    <FreshnessChip state={session.summaryStale ?? session.summary_stale ? 'stale' : 'fresh'} />
-                    <ViewerCountBadge count={session.attachClients ?? session.attach_clients ?? 0} />
-                  </div>
-                </article>
-              ))}
-            </div>
-          )}
-        </Card>
+        <SessionsPanel sessions={sessions} connected={connected} localMachine={localMachine} />
 
         <section className="mid-grid" aria-label="Dashboard panels">
           <PlaceholderPanel title="Workspaces" detail="Workspace health and launch controls land here." />
@@ -243,18 +201,6 @@ function App() {
       </main>
     </ThemeProvider>
   );
-}
-
-function normalizeBullets(value: DashboardSession['summaryBullets']): string[] {
-  if (Array.isArray(value)) return value.map(String).filter(Boolean);
-  if (typeof value !== 'string' || !value.trim()) return [];
-  try {
-    const parsed = JSON.parse(value);
-    if (Array.isArray(parsed)) return parsed.map(String).filter(Boolean);
-  } catch {
-    return value.split(/\n+/).map((item) => item.replace(/^[-*]\s*/, '').trim()).filter(Boolean);
-  }
-  return [];
 }
 
 function doctorChecksFromPayload(payload: unknown): DoctorCheck[] {

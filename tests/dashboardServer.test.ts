@@ -6,13 +6,16 @@ import * as path from 'node:path';
 import { createDashboardRequestHandler } from '../src/dashboardServer';
 
 const mockList = jest.fn();
+const mockById = jest.fn();
 const mockClose = jest.fn();
 const mockSummarizeNow = jest.fn();
 const mockSummarizerClose = jest.fn();
+const mockLaunchTerminal = jest.fn();
 
 jest.mock('../src/sessionsDb', () => ({
   SessionsDb: jest.fn().mockImplementation(() => ({
     list: mockList,
+    byId: mockById,
     close: mockClose,
   })),
 }));
@@ -28,6 +31,10 @@ jest.mock('child_process', () => ({
   exec: jest.fn(),
 }));
 
+jest.mock('../src/terminalLauncher', () => ({
+  launchTerminal: (...args: unknown[]) => mockLaunchTerminal(...args),
+}));
+
 describe('dashboard server', () => {
   let server: http.Server;
   let port: number;
@@ -38,35 +45,40 @@ describe('dashboard server', () => {
     fs.mkdirSync(path.join(tmp, 'assets'));
     fs.writeFileSync(path.join(tmp, 'index.html'), '<!doctype html><title>sweech dashboard</title><script src="/assets/app.js"></script>');
     fs.writeFileSync(path.join(tmp, 'assets', 'app.js'), 'window.__dashboard = true;');
+    const session = {
+      id: 's1',
+      workspace: 'sweech',
+      cwd: '/repo/sweech',
+      cwdBasename: 'sweech',
+      machine: os.hostname(),
+      tmuxName: 'sweech-s1',
+      claudeSid: null,
+      jsonlPath: null,
+      pid: 123,
+      terminalApp: 'Ghostty',
+      launchedAt: 1,
+      lastActiveAt: 2,
+      closedAt: null,
+      status: 'live',
+      messageCount: 4,
+      msgCountFirst: 1,
+      msgCountLast: 4,
+      summaryOne: null,
+      summaryBullets: null,
+      summaryProvider: null,
+      summaryModel: null,
+      summaryCostUsd: null,
+      summaryAt: null,
+      summaryStale: false,
+      summaryMsgAt: null,
+    };
     mockList.mockReturnValue([
       {
-        id: 's1',
-        workspace: 'sweech',
-        cwd: '/repo/sweech',
-        cwdBasename: 'sweech',
-        machine: 'devbox',
-        tmuxName: 'sweech-s1',
-        claudeSid: null,
-        jsonlPath: null,
-        pid: 123,
-        terminalApp: 'Ghostty',
-        launchedAt: 1,
-        lastActiveAt: 2,
-        closedAt: null,
-        status: 'live',
-        messageCount: 4,
-        msgCountFirst: 1,
-        msgCountLast: 4,
-        summaryOne: null,
-        summaryBullets: null,
-        summaryProvider: null,
-        summaryModel: null,
-        summaryCostUsd: null,
-        summaryAt: null,
-        summaryStale: false,
-        summaryMsgAt: null,
+        ...session,
       },
     ]);
+    mockById.mockReturnValue(session);
+    mockLaunchTerminal.mockResolvedValue({ ok: true, command: 'open', args: ['ghostty://run?...'] });
     mockSummarizeNow.mockResolvedValue({
       sessionId: 's1',
       summaryOne: 'Dashboard route summary.',
@@ -107,7 +119,7 @@ describe('dashboard server', () => {
 
   function request(path: string, method = 'GET'): Promise<{ status: number; body: string; headers: http.IncomingHttpHeaders }> {
     return new Promise((resolve, reject) => {
-      const req = http.request({ hostname: '127.0.0.1', port, path, method, headers: path.startsWith('/dashboard/') ? { Origin: 'http://127.0.0.1' } : {} }, (res) => {
+      const req = http.request({ hostname: '127.0.0.1', port, path, method, headers: path.startsWith('/dashboard/') ? { Origin: `http://127.0.0.1:${port}` } : {} }, (res) => {
         let body = '';
         res.on('data', (chunk) => { body += chunk; });
         res.on('end', () => resolve({ status: res.statusCode ?? 0, body, headers: res.headers }));
@@ -117,11 +129,33 @@ describe('dashboard server', () => {
     });
   }
 
+  function requestWithBody(path: string, method: string, body: string): Promise<{ status: number; body: string; headers: http.IncomingHttpHeaders }> {
+    return new Promise((resolve, reject) => {
+      const req = http.request({
+        hostname: '127.0.0.1',
+        port,
+        path,
+        method,
+        headers: {
+          Origin: `http://127.0.0.1:${port}`,
+          'Content-Type': 'application/json',
+        },
+      }, (res) => {
+        let responseBody = '';
+        res.on('data', (chunk) => { responseBody += chunk; });
+        res.on('end', () => resolve({ status: res.statusCode ?? 0, body: responseBody, headers: res.headers }));
+      });
+      req.on('error', reject);
+      req.end(body);
+    });
+  }
+
   test('serves dashboard state from the sessions database', async () => {
     const res = await request('/dashboard/state');
     const body = JSON.parse(res.body);
     expect(res.status).toBe(200);
     expect(res.headers['content-type']).toContain('application/json');
+    expect(body.machine).toEqual(expect.any(String));
     expect(body.sessions).toHaveLength(1);
     expect(body.sessions[0]).toMatchObject({ id: 's1', status: 'live', workspace: 'sweech' });
     expect(mockClose).toHaveBeenCalledTimes(1);
@@ -149,6 +183,120 @@ describe('dashboard server', () => {
     });
     expect(mockSummarizeNow).toHaveBeenCalledWith('s1', 'viewport');
     expect(mockSummarizerClose).toHaveBeenCalled();
+  });
+
+  test('POST /dashboard/sessions/:id/restore opens terminal attach command', async () => {
+    const res = await requestWithBody('/dashboard/sessions/s1/restore', 'POST', '{}');
+    const body = JSON.parse(res.body);
+
+    expect(res.status).toBe(200);
+    expect(body.ok).toBe(true);
+    expect(mockById).toHaveBeenCalledWith('s1');
+    expect(mockLaunchTerminal).toHaveBeenCalledWith({
+      terminal: 'ghostty',
+      command: ['tmux', 'attach', '-t', 'sweech-s1'],
+      cwd: '/repo/sweech',
+      title: 'sweech sweech',
+    });
+  });
+
+  test('restore route rejects unsupported terminals', async () => {
+    const res = await requestWithBody('/dashboard/sessions/s1/restore', 'POST', JSON.stringify({ terminal: 'not-a-terminal' }));
+
+    expect(res.status).toBe(400);
+    expect(JSON.parse(res.body).error).toContain('Unsupported terminal');
+  });
+
+  test('restore route rejects browser-unsafe missing origin requests', async () => {
+    const res = await new Promise<{ status: number; body: string }>((resolve, reject) => {
+      const req = http.request({
+        hostname: '127.0.0.1',
+        port,
+        path: '/dashboard/sessions/s1/restore',
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      }, (response) => {
+        let body = '';
+        response.on('data', (chunk) => { body += chunk; });
+        response.on('end', () => resolve({ status: response.statusCode ?? 0, body }));
+      });
+      req.on('error', reject);
+      req.end('{}');
+    });
+
+    expect(res.status).toBe(403);
+    expect(JSON.parse(res.body).error).toContain('localhost origin');
+    expect(mockLaunchTerminal).not.toHaveBeenCalled();
+  });
+
+  test('restore route rejects mismatched localhost origins', async () => {
+    const res = await new Promise<{ status: number; body: string }>((resolve, reject) => {
+      const req = http.request({
+        hostname: '127.0.0.1',
+        port,
+        path: '/dashboard/sessions/s1/restore',
+        method: 'POST',
+        headers: {
+          Host: `127.0.0.1:${port}`,
+          Origin: 'http://localhost:9999',
+          'Content-Type': 'application/json',
+        },
+      }, (response) => {
+        let body = '';
+        response.on('data', (chunk) => { body += chunk; });
+        response.on('end', () => resolve({ status: response.statusCode ?? 0, body }));
+      });
+      req.on('error', reject);
+      req.end('{}');
+    });
+
+    expect(res.status).toBe(403);
+    expect(mockLaunchTerminal).not.toHaveBeenCalled();
+  });
+
+  test('restore route requires JSON content type and non-empty body', async () => {
+    const wrongContent = await new Promise<{ status: number; body: string }>((resolve, reject) => {
+      const req = http.request({
+        hostname: '127.0.0.1',
+        port,
+        path: '/dashboard/sessions/s1/restore',
+        method: 'POST',
+        headers: { Origin: `http://127.0.0.1:${port}` },
+      }, (response) => {
+        let body = '';
+        response.on('data', (chunk) => { body += chunk; });
+        response.on('end', () => resolve({ status: response.statusCode ?? 0, body }));
+      });
+      req.on('error', reject);
+      req.end('');
+    });
+    const emptyJson = await requestWithBody('/dashboard/sessions/s1/restore', 'POST', '');
+
+    expect(wrongContent.status).toBe(415);
+    expect(emptyJson.status).toBe(400);
+    expect(mockLaunchTerminal).not.toHaveBeenCalled();
+  });
+
+  test('restore route rejects closed sessions', async () => {
+    const closed = { ...mockById(), status: 'closed' };
+    mockById.mockReturnValueOnce(closed);
+
+    const res = await requestWithBody('/dashboard/sessions/s1/restore', 'POST', '{}');
+
+    expect(res.status).toBe(409);
+    expect(JSON.parse(res.body).error).toContain('Closed dashboard sessions');
+    expect(mockLaunchTerminal).not.toHaveBeenCalled();
+  });
+
+  test('restore route rejects non-local sessions', async () => {
+    const remote = { ...mockById(), machine: 'remote-mini' };
+    mockById.mockReturnValueOnce(remote);
+
+    const res = await requestWithBody('/dashboard/sessions/s1/restore', 'POST', '{}');
+
+    expect(res.status).toBe(409);
+    expect(JSON.parse(res.body).error).toContain('Remote dashboard sessions');
+    expect(mockLaunchTerminal).not.toHaveBeenCalled();
   });
 
   test('summary route returns accepted when session is not ready', async () => {

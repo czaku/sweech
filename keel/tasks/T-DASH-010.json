@@ -1,15 +1,15 @@
 {
   "id": "T-DASH-010",
-  "title": "Sessions panel \u2014 flagship tile grid",
+  "title": "Sessions panel — flagship tile grid",
   "wave": "wave-7",
   "space": "space-cli",
-  "status": "todo",
+  "status": "done",
   "priority": "critical",
   "platform": null,
-  "assignee": null,
-  "description": "Full sessions grid: filters (machine/status/workspace/search), sort (last-active default). Tile per spec mockup: status dot, \u2605 local, machine pill, workspace, cwd, AI summary, recent activities, msg count, sparkline, timestamps, tmux name, pid+tty (Q3), viewer count badge (Q5), [\u2197 jump]. Empty state with setup wizard CTA. 10+ component tests.",
+  "assignee": "codex",
+  "description": "Full sessions grid: filters (machine/status/workspace/search), sort (last-active default). Tile per spec mockup: status dot, ★ local, machine pill, workspace, cwd, AI summary, recent activities, msg count, sparkline, timestamps, tmux name, pid+tty (Q3), viewer count badge (Q5), [↗ jump]. Empty state with setup wizard CTA. 10+ component tests.",
   "createdAt": "2026-05-18T11:00:00Z",
-  "updatedAt": "2026-05-18T11:00:00Z",
+  "updatedAt": "2026-05-21T02:22:14.000Z",
   "product": null,
   "lane": null,
   "stage": null,
@@ -18,7 +18,16 @@
   "attachments": [],
   "validationOverrides": null,
   "executionMode": null,
-  "statusHistory": [],
+  "statusHistory": [
+    {
+      "status": "active",
+      "ts": "2026-05-21T01:50:27.000Z"
+    },
+    {
+      "status": "done",
+      "ts": "2026-05-21T02:22:14.000Z"
+    }
+  ],
   "dependsOn": [
     "T-DASH-001",
     "T-DASH-005",
@@ -31,6 +40,11 @@
       "at": "2026-05-18T11:00:00Z",
       "by": "luke",
       "text": "Filed via /vy-backlog 2026-05-18. Spec: docs/specs/dashboard-2026-05-18.md, backlog: docs/specs/dashboard-2026-05-18-backlog.md"
+    },
+    {
+      "ts": "2026-05-21T02:22:14.000Z",
+      "text": "Implemented flagship dashboard sessions grid with filters, sorting, responsive tiles, local/remote jump states, detail dialog, restore endpoint hardening, component coverage, and self-contained Playwright E2E. Gates passed: npm test -- --runInBand (101 suites, 2435 passed, 5 skipped), npm run build, npx tsc --noEmit, npm run typecheck:dashboard, npm audit --audit-level=moderate, swift build, git diff --check, npm run test:e2e:dashboard. Screenshot proof: ~/Desktop/screenshots/sweech/T-DASH-010-sessions-panel-grid.png, ~/Desktop/screenshots/sweech/T-DASH-010-sessions-panel-dialog.png, ~/Desktop/screenshots/sweech/T-DASH-010-sessions-panel-mobile.png. Parallel reviews and Codex adversarial review completed with no remaining blockers.",
+      "by": "human"
     }
   ]
 }
