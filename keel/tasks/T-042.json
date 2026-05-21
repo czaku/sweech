@@ -3,13 +3,13 @@
   "title": "Suppress update banner when --json is in argv",
   "wave": "wave-5",
   "space": "space-cli",
-  "status": "ready",
+  "status": "done",
   "priority": "critical",
   "platform": null,
-  "assignee": null,
+  "assignee": "codex",
   "description": "Update-check banner prints to stderr during JSON output, breaking scripts that parse sweech usage --json. Promised JSON contract violated.",
   "createdAt": "2026-05-16T18:00:00Z",
-  "updatedAt": "2026-05-16T18:00:00Z",
+  "updatedAt": "2026-05-21T19:05:00.000Z",
   "product": null,
   "lane": null,
   "stage": null,
@@ -18,7 +18,12 @@
   "attachments": [],
   "validationOverrides": null,
   "executionMode": null,
-  "statusHistory": [],
+  "statusHistory": [
+    {
+      "status": "done",
+      "ts": "2026-05-21T19:05:00.000Z"
+    }
+  ],
   "dependsOn": [],
   "runStatus": null,
   "size": "S",
@@ -27,6 +32,11 @@
       "at": "2026-05-16T18:00:00Z",
       "by": "claude",
       "text": "Source (verbatim from 2026-05-16 audit): Audit Section 1: \"Update-check banner pollutes stderr during JSON output. Scripts parsing sweech usage --json break\""
+    },
+    {
+      "at": "2026-05-21T19:05:00.000Z",
+      "by": "codex",
+      "text": "Verified implemented T-042 contract: shouldSkipUpdateCheck suppresses --json anywhere in argv and SWEECH_NO_UPDATE_NOTIFIER=1/true while preserving human-mode checks. Gates: npm test -- --runInBand tests/updateChecker.test.ts (52 passed); npm run build:cli; real CLI smoke with cached newer version produced valid JSON and empty stderr for node dist/cli.js list --json."
     }
   ],
   "acceptanceCriteria": [
