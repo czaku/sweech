@@ -335,7 +335,7 @@ async function runBudgetedCloudSummary(prompt: string, timeoutMs: number, maxOut
     const config = new ConfigManager();
     const configDir = config.getProfileDir(profile.commandName);
     const env = buildAutoExecEnv(cli, configDir, process.env, readSettingsEnv(configDir));
-    return await runBoundedChild(cli.command, ['-p', prompt], env, timeoutMs, maxOutputBytes);
+    return await runBoundedChild(cli.command, ['-p'], prompt, env, timeoutMs, maxOutputBytes);
   } catch (error) {
     return { ok: false, stdout: '', stderr: sanitizeProviderError(error), status: null };
   }
@@ -344,6 +344,7 @@ async function runBudgetedCloudSummary(prompt: string, timeoutMs: number, maxOut
 function runBoundedChild(
   command: string,
   args: string[],
+  stdin: string,
   env: NodeJS.ProcessEnv,
   timeoutMs: number,
   maxOutputBytes: number,
@@ -355,7 +356,7 @@ function runBoundedChild(
       settled = true;
       resolve(result);
     };
-    const child = spawn(command, args, { env, stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(command, args, { env, stdio: ['pipe', 'pipe', 'pipe'] });
     let stdout = '';
     let stderr = '';
     let outputBytes = 0;
@@ -390,6 +391,7 @@ function runBoundedChild(
         status,
       });
     });
+    child.stdin.end(stdin);
   });
 }
 
